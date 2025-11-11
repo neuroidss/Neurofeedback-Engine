@@ -1,33 +1,3 @@
-Skip to content
-Navigation Menu
-neuroidss
-Combination-Synergy-Engine
-
-Type / to search
-Code
-Issues
-Pull requests
-Actions
-Projects
-Wiki
-Security
-Insights
-Settings
-Combination-Synergy-Engine/.github/workflows
-/deploy.yml
-Go to file
-t
-dmitry-sukhoruchkin
-dmitry-sukhoruchkin
-Create deploy.yml
-a5ec7ab
- · 
-last month
-
-Code
-
-Blame
-45 lines (41 loc) · 992 Bytes
 # .github/workflows/deploy.yml
 name: Deploy to GitHub Pages
 
@@ -73,4 +43,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-Combination-Synergy-Engine/.github/workflows/deploy.yml at main · neuroidss/Combination-Synergy-Engine
