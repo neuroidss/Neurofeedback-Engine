@@ -1,0 +1,76 @@
+Skip to content
+Navigation Menu
+neuroidss
+Combination-Synergy-Engine
+
+Type / to search
+Code
+Issues
+Pull requests
+Actions
+Projects
+Wiki
+Security
+Insights
+Settings
+Combination-Synergy-Engine/.github/workflows
+/deploy.yml
+Go to file
+t
+dmitry-sukhoruchkin
+dmitry-sukhoruchkin
+Create deploy.yml
+a5ec7ab
+ · 
+last month
+
+Code
+
+Blame
+45 lines (41 loc) · 992 Bytes
+# .github/workflows/deploy.yml
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main # или ваша основная ветка
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+Combination-Synergy-Engine/.github/workflows/deploy.yml at main · neuroidss/Combination-Synergy-Engine
