@@ -1,4 +1,3 @@
-/home/dmitryneuro/git.neuroidss/Singularity-Agent-Factory/vite.config.ts        
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 
