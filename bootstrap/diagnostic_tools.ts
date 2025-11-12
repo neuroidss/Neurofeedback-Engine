@@ -1,5 +1,3 @@
-
-
 import type { ToolCreatorPayload } from '../types';
 
 export const DIAGNOSTIC_TOOLS: ToolCreatorPayload[] = [
@@ -63,8 +61,9 @@ export const DIAGNOSTIC_TOOLS: ToolCreatorPayload[] = [
             }
             
             try {
-                // The model override has been removed. The tool will now use the currently selected model.
-                const aiResponse = await runtime.ai.processRequest(prompt, systemInstruction, [recordTool], []);
+                // Use a reliable, widely available model for this complex reasoning task.
+                const diagnosticModel = { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', provider: runtime.getState().ModelProvider.GoogleAI };
+                const aiResponse = await runtime.ai.processRequest(prompt, systemInstruction, [recordTool], [], diagnosticModel);
                 
                 if (!aiResponse?.toolCalls?.length) {
                     let analysis = "The diagnostic AI failed to call the 'RecordErrorAnalysis' tool as instructed.";

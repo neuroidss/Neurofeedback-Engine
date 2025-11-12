@@ -1,7 +1,7 @@
 {
-  "name": "singularity-agent-factory-server",
+  "name": "neurofeedback-engine-server",
   "version": "1.0.0",
-  "description": "Backend server for the Singularity Agent Factory",
+  "description": "Backend server for the Neurofeedback Engine",
   "main": "server.js",
   "type": "module",
   "scripts": {

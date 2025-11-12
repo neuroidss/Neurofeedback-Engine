@@ -1,13 +1,8 @@
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
-// FIX: Changed to a default import for React to align with the rest of the project.
-// Inconsistent import styles can sometimes cause module resolution issues with certain build toolchains,
-// leading to errors where inherited properties like 'props' and 'state' are not recognized on class components.
-// FIX: Explicitly import `Component` and extend it to resolve TypeScript errors where props, state, and setState were not recognized.
-// FIX: Resolved component type errors by changing to a default React import and extending React.Component explicitly.
-// FIX: Import `Component` from react to correctly type the ErrorBoundary class component.
-// FIX: Import `Component` directly to resolve inheritance issues for the class component.
-import React, { Component } from 'react';
+// FIX: Changed the React import to be consistent with other files in the project. The namespace import (`* as React`) can sometimes cause issues with type inference in certain build configurations.
+// FIX: Changed React import to namespace import to resolve type errors where component properties like 'state' and 'props' were not being found on the class.
+import * as React from 'react';
 import type { LLMTool, UIToolRunnerProps } from '../types';
 import DebugLogView from './ui_tools/DebugLogView';
 import * as Icons from './icons';
@@ -31,11 +26,8 @@ type ErrorBoundaryState = {
   hasError: boolean;
 };
 
-// FIX: This class was having issues with TypeScript not recognizing inherited properties
-// like 'props' and 'state'. By aligning the React import with other files and
-// ensuring the component extends React.Component correctly, these issues should be resolved.
-// FIX: Extend `Component` directly to resolve type errors.
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+// FIX: Changed `extends Component` back to `extends React.Component` to align with the namespace import style. This should resolve TypeScript errors where inherited properties like `state` and `props` were not found.
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   // FIX: Reverted to using a constructor for state initialization. While class properties are modern, a misconfigured build toolchain can sometimes fail to correctly infer component types (like props and setState) without an explicit constructor and super(props) call. This is a more compatible approach.
   constructor(props: ErrorBoundaryProps) {
     super(props);

@@ -29,7 +29,8 @@ export const processRequest = async (
             case ModelProvider.DeepSeek:
                 const deepSeekApiConfig: APIConfig = {
                     ...apiConfig,
-                    openAIBaseUrl: 'https://api.studio.nebius.com/v1/', 
+                    openAIAPIKey: apiConfig.deepSeekAPIKey,
+                    openAIBaseUrl: apiConfig.deepSeekBaseUrl,
                 };
                 // The openAIService is already compatible with DeepSeek's requirements (no system role, etc.)
                 return await openAIService.generateWithTools(userInput, systemInstruction, model.id, deepSeekApiConfig, relevantTools, files, true);

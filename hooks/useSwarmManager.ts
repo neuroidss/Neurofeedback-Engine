@@ -3,13 +3,14 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { SWARM_AGENT_SYSTEM_PROMPT, CORE_TOOLS } from '../constants';
 import { contextualizeWithSearch, filterToolsWithLLM } from '../services/aiService';
-import type { AgentWorker, EnrichedAIResponse, AgentStatus, AIToolCall, LLMTool, ExecuteActionFunction, ScoredTool, MainView, ToolRelevanceMode, AIModel, APIConfig, AIResponse } from '../types';
+import type { AgentWorker, EnrichedAIResponse, AgentStatus, AIToolCall, LLMTool, ExecuteActionFunction, ScoredTool, MainView, ToolRelevanceMode, AIModel, APIConfig, AIResponse, ScriptExecutionState, StepStatus, SubStepProgress } from '../types';
 
 type UseSwarmManagerProps = {
     logEvent: (message: string) => void;
     setUserInput: (input: string) => void;
     setEventLog: (callback: (prev: string[]) => string[]) => void;
     setApiCallCount: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+    setSubStepProgress: React.Dispatch<React.SetStateAction<SubStepProgress>>;
     findRelevantTools: (userRequestText: string, allTools: LLMTool[], topK: number, threshold: number, systemPromptForContext: string | null, mainView?: MainView | null) => Promise<ScoredTool[]>;
     mainView: MainView;
     processRequest: (prompt: { text: string; files: any[] }, systemInstruction: string, agentId: string, relevantTools: LLMTool[]) => Promise<AIResponse>;
@@ -29,9 +30,6 @@ export type StartSwarmTaskOptions = {
     historyEventToInject?: EnrichedAIResponse | null;
     allTools: LLMTool[];
 };
-
-type ScriptExecutionState = 'idle' | 'running' | 'paused' | 'finished' | 'error';
-type StepStatus = { status: 'pending' | 'completed' | 'error'; result?: any; error?: string };
 
 // Helper to stringify results for the agent's history prompt, avoiding excessively long text.
 const resultToString = (result: any): string => {
@@ -74,7 +72,7 @@ const resultToString = (result: any): string => {
 
 export const useSwarmManager = (props: UseSwarmManagerProps) => {
     const { 
-        logEvent, setUserInput, setEventLog, setApiCallCount, findRelevantTools, mainView,
+        logEvent, setUserInput, setEventLog, setApiCallCount, setSubStepProgress, findRelevantTools, mainView,
         processRequest, executeActionRef, allTools, selectedModel, apiConfig 
     } = props;
 
@@ -118,13 +116,14 @@ export const useSwarmManager = (props: UseSwarmManagerProps) => {
             setIsSwarmRunning(false);
             setScriptExecutionState(prev => (prev === 'running' || prev === 'paused') ? 'idle' : prev);
             setActiveToolsForTask([]);
+            setSubStepProgress(null); // Clear sub-step progress on stop
             const reasonText = reason ? `: ${reason}` : ' by user.';
             logEvent(`[INFO] 🛑 Task ${isPause ? 'paused' : 'stopped'}${reasonText}`);
             if (!isPause && swarmHistoryRef.current.length > 0) {
                 setLastSwarmRunHistory([...swarmHistoryRef.current]);
             }
         }
-    }, [logEvent]);
+    }, [logEvent, setSubStepProgress]);
 
     const clearPauseState = useCallback(() => setPauseState(null), []);
     const clearLastSwarmRunHistory = useCallback(() => setLastSwarmRunHistory(null), []);
@@ -135,9 +134,15 @@ export const useSwarmManager = (props: UseSwarmManagerProps) => {
 
     const toggleScriptPause = useCallback(() => {
         setScriptExecutionState(prev => {
-            const newState = prev === 'running' ? 'paused' : 'running';
-            logEvent(newState === 'paused' ? '[SCRIPT] Paused.' : '[SCRIPT] Resumed.');
-            return newState;
+            if (prev === 'running') {
+                logEvent('[SCRIPT] Paused.');
+                return 'paused';
+            }
+            if (prev === 'paused' || prev === 'error') {
+                logEvent('[SCRIPT] Resumed.');
+                return 'running';
+            }
+            return prev;
         });
     }, [logEvent]);
 
@@ -148,18 +153,29 @@ export const useSwarmManager = (props: UseSwarmManagerProps) => {
     }, [scriptExecutionState]);
     
     const stepBackward = useCallback(() => {
-         if (scriptExecutionState === 'paused' && currentScriptStepIndex > 0) {
-            setCurrentScriptStepIndex(prev => prev - 1);
-            logEvent(`[SCRIPT] Stepped back to step ${currentScriptStepIndex}.`);
+         if ((scriptExecutionState === 'paused' || scriptExecutionState === 'error') && currentScriptStepIndex > 0) {
+            const newIndex = currentScriptStepIndex - 1;
+            setCurrentScriptStepIndex(newIndex);
+            setScriptExecutionState('paused'); // Always pause when stepping back
+            setSubStepProgress(null); // Clear progress when stepping
+            // Reset status for the step we are moving back from
+            setStepStatuses(prev => {
+                const newStatuses = [...prev];
+                if(newStatuses[newIndex]) newStatuses[newIndex] = { status: 'pending' };
+                if(newStatuses[currentScriptStepIndex]) newStatuses[currentScriptStepIndex] = { status: 'pending' };
+                return newStatuses;
+            });
+            logEvent(`[SCRIPT] Stepped back to step ${newIndex + 1}.`);
         }
-    }, [scriptExecutionState, currentScriptStepIndex, logEvent]);
+    }, [scriptExecutionState, currentScriptStepIndex, logEvent, setSubStepProgress]);
     
     const runFromStep = useCallback((index: number) => {
         setCurrentScriptStepIndex(index);
+        setSubStepProgress(null); // Clear progress when restarting
         setStepStatuses(prev => prev.map((s, i) => i >= index ? { status: 'pending' } : s));
         setScriptExecutionState('running');
         logEvent(`[SCRIPT] Running from step ${index + 1}...`);
-    }, [logEvent]);
+    }, [logEvent, setSubStepProgress]);
 
     // New Supervisor function to handle errors
     const handleExecutionFailure = useCallback(async (
@@ -197,7 +213,12 @@ export const useSwarmManager = (props: UseSwarmManagerProps) => {
             };
 
             // The supervisor directly invokes the diagnostic tool
-            await executeActionRef.current({ name: 'Diagnose Tool Execution Error', arguments: diagnosticArgs }, 'supervisor');
+            const diagnosticResult = await executeActionRef.current({ name: 'Diagnose Tool Execution Error', arguments: diagnosticArgs }, 'supervisor');
+            if (diagnosticResult.executionResult?.analysis) {
+                 logEvent(`[SUPERVISOR] Diagnostic complete. Analysis: ${JSON.stringify(diagnosticResult.executionResult.analysis, null, 2)}`);
+            } else if (diagnosticResult.executionError) {
+                 logEvent(`[SUPERVISOR] Diagnostic tool failed to execute: ${diagnosticResult.executionError}`);
+            }
             
         } catch (diagnosticError) {
             logEvent(`[SUPERVISOR] FATAL: The diagnostic agent itself failed. Error: ${diagnosticError instanceof Error ? diagnosticError.message : String(diagnosticError)}`);
@@ -246,6 +267,7 @@ export const useSwarmManager = (props: UseSwarmManagerProps) => {
                     });
                     logEvent(`[ERROR] 🛑 Halting script due to error in '${toolCall.name}'.`);
                     setScriptExecutionState('error');
+                    setSubStepProgress(null); // Clear progress on error
                     await handleExecutionFailure({
                         failedAction: toolCall,
                         errorMessage: result.executionError,
@@ -262,6 +284,7 @@ export const useSwarmManager = (props: UseSwarmManagerProps) => {
                 });
                 
                 setCurrentScriptStepIndex(prev => prev + 1);
+                setSubStepProgress(null); // Clear progress on step completion
                 
                 if (result.toolCall?.name === 'Task Complete') {
                     logEvent(`[SUCCESS] ✅ Script reached 'Task Complete'.`);
@@ -374,6 +397,7 @@ export const useSwarmManager = (props: UseSwarmManagerProps) => {
             const errorMessage = err instanceof Error ? err.message : "Unknown error.";
             logEvent(`[ERROR] 🛑 Agent task failed: ${errorMessage}`);
             setScriptExecutionState('error');
+            setSubStepProgress(null);
             await handleExecutionFailure({
                 failedAction: "Main swarm cycle execution",
                 errorMessage: errorMessage
@@ -392,7 +416,7 @@ export const useSwarmManager = (props: UseSwarmManagerProps) => {
     }, [
         currentUserTask, logEvent, scriptExecutionState, currentScriptStepIndex, handleStopSwarm, handleExecutionFailure,
         findRelevantTools, relevanceMode, relevanceTopK, relevanceThreshold, 
-        mainView, currentSystemPrompt, isSequential, setApiCallCount, 
+        mainView, currentSystemPrompt, isSequential, setApiCallCount, setSubStepProgress,
         setActiveToolsForTask, processRequest, executeActionRef, allTools,
         selectedModel, apiConfig, pauseState
     ]);
@@ -411,6 +435,7 @@ export const useSwarmManager = (props: UseSwarmManagerProps) => {
             setStepStatuses(task.script ? Array(task.script.length).fill({ status: 'pending' }) : []);
             setEventLog(() => [`[${new Date().toLocaleTimeString()}] [INFO] 🚀 Starting task...`]);
             setActiveToolsForTask([]);
+            setSubStepProgress(null); // Reset sub-step progress on new task
         } else {
             logEvent(`[INFO] ▶️ Resuming task...`);
             if (historyEventToInject) {
@@ -431,7 +456,7 @@ export const useSwarmManager = (props: UseSwarmManagerProps) => {
         setAgentSwarm([{ id: 'agent-1', status: 'idle', lastAction: 'Awaiting instructions', error: null, result: null }]);
         if(!resume) setUserInput('');
         setIsSwarmRunning(true);
-    }, [setUserInput, setEventLog, logEvent, mainView]);
+    }, [setUserInput, setEventLog, logEvent, mainView, setSubStepProgress]);
 
     const state = {
         agentSwarm, isSwarmRunning, currentUserTask, currentSystemPrompt, pauseState,

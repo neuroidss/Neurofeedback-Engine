@@ -1,8 +1,62 @@
-
-
 import type { ToolCreatorPayload } from '../types';
 
 export const RESEARCH_TOOLS: ToolCreatorPayload[] = [
+    {
+        name: 'Bootstrap Web Proxy Service',
+        description: 'Checks if the local server-side web proxy is running and returns its URL if it is.',
+        category: 'Functional',
+        executionEnvironment: 'Client',
+        purpose: 'To enable resilient web scraping and data fetching by confirming and providing the URL for the local proxy service.',
+        parameters: [],
+        implementationCode: `
+            runtime.logEvent('[Proxy Bootstrap] Checking for local web proxy service...');
+            if (!runtime.isServerConnected()) {
+                const message = 'Local proxy server is not connected. Web-dependent tools will fail. Please start the server in the /server directory.';
+                runtime.logEvent(\`[Proxy Bootstrap] ⚠️ \${message}\`);
+                throw new Error(message);
+            }
+            const proxyUrl = 'http://localhost:3001';
+            runtime.logEvent(\`[Proxy Bootstrap] ✅ Local proxy confirmed at \${proxyUrl}\`);
+            return { success: true, proxyUrl: proxyUrl };
+        `
+    },
+    {
+        name: 'Test Web Proxy Service',
+        description: 'Tests the local server-side web proxy to ensure it can successfully fetch web content.',
+        category: 'Functional',
+        executionEnvironment: 'Client',
+        purpose: 'To verify that the web proxy is fully operational before relying on it for critical research tasks.',
+        parameters: [
+            { name: 'urlToTest', type: 'string', description: 'Optional. A specific URL to use for the test.', required: false }
+        ],
+        implementationCode: `
+            const { urlToTest = 'https://www.google.com' } = args;
+            const { proxyUrl } = await runtime.tools.run('Bootstrap Web Proxy Service', {});
+            
+            runtime.logEvent(\`[Proxy Test] Testing web proxy by browsing: \${urlToTest}\`);
+            try {
+                const response = await fetch(\`\${proxyUrl}/browse\`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: urlToTest }),
+                    signal: AbortSignal.timeout(10000),
+                });
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(\`Proxy service returned an error. Status: \${response.status}. Body: \${errorText.substring(0, 200)}\`);
+                }
+                const resultText = await response.text();
+                if (typeof resultText !== 'string' || resultText.length < 100) {
+                    throw new Error('Proxy service responded but failed to return valid content. Response was too short.');
+                }
+                runtime.logEvent(\`[Proxy Test] ✅ Web proxy service is working correctly.\`);
+                return { success: true, message: 'Web proxy service is operational.' };
+            } catch (e) {
+                runtime.logEvent(\`[Proxy Test] ❌ Web proxy test failed: \${e.message}\`);
+                throw e;
+            }
+        `
+    },
     {
         name: 'Rank Search Results',
         description: 'Ranks a list of scientific search results based on their relevance to a research objective, prioritizing meta-analyses and systematic reviews.',
@@ -20,6 +74,28 @@ export const RESEARCH_TOOLS: ToolCreatorPayload[] = [
             }
 
             runtime.logEvent(\`[Ranker] Ranking \${searchResults.length} results using embedding-based relevance scoring...\`);
+
+            const PRIMARY_SOURCE_DOMAINS = [
+                'pubmed.ncbi.nlm.nih.gov', 'ncbi.nlm.nih.gov/pmc', 'pmc.ncbi.nlm.nih.gov',
+                'biorxiv.org', 'medrxiv.org', 'arxiv.org',
+                'patents.google.com', 'uspto.gov',
+                'nature.com', 'science.org', 'cell.com',
+                'jci.org', 'rupress.org',
+                'jamanetwork.com', 'bmj.com', 'thelancet.com',
+                'nejm.org', 'pnas.org', 'frontiersin.org',
+                'plos.org', 'mdpi.com', 'acs.org', 'springer.com',
+                'wiley.com', 'elifesciences.org'
+            ];
+
+            const isPrimarySourceDomain = (url) => {
+                if (!url) return false;
+                try {
+                    const hostname = new URL(url).hostname.replace(/^www\\./, '');
+                    return PRIMARY_SOURCE_DOMAINS.some(domain => hostname === domain || hostname.endsWith(\`.\${domain}\`));
+                } catch (e) {
+                    return false;
+                }
+            };
 
             try {
                 // 1. Prepare texts for embedding
@@ -49,7 +125,6 @@ export const RESEARCH_TOOLS: ToolCreatorPayload[] = [
                     // Base score from semantic similarity
                     let similarityScore = cosineSimilarity(objectiveEmbedding, resultEmbeddings[index]);
                     
-                    // FIX: Prevent NaN scores from breaking the sort
                     if (isNaN(similarityScore)) {
                         similarityScore = 0;
                     }
@@ -62,8 +137,14 @@ export const RESEARCH_TOOLS: ToolCreatorPayload[] = [
                     } else if (lowerCaseTitle.includes('review')) {
                         heuristicBonus = 0.1; // Moderate bonus for reviews
                     }
+                    
+                    // NEW: Add domain bonus
+                    let domainBonus = 0;
+                    if (isPrimarySourceDomain(result.link)) {
+                        domainBonus = 0.3; // Significant bonus for trusted scientific sources
+                    }
 
-                    const finalScore = similarityScore + heuristicBonus;
+                    const finalScore = similarityScore + heuristicBonus + domainBonus;
                     
                     return { ...result, score: finalScore };
                 });
@@ -91,31 +172,26 @@ export const RESEARCH_TOOLS: ToolCreatorPayload[] = [
         implementationCode: `
             runtime.logEvent('[Discovery] Attempting to discover new CORS proxy strategies...');
             const systemInstruction = \`You are an expert at bypassing CORS. Your task is to find and provide code for public CORS proxy services.
-You MUST respond with ONLY a single, valid JSON object. Do not add any text, explanations, or markdown formatting before or after the JSON object. The format must be:
-{
-  "proxy_builder_strings": [
-    "(url) => \\\`https://corsproxy.io/?\\\${encodeURIComponent(url)}\\\`",
-    "(url) => \\\`https://api.allorigins.win/raw?url=\\\${encodeURIComponent(url)}\\\`"
-  ]
-}
-Find 2-3 MORE different, currently active public CORS proxies and provide their function strings in the same format. Do not include the examples I provided.\`;
+You MUST call the 'RecordProxyBuilders' tool with your findings.
+Your entire response MUST be ONLY a single tool call to 'RecordProxyBuilders'.
+Find 2-3 different, currently active public CORS proxies and provide their function strings in the 'builderStrings' argument.\`;
 
-            const prompt = "Find new, publicly available CORS proxy services and provide the corresponding JavaScript arrow functions to format a URL for them.";
+            const prompt = "Find new, publicly available CORS proxy services and provide the corresponding JavaScript arrow functions to format a URL for them. Call the 'RecordProxyBuilders' tool with the results.";
 
-            const aiResponseText = await runtime.ai.generateText(prompt, systemInstruction);
-            let builderStrings = [];
-            try {
-                const jsonMatch = aiResponseText.match(/\\{[\\s\\S]*\\}/);
-                if (!jsonMatch) throw new Error("No valid JSON response for proxy builders.");
-                const parsed = JSON.parse(jsonMatch[0]);
-                builderStrings = parsed.proxy_builder_strings;
-                if (!Array.isArray(builderStrings) || builderStrings.length === 0) {
-                    throw new Error("AI did not generate a valid array of proxy builder strings.");
-                }
-            } catch(e) {
-                throw new Error('Failed to discover proxy builders: ' + e.message);
+            const recordTool = runtime.tools.list().find(t => t.name === 'RecordProxyBuilders');
+            if (!recordTool) throw new Error("Core tool 'RecordProxyBuilders' not found.");
+
+            const aiResponse = await runtime.ai.processRequest(prompt, systemInstruction, [recordTool]);
+            
+            if (!aiResponse?.toolCalls?.length || aiResponse.toolCalls[0].name !== 'RecordProxyBuilders') {
+                throw new Error("AI failed to call the 'RecordProxyBuilders' tool as instructed.");
             }
 
+            const builderStrings = aiResponse.toolCalls[0].arguments.builderStrings;
+            if (!Array.isArray(builderStrings) || builderStrings.length === 0) {
+                throw new Error("AI did not generate a valid array of proxy builder strings.");
+            }
+            
             runtime.logEvent(\`[Discovery] ✅ Discovered \${builderStrings.length} new potential proxy strategies.\`);
             return { success: true, newBuilderStrings: builderStrings };
         `
@@ -189,27 +265,28 @@ Find 2-3 MORE different, currently active public CORS proxies and provide their 
         ],
         implementationCode: `
     const { researchObjective, validatedSources } = args;
-    const systemInstruction = \`You are an expert bioinformatics researcher specializing in identifying novel research vectors.
-Based on the user's high-level objective and the key findings from the provided literature summaries, generate 3 to 5 high-level conceptual questions designed to uncover novel, unstated synergies.
-Frame these questions in the format of "Find a compound/intervention that achieves [DESIRED_EFFECT] while avoiding [UNDESIRED_EFFECT]" or "What is the relationship between [MECHANISM_A] and [MECHANISM_B] in the context of aging?".
+    const systemInstruction = \`You are an expert neuroscience researcher specializing in identifying novel research vectors for neurofeedback.
+Based on the user's high-level objective and the key findings from the provided literature summaries, generate 3 to 5 high-level conceptual questions designed to uncover novel, unstated connections.
+Frame these questions in the format of "Find a neurofeedback protocol that modulates [BRAIN_WAVE_A] to affect [COGNITIVE_STATE_B]" or "What is the relationship between [BRAIN_REGION_A] activity and [NEUROLOGICAL_CONDITION_B]?".
 Your goal is to provoke non-obvious connections.
-You MUST respond with ONLY a single, valid JSON object. Do not add any text, explanations, or markdown formatting before or after the JSON object. The format must be:
-{ "conceptual_queries": ["query 1", "query 2", ...] }\`;
+You MUST call the 'RecordConceptualQueries' tool with your findings. Your entire response must be ONLY this single tool call.\`;
 
     const sourceSummaries = validatedSources.map(s => ({ title: s.title, summary: s.summary, reliability: s.reliabilityScore })).slice(0, 20); // Limit context size
 
-    const prompt = \`Research Objective: "\${researchObjective}"\\n\\nSummaries of Existing Literature:\\n\${JSON.stringify(sourceSummaries)}\\n\\nBased on the above, generate conceptual queries:\`;
+    const prompt = \`Research Objective: "\${researchObjective}"\\n\\nSummaries of Existing Literature:\\n\${JSON.stringify(sourceSummaries)}\\n\\nBased on the above, generate conceptual queries and submit them using the 'RecordConceptualQueries' tool.\`;
     
-    const aiResponseText = await runtime.ai.generateText(prompt, systemInstruction);
-    let queries = [];
-    try {
-        const jsonMatch = aiResponseText.match(/\\{[\\s\\S]*\\}/);
-        if (!jsonMatch) throw new Error("No valid JSON response for conceptual queries. Raw response: " + aiResponseText);
-        const parsed = JSON.parse(jsonMatch[0]);
-        queries = parsed.conceptual_queries;
-        if (!Array.isArray(queries) || queries.length === 0) throw new Error("AI did not generate a valid array of conceptual queries.");
-    } catch(e) {
-        throw new Error('Failed to generate conceptual queries: ' + e.message);
+    const recordTool = runtime.tools.list().find(t => t.name === 'RecordConceptualQueries');
+    if (!recordTool) throw new Error("Core tool 'RecordConceptualQueries' not found.");
+
+    const aiResponse = await runtime.ai.processRequest(prompt, systemInstruction, [recordTool]);
+    
+    if (!aiResponse?.toolCalls?.length || aiResponse.toolCalls[0].name !== 'RecordConceptualQueries') {
+        throw new Error("AI failed to call the 'RecordConceptualQueries' tool as instructed.");
+    }
+
+    const queries = aiResponse.toolCalls[0].arguments.queries;
+    if (!Array.isArray(queries) || queries.length === 0) {
+        throw new Error("AI did not generate a valid array of conceptual queries.");
     }
     
     runtime.logEvent(\`[Conceptualizer] Generated \${queries.length} conceptual queries.\`);
@@ -229,34 +306,26 @@ You MUST respond with ONLY a single, valid JSON object. Do not add any text, exp
         implementationCode: `
         const { researchObjective, maxQueries = 5 } = args;
         const systemInstruction = \`You are an expert search query generation assistant. Your task is to break down a high-level research objective into specific, targeted search queries for scientific databases like PubMed.
-You MUST respond with ONLY a single, valid JSON object. Do not add any text, explanations, or markdown formatting before or after the JSON object. The format must be:
-{
-  "queries": [
-    "query 1",
-    "query 2",
-    ...
-  ]
-}\`;
+You MUST call the 'RecordRefinedQueries' tool with the list of queries you generate. Your entire response must be ONLY this single tool call.\`;
         
-        const prompt = 'Based on the research objective "' + researchObjective + '", generate up to ' + maxQueries + ' specific search queries. Prioritize queries that might find synergistic interactions, contraindications, and novel applications.';
+        const prompt = 'Based on the research objective "' + researchObjective + '", generate up to ' + maxQueries + ' specific search queries for finding scientific papers on neurofeedback protocols. Prioritize queries that include terms like "EEG", "neurofeedback protocol", "frequency band training", "alpha waves", "gamma waves", "SMR", and names of specific brain conditions or enhancements. Then, call the RecordRefinedQueries tool.';
 
         let queries = [];
         try {
-            const aiResponseText = await runtime.ai.generateText(prompt, systemInstruction);
-            
-            const jsonMatch = aiResponseText.match(/\\{[\\s\\S]*\\}/);
-            if (!jsonMatch) throw new Error("No JSON object found in the AI's response.");
-            
-            const parsedJson = JSON.parse(jsonMatch[0]);
+            const recordTool = runtime.tools.list().find(t => t.name === 'RecordRefinedQueries');
+            if (!recordTool) throw new Error("Core tool 'RecordRefinedQueries' not found.");
 
-            if (parsedJson && Array.isArray(parsedJson.queries)) {
-                queries = parsedJson.queries;
-                runtime.logEvent('[Refine Queries] ✅ Generated ' + queries.length + ' queries via primary JSON method.');
+            const aiResponse = await runtime.ai.processRequest(prompt, systemInstruction, [recordTool]);
+
+            if (aiResponse?.toolCalls?.length && aiResponse.toolCalls[0].name === 'RecordRefinedQueries') {
+                queries = aiResponse.toolCalls[0].arguments.queries;
+                if (!Array.isArray(queries)) throw new Error("Tool call arguments were not a valid array.");
+                runtime.logEvent('[Refine Queries] ✅ Generated ' + queries.length + ' queries via primary tool-call method.');
             } else {
-                throw new Error("The parsed JSON does not contain a 'queries' array.");
+                 throw new Error("AI did not call the 'RecordRefinedQueries' tool as instructed.");
             }
         } catch (e) {
-            runtime.logEvent('[Refine Queries] ⚠️ Primary JSON method failed: ' + e.message + '. Attempting fallback text extraction...');
+            runtime.logEvent('[Refine Queries] ⚠️ Primary tool-call method failed: ' + e.message + '. Attempting fallback text extraction...');
             
             // --- RESILIENCE: FALLBACK STRATEGY ---
             const fallbackSystemInstruction = "You are a search query generator. Provide a list of search queries based on the user's request, with each query on a new line. Do not add numbers, bullet points, or any other text.";
@@ -299,21 +368,22 @@ You MUST respond with ONLY a single, valid JSON object. Do not add any text, exp
             runtime.logEvent('[Search Diagnosis] Analyzing failed query: "' + originalQuery.substring(0, 100) + '..."');
 
             const systemInstruction = \`You are a search query diagnostics expert. A search failed. Analyze the original query and research objective, then generate 3 alternative, broader, and more general search queries that are more likely to yield results.
-You MUST respond with ONLY a single, valid JSON object. Do not add any text, explanations, or markdown formatting before or after the JSON object. The format must be:
-{ "new_queries": ["query 1", "query 2", "query 3"] }\`;
+You MUST call the 'RecordRefinedQueries' tool with the list of new queries you generate. Your entire response must be ONLY this single tool call.\`;
 
-            const prompt = 'The research objective is: "' + researchObjective + '". The following search query failed because: ' + reasonForFailure + '\\n\\nFailed Query:\\n"' + originalQuery + '"\\n\\nGenerate 3 broader alternative queries:';
+            const prompt = 'The research objective is: "' + researchObjective + '". The following search query failed because: ' + reasonForFailure + '\\n\\nFailed Query:\\n"' + originalQuery + '"\\n\\nGenerate 3 broader alternative queries and call the RecordRefinedQueries tool.';
             
-            const aiResponseText = await runtime.ai.generateText(prompt, systemInstruction);
-            let newQueries = [];
-            try {
-                const jsonMatch = aiResponseText.match(/\\{[\\s\\S]*\\}/);
-                if (!jsonMatch) throw new Error("No valid JSON response for new queries. Raw response: " + aiResponseText);
-                const parsed = JSON.parse(jsonMatch[0]);
-                newQueries = parsed.new_queries;
-                if (!Array.isArray(newQueries) || newQueries.length === 0) throw new Error("AI did not generate a valid array of new queries.");
-            } catch(e) {
-                throw new Error('Failed to generate diagnostic queries: ' + e.message);
+            const recordTool = runtime.tools.list().find(t => t.name === 'RecordRefinedQueries');
+            if (!recordTool) throw new Error("Core tool 'RecordRefinedQueries' not found.");
+            
+            const aiResponse = await runtime.ai.processRequest(prompt, systemInstruction, [recordTool]);
+
+            if (!aiResponse?.toolCalls?.length || aiResponse.toolCalls[0].name !== 'RecordRefinedQueries') {
+                throw new Error("Diagnostic AI failed to call the 'RecordRefinedQueries' tool as instructed.");
+            }
+
+            const newQueries = aiResponse.toolCalls[0].arguments.queries;
+            if (!Array.isArray(newQueries) || newQueries.length === 0) {
+                throw new Error("AI did not generate a valid array of new queries.");
             }
             
             runtime.logEvent('[Search Diagnosis] Generated new queries: ' + newQueries.join('; '));
@@ -405,7 +475,7 @@ You MUST respond with ONLY a single, valid JSON object. Do not add any text, exp
             if (!enrichedSource || !enrichedSource.snippet || enrichedSource.snippet.startsWith('Fetch failed')) {
                 throw new Error('Failed to fetch or enrich content for the source.');
             }
-            
+
             // --- NEW: Pre-validation Step ---
             // Check if the snippet is garbage (e.g., a "coming soon" message) before calling the AI.
             const snippetText = enrichedSource.snippet.toLowerCase();
@@ -415,16 +485,24 @@ You MUST respond with ONLY a single, valid JSON object. Do not add any text, exp
 
             // Step 2: Validate the enriched content using an AI model
             runtime.logEvent(\`[Validator] Validating: \${(enrichedSource.title || '').substring(0, 50)}...\`);
-            
+
             const truncatedTitle = (enrichedSource.title || '').substring(0, 300);
             const truncatedSnippet = (enrichedSource.snippet || '').substring(0, 4000);
 
             const validationContext = \`<PRIMARY_SOURCE>\\n<TITLE>\${truncatedTitle}</TITLE>\\n<URL>\${enrichedSource.link}</URL>\\n<SNIPPET>\\n\${truncatedSnippet}\\n</SNIPPET>\\n</PRIMARY_SOURCE>\`;
-            
-            const systemInstruction = \`You are an automated data extraction service. Your SOLE function is to analyze the provided scientific source and call the 'RecordValidatedSource' tool.
-- You must provide a concise summary, a reliability score (0.0-1.0), and a justification for the score.
-- CRITICAL: Do NOT write ANY text or explanations. Your entire response MUST consist of a single tool call.\`;
-            
+
+            const systemInstruction = \`You are an automated data extraction service. Your SOLE function is to analyze the provided scientific source and call the 'RecordValidatedSource' tool with all required arguments.
+
+**CRITICAL INSTRUCTIONS:**
+1.  Your entire response MUST be ONLY a single tool call to 'RecordValidatedSource'.
+2.  You MUST provide values for ALL of the following arguments:
+    - 'uri': The URL of the source.
+    - 'title': The title of the source.
+    - 'summary': A concise summary.
+    - 'reliabilityScore': A score from 0.0 to 1.0 indicating relevance to the research objective. This is VERY IMPORTANT.
+    - 'justification': Your reason for the score.
+3.  Do NOT write ANY text, explanations, or markdown. Your response is ONLY the tool call.\`;
+
             const validationPrompt = 'Research Objective: "' + researchObjective + '"\\n\\nBased on the objective, assess, summarize, and record the following source by calling the \\'RecordValidatedSource\\' tool.\\n\\n' + validationContext;
 
             const recordTool = runtime.tools.list().find(t => t.name === 'RecordValidatedSource');
@@ -439,7 +517,7 @@ You MUST respond with ONLY a single, valid JSON object. Do not add any text, exp
                 }
                 throw new Error(analysis);
             }
-            
+
             // Step 3: Record the validated source
             const toolCall = aiResponse.toolCalls[0];
 
@@ -454,7 +532,7 @@ You MUST respond with ONLY a single, valid JSON object. Do not add any text, exp
             if (!executionResult || !executionResult.validatedSource) {
                 throw new Error("Recording the validated source failed.");
             }
-            
+
             const finalValidatedSource = {
                 ...executionResult.validatedSource,
                 url: executionResult.validatedSource.uri, // Align property names
@@ -464,7 +542,7 @@ You MUST respond with ONLY a single, valid JSON object. Do not add any text, exp
             // FIX: Add a defensive check here to prevent crash even if title is somehow still missing.
             const titleForLog = finalValidatedSource.title || 'Untitled Source';
             runtime.logEvent(\`[Validator] ✅ Validated: \${titleForLog.substring(0, 50)}...\`);
-            
+
             return { success: true, validatedSource: finalValidatedSource };
         `
     },

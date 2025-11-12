@@ -16,5 +16,5 @@ fi
 source venv/bin/activate
 
 # --- Start the Node.js Backend Server ---
-echo "🚀 Starting Singularity Agent Factory Backend Server..."
+echo "🚀 Starting Neurofeedback Engine Backend Server..."
 npm start

@@ -16,6 +16,12 @@ export interface ToolParameter {
   required: boolean;
 }
 
+export interface EEGDataRequirements {
+  type: 'eeg';
+  channels: string[]; // e.g., ['C3', 'C4', 'Cz']
+  metrics: string[]; // e.g., ['smr_power', 'theta_beta_ratio']
+}
+
 export interface LLMTool {
   id:string;
   name:string;
@@ -25,9 +31,11 @@ export interface LLMTool {
   parameters: ToolParameter[];
   purpose?: string;
   implementationCode: string;
+  processingCode?: string;
   createdAt?: string;
   updatedAt?: string;
   executionEnvironment: 'Client' | 'Server';
+  dataRequirements?: EEGDataRequirements;
 }
 
 export type NewToolPayload = Omit<LLMTool, 'id' | 'version' | 'createdAt' | 'updatedAt'>;
@@ -39,7 +47,9 @@ export interface ToolCreatorPayload {
   executionEnvironment: 'Client' | 'Server';
   parameters: ToolParameter[];
   implementationCode: string;
+  processingCode?: string;
   purpose: string;
+  dataRequirements?: EEGDataRequirements;
 }
 
 export interface AIToolCall {
@@ -81,6 +91,8 @@ export interface APIConfig {
   googleAIAPIKey?: string;
   openAIAPIKey?: string;
   openAIBaseUrl?: string;
+  deepSeekAPIKey?: string;
+  deepSeekBaseUrl?: string;
   ollamaHost?: string;
 }
 
@@ -127,6 +139,17 @@ export interface GroundingSource {
 
 export interface ValidatedSource {
     uri: string;
-    status: 'valid' | 'invalid';
-    reason: string;
+    title: string;
+    summary: string;
+    reliabilityScore: number;
+    justification: string;
+    status: 'valid';
+    origin: 'AI Validation';
+    textContent?: string;
 }
+
+
+// --- NEW for Step-by-Step Execution ---
+export type ScriptExecutionState = 'idle' | 'running' | 'paused' | 'finished' | 'error';
+export type StepStatus = { status: 'pending' | 'completed' | 'error'; result?: any; error?: string };
+export type SubStepProgress = { text: string, current: number, total: number } | null;

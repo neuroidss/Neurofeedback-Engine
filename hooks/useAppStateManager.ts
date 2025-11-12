@@ -1,9 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { loadStateFromStorage, saveStateToStorage, saveMapStateToStorage, loadMapStateToStorage } from '../versioning';
-import type { AIModel, APIConfig } from '../types';
+import type { AIModel, APIConfig, ValidatedSource } from '../types';
 // FIX: ModelProvider is now imported from its source in `types.ts` instead of from `constants.ts`.
 import { ModelProvider } from '../types';
 import { AI_MODELS } from '../constants';
+
+const MOCK_SMR_ABSTRACT = `Sensorimotor rhythm (SMR) neurofeedback, targeting the 12-15 Hz frequency band over the sensorimotor cortex, has been investigated as a treatment for Attention Deficit Hyperactivity Disorder (ADHD). The protocol aims to enhance SMR activity, which is associated with states of focused calm and reduced motor activity. This study trained participants to voluntarily increase their SMR power. Positive reinforcement was provided when the ratio of SMR power to theta power (4-8 Hz) exceeded a set threshold. Results suggest that successful upregulation of the SMR/theta ratio correlates with improved attention and reduced impulsivity.`;
+
+const MOCK_SMR_SOURCE: ValidatedSource = {
+    uri: 'internal://smr-example-protocol-1',
+    title: 'Example: SMR Neurofeedback for ADHD',
+    summary: MOCK_SMR_ABSTRACT,
+    reliabilityScore: 0.95,
+    justification: 'This is a canonical example of a well-researched neurofeedback protocol, pre-loaded for demonstration purposes.',
+    status: 'valid',
+    origin: 'AI Validation',
+    textContent: MOCK_SMR_ABSTRACT
+};
+
 
 // FIX: Changed from const arrow function to a function declaration
 // to potentially resolve type inference issues in consuming hooks.
@@ -15,16 +29,19 @@ export function useAppStateManager() {
         googleAIAPIKey: '',
         openAIAPIKey: '',
         openAIBaseUrl: 'http://localhost:11434/v1',
+        deepSeekAPIKey: '',
+        deepSeekBaseUrl: 'https://api.tokenfactory.nebius.com/v1/',
         ollamaHost: 'http://localhost:11434',
     });
     // Live feed state
     const [liveFeed, setLiveFeed] = useState<any[]>([]);
     // Persistent map state
     const [allSources, setAllSources] = useState<any[]>([]);
+    const [validatedSources, setValidatedSources] = useState<ValidatedSource[]>([]);
     const [mapData, setMapData] = useState<any[]>([]);
     const [pcaModel, setPcaModel] = useState<any | null>(null);
     const [mapNormalization, setMapNormalization] = useState<any | null>(null);
-    const [taskPrompt, setTaskPrompt] = useState('Discover a broad range of longevity interventions (e.g., drugs, supplements, lifestyle changes) and analyze them to find both known and novel synergistic combinations.');
+    const [taskPrompt, setTaskPrompt] = useState('Discover novel neurofeedback protocols for enhancing cognitive functions like focus and memory.');
 
     // State for dynamic Ollama model fetching
     const [ollamaModels, setOllamaModels] = useState<AIModel[]>([]);
@@ -83,6 +100,8 @@ export function useAppStateManager() {
             googleAIAPIKey: storedState?.apiConfig?.googleAIAPIKey || process.env.GEMINI_API_KEY || '',
             openAIAPIKey: storedState?.apiConfig?.openAIAPIKey || '',
             openAIBaseUrl: storedState?.apiConfig?.openAIBaseUrl || 'http://localhost:11434/v1',
+            deepSeekAPIKey: storedState?.apiConfig?.deepSeekAPIKey || process.env.NEBIUS_API_KEY || '',
+            deepSeekBaseUrl: storedState?.apiConfig?.deepSeekBaseUrl || 'https://api.tokenfactory.nebius.com/v1/',
             ollamaHost: storedState?.apiConfig?.ollamaHost || 'http://localhost:11434',
         }));
 
@@ -123,8 +142,11 @@ export function useAppStateManager() {
             }
         }
 
+        let initialValidatedSources: ValidatedSource[] = [];
+
         if (mapState) {
             setAllSources(mapState.allSources);
+            initialValidatedSources = mapState.validatedSources || [];
             setMapData(mapState.mapData);
             setPcaModel(mapState.pcaModel);
             setMapNormalization(mapState.mapNormalization);
@@ -132,14 +154,15 @@ export function useAppStateManager() {
             if (mapState.taskPrompt) {
                 setTaskPrompt(mapState.taskPrompt);
             }
-        } else {
-             // Ensure state is clean if mapState is nullified
-            setAllSources([]);
-            setMapData([]);
-            setPcaModel(null);
-            setMapNormalization(null);
-            setLiveFeed([]);
         }
+        
+        // After loading everything from storage, check if we need to add the example.
+        // This ensures a clean slate or first-time users see the example.
+        if (initialValidatedSources.length === 0) {
+            initialValidatedSources.push(MOCK_SMR_SOURCE);
+            logEvent("[SYSTEM] Pre-loaded an example SMR protocol into the Research Dossier for demonstration.");
+        }
+        setValidatedSources(initialValidatedSources);
         
         // Initialize with a welcome message
         setEventLog(prev => [`[${new Date().toLocaleTimeString()}] [SYSTEM] Session started.`, ...prev]);
@@ -158,6 +181,8 @@ export function useAppStateManager() {
             googleAIAPIKey: apiConfig.googleAIAPIKey,
             openAIAPIKey: apiConfig.openAIAPIKey,
             openAIBaseUrl: apiConfig.openAIBaseUrl,
+            deepSeekAPIKey: apiConfig.deepSeekAPIKey,
+            deepSeekBaseUrl: apiConfig.deepSeekBaseUrl,
             ollamaHost: apiConfig.ollamaHost,
         };
         saveStateToStorage({ apiConfig: configToSave });
@@ -169,13 +194,14 @@ export function useAppStateManager() {
         // ensuring the map is always saved.
         saveMapStateToStorage({
             allSources,
+            validatedSources,
             mapData,
             pcaModel,
             mapNormalization,
             liveFeed,
             taskPrompt,
         }, logEvent);
-    }, [allSources, mapData, pcaModel, mapNormalization, liveFeed, taskPrompt]);
+    }, [allSources, validatedSources, mapData, pcaModel, mapNormalization, liveFeed, taskPrompt]);
 
 
     return {
@@ -194,6 +220,8 @@ export function useAppStateManager() {
         // Map state and setters
         allSources,
         setAllSources,
+        validatedSources,
+        setValidatedSources,
         mapData,
         setMapData,
         pcaModel,

@@ -1,10 +1,10 @@
-import { LLMTool, APIConfig } from './types';
+import { LLMTool, APIConfig, ValidatedSource } from './types';
 import { PCA } from 'https://esm.sh/ml-pca';
 
 const STORAGE_KEY = 'singularity-agent-factory-state';
-const MAP_STORAGE_KEY = 'synergy-forge-map-state';
+const MAP_STORAGE_KEY = 'neurofeedback-engine-protocols-state';
 const CURRENT_STORAGE_VERSION = 6;
-const CURRENT_MAP_VERSION = 2; // Version for the map data structure
+const CURRENT_MAP_VERSION = 3; // Version for the map data structure
 
 export interface AppState {
     version: number;
@@ -15,6 +15,7 @@ export interface AppState {
 interface MapState {
     version: number;
     allSources: any[];
+    validatedSources: ValidatedSource[];
     mapData: any[];
     pcaModel: any | null;
     mapNormalization: any | null;
@@ -74,9 +75,10 @@ export const loadMapStateToStorage = (logEvent: (msg: string) => void): Omit<Map
         const pcaModel = state.pcaModel ? PCA.load(state.pcaModel) : null;
         const liveFeed = state.liveFeed || [];
         const taskPrompt = state.taskPrompt;
+        const validatedSources = state.validatedSources || [];
         
-        logEvent(`[SYSTEM] ✅ Loaded persistent map with ${state.allSources.length} sources and ${liveFeed.length} feed items.`);
-        return { ...state, pcaModel, liveFeed, taskPrompt };
+        logEvent(`[SYSTEM] ✅ Loaded persistent map with ${state.allSources.length} sources, ${validatedSources.length} validated items, and ${liveFeed.length} feed items.`);
+        return { ...state, pcaModel, liveFeed, taskPrompt, validatedSources };
 
     } catch (e) {
         logEvent(`[SYSTEM] ERROR: Failed to parse stored map state, clearing it. Error: ${e instanceof Error ? e.message : String(e)}`);
@@ -99,6 +101,7 @@ export function saveMapStateToStorage(partialState: Partial<Omit<MapState, 'vers
         const stateToSave: MapState = {
             version: CURRENT_MAP_VERSION,
             allSources: partialState.allSources || [],
+            validatedSources: partialState.validatedSources || [],
             mapData: partialState.mapData || [],
             pcaModel: serializablePcaModel,
             mapNormalization: partialState.mapNormalization || null,

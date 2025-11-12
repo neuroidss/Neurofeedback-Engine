@@ -23,7 +23,7 @@ export const FRAMEWORK_CORE_TOOLS: LLMTool[] = [
     description: "The primary evolutionary mechanism. Creates a new tool, adding it to the swarm's collective intelligence. This is the most important tool for solving novel problems and achieving complex goals. If you don't have a tool for a specific step, use this one to build it.",
     category: 'Automation',
     executionEnvironment: 'Client',
-    version: 9,
+    version: 10,
     purpose: "To enable agent self-improvement and bootstrap the system's capabilities towards singularity. This is the foundation of problem-solving; it allows the agent to build any capability it needs.",
     parameters: [
       { name: 'name', type: 'string', description: 'The unique, human-readable name for the new tool.', required: true },
@@ -33,6 +33,8 @@ export const FRAMEWORK_CORE_TOOLS: LLMTool[] = [
       { name: 'parameters', type: 'array', description: 'An array of objects defining the parameters the tool accepts.', required: true },
       { name: 'implementationCode', type: 'string', description: 'The JavaScript/JSX (for Client) or special command string (for Server) that implements the tool.', required:true },
       { name: 'purpose', type: 'string', description: 'A clear explanation of why this tool is being created and what problem it solves. This is crucial for the "Will to Meaning".', required: true },
+      { name: 'processingCode', type: 'string', description: '(For neurofeedback UI tools) The JavaScript arrow function that processes raw EEG data.', required: false },
+      { name: 'dataRequirements', type: 'object', description: '(For neurofeedback UI tools) A manifest describing required EEG channels and metrics.', required: false },
     ],
     implementationCode: `
       const { ...toolPayload } = args;

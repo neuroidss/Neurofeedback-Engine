@@ -1,16 +1,16 @@
 // services/cacheService.ts
 import { openDB, type IDBPDatabase, type DBSchema } from 'https://esm.sh/idb@8';
 
-const DB_NAME = 'synergy-forge-atlas';
+const DB_NAME = 'neurofeedback-engine-cache';
 const DB_VERSION = 1;
-const DOSSIER_STORE = 'dossiers';
+const PROTOCOL_STORE = 'protocols';
 const SOURCE_STORE = 'sources';
 const VECTOR_STORE = 'vectors';
 
 interface AtlasDBSchema extends DBSchema {
-  [DOSSIER_STORE]: {
-    key: string; // e.g., 'dossier-MET+RAPA'
-    value: any; // The full dossier object
+  [PROTOCOL_STORE]: {
+    key: string; // e.g., 'protocol-gamma-focus-trainer'
+    value: any; // The full protocol object (tool definition)
   };
   [SOURCE_STORE]: {
     key: string; // The canonical URL of the source
@@ -28,8 +28,8 @@ const initDB = () => {
   if (!dbPromise) {
     dbPromise = openDB<AtlasDBSchema>(DB_NAME, DB_VERSION, {
       upgrade(db) {
-        if (!db.objectStoreNames.contains(DOSSIER_STORE)) {
-          db.createObjectStore(DOSSIER_STORE);
+        if (!db.objectStoreNames.contains(PROTOCOL_STORE)) {
+          db.createObjectStore(PROTOCOL_STORE);
         }
         if (!db.objectStoreNames.contains(SOURCE_STORE)) {
           db.createObjectStore(SOURCE_STORE);
@@ -45,7 +45,7 @@ const initDB = () => {
 
 // --- General Purpose Key-Value Store ---
 
-export const getCache = async (storeName: 'dossiers' | 'sources' | 'vectors', key: string): Promise<any | null> => {
+export const getCache = async (storeName: 'protocols' | 'sources' | 'vectors', key: string): Promise<any | null> => {
   try {
     const db = await initDB();
     const entry = await db.get(storeName, key);
@@ -56,7 +56,7 @@ export const getCache = async (storeName: 'dossiers' | 'sources' | 'vectors', ke
   }
 };
 
-export const setCache = async (storeName: 'dossiers' | 'sources' | 'vectors', key: string, value: any): Promise<void> => {
+export const setCache = async (storeName: 'protocols' | 'sources' | 'vectors', key: string, value: any): Promise<void> => {
   try {
     const db = await initDB();
     await db.put(storeName, value, key);
@@ -65,7 +65,7 @@ export const setCache = async (storeName: 'dossiers' | 'sources' | 'vectors', ke
   }
 };
 
-export const getAllFromCache = async (storeName: 'dossiers' | 'sources' | 'vectors'): Promise<any[]> => {
+export const getAllFromCache = async (storeName: 'protocols' | 'sources' | 'vectors'): Promise<any[]> => {
     try {
         const db = await initDB();
         return await db.getAll(storeName);
@@ -78,7 +78,7 @@ export const getAllFromCache = async (storeName: 'dossiers' | 'sources' | 'vecto
 export const clearAllCaches = async () => {
     try {
         const db = await initDB();
-        await db.clear(DOSSIER_STORE);
+        await db.clear(PROTOCOL_STORE);
         await db.clear(SOURCE_STORE);
         await db.clear(VECTOR_STORE);
         console.log("All IndexedDB caches cleared.");

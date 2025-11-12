@@ -207,35 +207,6 @@ app.get('/api/ollama-proxy/tags', async (req, res) => {
     }
 });
 
-app.post('/api/browse', async (req, res) => {
-    const { url } = req.body;
-    if (!url) {
-        return res.status(400).json({ error: 'URL is required.' });
-    }
-    try {
-        const response = await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }
-        });
-        if (!response.ok) {
-            throw new Error(`Failed to fetch URL with status: ${response.status}`);
-        }
-        const html = await response.text();
-        // Basic HTML stripping. A more robust solution might use a library like cheerio or jsdom.
-        const textContent = html
-            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/\s\s+/g, ' ')
-            .trim();
-            
-        res.json({ success: true, textContent });
-    } catch (e) {
-        const error = e as Error;
-        console.error(`[Browse] Failed to browse URL ${url}:`, error.message);
-        res.status(500).json({ error: `Failed to retrieve or process content from URL. Reason: ${error.message}` });
-    }
-});
-
 app.post('/api/execute', async (req, res) => {
     const { name, arguments: args }: AIToolCall = req.body;
     if (!name) return res.status(400).json({ error: 'Tool name is required.' });
@@ -376,8 +347,46 @@ app.post('/api/files/write', async (req, res) => {
     }
 });
 
+app.post('/browse', async (req, res) => {
+    const { url } = req.body;
+    if (!url) {
+        return res.status(400).send('URL is required.');
+    }
+
+    try {
+        console.log(`[Web Proxy] Fetching URL: ${url}`);
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+            },
+            signal: AbortSignal.timeout(15000) // 15 second timeout
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[Web Proxy] Failed to fetch ${url}. Status: ${response.status}`);
+            return res.status(502).send(errorText);
+        }
+        
+        const contentType = response.headers.get('content-type');
+        if (contentType) {
+            res.setHeader('Content-Type', contentType);
+        }
+
+        const textContent = await response.text();
+        console.log(`[Web Proxy] Successfully fetched ${url}. Content length: ${textContent.length}`);
+        return res.send(textContent);
+
+    } catch (error) {
+        const err = error as Error;
+        console.error(`[Web Proxy] Error fetching URL ${url}:`, err);
+        return res.status(500).send(`Failed to fetch URL: ${err.message}`);
+    }
+});
+
 app.listen(PORT, async () => {
-    console.log(`Singularity Agent Factory Backend Server listening on http://localhost:${PORT}`);
+    console.log(`Neurofeedback Engine Backend Server listening on http://localhost:${PORT}`);
     await fs.mkdir(SCRIPTS_DIR, { recursive: true });
     await fs.mkdir(ASSETS_DIR, { recursive: true });
     await readToolsAndLoadCache();

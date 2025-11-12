@@ -1,6 +1,6 @@
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
-import React, { useCallback, useRef, useMemo } from 'react';
+import React, { useCallback, useRef, useMemo, useState, useEffect } from 'react';
 import { useAppStateManager } from './useAppStateManager';
 import { useToolManager } from './useToolManager';
 import { useToolRelevance } from './useToolRelevance';
@@ -9,7 +9,7 @@ import * as aiService from '../services/aiService';
 import * as searchService from '../services/searchService';
 import * as embeddingService from '../services/embeddingService';
 import { ModelProvider } from '../types';
-import type { AIToolCall, EnrichedAIResponse, LLMTool, MainView, ToolCreatorPayload, ExecuteActionFunction, SearchResult, AIModel } from '../types';
+import type { AIToolCall, EnrichedAIResponse, LLMTool, MainView, ToolCreatorPayload, ExecuteActionFunction, SearchResult, AIModel, SubStepProgress } from '../types';
 
 // --- NEW: Budgetary Guardian Configuration ---
 const VELOCITY_LIMIT = 15; // Max calls
@@ -26,11 +26,15 @@ export function useAppRuntime() {
 
     const executeActionRef = useRef<ExecuteActionFunction | null>(null);
 
+    // --- NEW: Sub-step progress state ---
+    const [subStepProgress, setSubStepProgress] = useState<SubStepProgress>(null);
+
     const swarmManager = useSwarmManager({
         logEvent: stateManager.logEvent,
         setUserInput: () => {}, // Assuming direct task creation, not from a user input field
         setEventLog: stateManager.setEventLog,
         setApiCallCount: stateManager.setApiCallCount,
+        setSubStepProgress: setSubStepProgress, // Pass the setter down
         findRelevantTools,
         mainView: 'SYNERGY_FORGE',
         processRequest: (prompt, systemInstruction, agentId, relevantTools) => {
@@ -43,6 +47,14 @@ export function useAppRuntime() {
         selectedModel: stateManager.selectedModel,
         apiConfig: stateManager.apiConfig,
     });
+
+    // Create a ref to hold the latest isSwarmRunning value. This solves stale closure
+    // issues where a long-running tool holds a reference to an old runtimeApi object.
+    // The ref ensures that getState() always returns the current running status.
+    const isSwarmRunningRef = useRef(swarmManager.isSwarmRunning);
+    useEffect(() => {
+        isSwarmRunningRef.current = swarmManager.isSwarmRunning;
+    }, [swarmManager.isSwarmRunning]);
     
     // --- NEW: Budgetary Guardian Velocity Check ---
     const checkApiCallVelocity = () => {
@@ -72,15 +84,19 @@ export function useAppRuntime() {
         logEvent: stateManager.logEvent,
         isServerConnected: () => toolManager.isServerConnected,
         forceRefreshServerTools: toolManager.forceRefreshServerTools,
+        reportProgress: setSubStepProgress, // Expose the progress setter to tools
         // This is a new addition to expose read-only state to tools that need it.
         // It's a function to prevent stale closures.
         getState: () => ({
             selectedModel: stateManager.selectedModel,
             apiConfig: stateManager.apiConfig,
             allSources: stateManager.allSources,
+            validatedSources: stateManager.validatedSources,
+            setValidatedSources: stateManager.setValidatedSources,
             liveFeed: stateManager.liveFeed,
             eventLog: stateManager.eventLog,
             ModelProvider, // Expose the enum
+            isSwarmRunning: isSwarmRunningRef.current, // Use the ref to get the live value
         }),
         tools: {
             run: async (toolName: string, args: Record<string, any>): Promise<any> => {
@@ -144,7 +160,7 @@ export function useAppRuntime() {
         },
         getObservationHistory: () => [], // Placeholder for a more advanced feature
         clearObservationHistory: () => {}, // Placeholder
-    }), [stateManager, toolManager, swarmManager]);
+    }), [stateManager, toolManager, swarmManager, setSubStepProgress]);
 
     const executeAction = useMemo<ExecuteActionFunction>(() => {
         const fn = async (
@@ -203,11 +219,29 @@ export function useAppRuntime() {
                 const result = await func(toolCall.arguments, runtimeApi);
                 log(`Tool '${tool.name}' executed successfully.`);
                 return { toolCall, tool, executionResult: result };
-            } catch (e: any)
-                 {
-                const error = `Error in tool '${tool.name}': ${e.message}`;
-                log(`[ERROR] ${error}`);
-                return { toolCall, tool, executionError: e.message };
+            } catch (e: any) {
+                // This `catch` block handles two types of errors:
+                // 1. SyntaxError: If the tool's `implementationCode` is invalid JavaScript. This happens during `new Function()`.
+                // 2. RuntimeError: If the code compiles but throws an error during execution (inside `func()`).
+                
+                let detailedError;
+                if (e instanceof SyntaxError) {
+                    // This is a compilation error.
+                    detailedError = `[COMPILATION ERROR] in tool '${tool.name}'. The tool's code could not be parsed. This is likely due to a syntax error, such as an unescaped character in the 'implementationCode' string. Original error: ${e.message}. See developer console for the full code.`;
+                    // For developers, log the exact code that failed to compile.
+                    console.error(`--- Offending Code for tool '${tool.name}' ---`);
+                    console.error(tool.implementationCode);
+                    console.error(`--- End of Offending Code ---`);
+                } else {
+                    // This is a runtime error.
+                    detailedError = `[RUNTIME ERROR] in tool '${tool.name}'. The tool's code executed but threw an exception. Original error: ${e.message}. See developer console for stack trace.`;
+                    // For developers, log the full error with stack trace.
+                    console.error(`Runtime error in '${tool.name}':`, e);
+                }
+                
+                log(`[ERROR] ${detailedError}`);
+                // Return the more descriptive error message to the swarm manager.
+                return { toolCall, tool, executionError: detailedError };
             }
         };
 
@@ -222,6 +256,7 @@ export function useAppRuntime() {
         ...stateManager,
         ...toolManager,
         ...swarmManager,
+        subStepProgress, // Expose the progress state
         runtimeApi,
         getTool,
     };

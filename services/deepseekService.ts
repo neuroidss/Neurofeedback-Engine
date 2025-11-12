@@ -58,11 +58,10 @@ export const generateText = async (
     apiConfig: APIConfig,
     files: { type: string, data: string }[] = []
 ): Promise<string> => {
-    // The user's provided code snippet suggests the API key is passed via the 'openAIAPIKey' field.
-    const apiKey = apiConfig.openAIAPIKey;
-    const baseUrl = 'https://api.studio.nebius.com/v1/';
+    const apiKey = apiConfig.deepSeekAPIKey;
+    const baseUrl = apiConfig.deepSeekBaseUrl || 'https://api.tokenfactory.nebius.com/v1/';
 
-    if (!apiKey) throw new Error("DeepSeek (Nebius) API Key is missing. Please enter it in the OpenAI-compatible API Key field.");
+    if (!apiKey) throw new Error("DeepSeek (Nebius) API Key is missing. Please enter it in the API Configuration.");
     
     const combinedUserPrompt = `${systemInstruction}\n\n---\n\n${userInput}`;
 

@@ -45,6 +45,26 @@ const App: React.FC = () => {
                         isSwarmRunning: appRuntime.isSwarmRunning,
                         startSwarmTask: appRuntime.startSwarmTask,
                         handleStopSwarm: appRuntime.handleStopSwarm,
+                        models: AI_MODELS,
+                        ollamaModels: appRuntime.ollamaModels,
+                        ollamaState: appRuntime.ollamaState,
+                        fetchOllamaModels: appRuntime.fetchOllamaModels,
+                        selectedModel: appRuntime.selectedModel,
+                        setSelectedModel: appRuntime.setSelectedModel,
+                        validatedSources: appRuntime.validatedSources,
+                        setValidatedSources: appRuntime.setValidatedSources,
+                        apiConfig: appRuntime.apiConfig,
+                        setApiConfig: appRuntime.setApiConfig,
+                        // Pass through new script execution state and handlers
+                        scriptExecutionState: appRuntime.scriptExecutionState,
+                        currentScriptStepIndex: appRuntime.currentScriptStepIndex,
+                        stepStatuses: appRuntime.stepStatuses,
+                        currentUserTask: appRuntime.currentUserTask,
+                        toggleScriptPause: appRuntime.toggleScriptPause,
+                        stepForward: appRuntime.stepForward,
+                        stepBackward: appRuntime.stepBackward,
+                        runFromStep: appRuntime.runFromStep,
+                        subStepProgress: appRuntime.subStepProgress, // Pass progress down
                     }} 
                 />
             ) : (
