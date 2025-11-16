@@ -83,5 +83,58 @@
     "createdAt": "2024-08-01T10:00:00.000Z",
     "updatedAt": "2024-08-01T10:00:00.000Z",
     "executionEnvironment": "Server"
+  },
+  {
+    "id": "compile_esp32_firmware",
+    "name": "Compile ESP32 Firmware",
+    "description": "Compiles Arduino source code for an ESP32-S3 board using a server-side process. This is a simulation and requires arduino-cli to be configured on the server.",
+    "category": "Server",
+    "version": 1,
+    "parameters": [
+      {
+        "name": "firmwareCode",
+        "type": "string",
+        "description": "The complete Arduino source code to be compiled.",
+        "required": true
+      },
+      {
+        "name": "boardFQBN",
+        "type": "string",
+        "description": "The fully qualified board name (FQBN) for the target device (e.g., \"esp32:esp32:esp32s3\").",
+        "required": false,
+        "defaultValue": "esp32:esp32:esp32s3"
+      }
+    ],
+    "purpose": "To validate and prepare firmware for over-the-air (OTA) updates by compiling it on the server.",
+    "implementationCode": "compile_firmware",
+    "createdAt": "2024-08-01T10:00:00.000Z",
+    "updatedAt": "2024-08-01T10:00:00.000Z",
+    "executionEnvironment": "Server"
+  },
+  {
+    "id": "flash_esp32_firmware_ota",
+    "name": "Flash ESP32 Firmware (OTA)",
+    "description": "Flashes a compiled firmware binary to an ESP32 device over the air. This is a simulation and requires a Python OTA script on the server.",
+    "category": "Server",
+    "version": 1,
+    "parameters": [
+      {
+        "name": "firmwarePath",
+        "type": "string",
+        "description": "The path to the compiled firmware binary on the server (e.g., \"/tmp/build/firmware.bin\").",
+        "required": true
+      },
+      {
+        "name": "deviceIp",
+        "type": "string",
+        "description": "The IP address of the target ESP32 device on the local network.",
+        "required": true
+      }
+    ],
+    "purpose": "To deploy new firmware to a remote ESP32 device without a physical connection.",
+    "implementationCode": "flash_firmware_ota",
+    "createdAt": "2024-08-01T10:00:00.000Z",
+    "updatedAt": "2024-08-01T10:00:00.000Z",
+    "executionEnvironment": "Server"
   }
 ]

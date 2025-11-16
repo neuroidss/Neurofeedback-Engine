@@ -7,7 +7,8 @@ import { WORKFLOW_TOOLS } from './workflow_tools';
 import { RESEARCH_TOOLS } from './research_tools';
 import { DATA_RECORDER_TOOLS } from './data_recorder_tools';
 import { DIAGNOSTIC_TOOLS } from './diagnostic_tools';
-import { NEUROFEEDBACK_TOOLS } from './neurofeedback_tools';
+import { PROTOCOL_TOOLS } from './protocol_tools';
+import { FIRMWARE_TOOLS } from './firmware_tools';
 import { SYNERGY_FORGE_UI_CODE } from './ui_components';
 
 const SYNERGY_FORGE_TOOLS: ToolCreatorPayload[] = [{
@@ -52,5 +53,6 @@ export const BOOTSTRAP_TOOL_PAYLOADS: ToolCreatorPayload[] = [
     ...RESEARCH_TOOLS,
     ...DATA_RECORDER_TOOLS,
     ...DIAGNOSTIC_TOOLS,
-    ...NEUROFEEDBACK_TOOLS,
+    ...PROTOCOL_TOOLS,
+    ...FIRMWARE_TOOLS,
 ];

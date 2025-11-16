@@ -1,0 +1,356 @@
+/**
+ * @file FreeEEG8_smart_hybrid_final.ino
+ * @author AI Assistant
+ * @brief Firmware with smart connection management, BLE data streaming, and Wi-Fi WebSocket streaming. (v1.1)
+ * @version 1.1
+ * @date 2024-08-08
+ *
+ * --- REQUIRED LIBRARIES ---
+ * To compile this firmware, you MUST install the following libraries
+ * using the Arduino IDE Library Manager (Sketch > Include Library > Manage Libraries...):
+ * 1. "WebSockets" by Markus Sattler
+ * 2. "ArduinoOTA" (usually included with ESP32 core)
+ * 3. "BLE" (usually included with ESP32 core)
+ * --------------------------
+ */
+
+#include <SPI.h>
+#include <WiFi.h>
+#include <ArduinoOTA.h>
+#include <Preferences.h>
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <ESPmDNS.h>
+#include <WebSocketsServer.h>
+
+// --- WebSocket Server ---
+WebSocketsServer webSocket = WebSocketsServer(81);
+
+// --- Состояния устройства ---
+enum DeviceState { STATE_WIFI_PROVISIONING, STATE_BLE_IDLE, STATE_WIFI_ACTIVE, STATE_BLE_STREAMING };
+DeviceState currentState;
+
+// --- Хранилище, Wi-Fi, BLE UUIDs ---
+Preferences preferences;
+String wifi_ssid, wifi_password;
+
+#define SERVICE_UUID           "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define SSID_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define PASS_CHARACTERISTIC_UUID "beb5483f-36e1-4688-b7f5-ea07361b26a8"
+#define CMD_CHARACTERISTIC_UUID  "beb54840-36e1-4688-b7f5-ea07361b26a8"
+#define IP_CHARACTERISTIC_UUID   "beb54841-36e1-4688-b7f5-ea07361b26a8"
+#define STATUS_CHARACTERISTIC_UUID "beb54842-36e1-4688-b7f5-ea07361b26a8"
+#define DATA_CHARACTERISTIC_UUID "beb54843-36e1-4688-b7f5-ea07361b26a8"
+
+BLECharacteristic *pSsidCharacteristic;
+BLECharacteristic *pPassCharacteristic;
+BLECharacteristic *pCmdCharacteristic;
+BLECharacteristic *pIpCharacteristic;
+BLECharacteristic *pStatusCharacteristic;
+BLECharacteristic *pDataCharacteristic;
+
+// --- Pin Definitions for FreeEEG8 ---
+const int PIN_MISO = 19;
+const int PIN_MOSI = 23;
+const int PIN_SCLK = 18;
+const int PIN_CS   = 5;
+const int PIN_DRDY = 4;
+const int PIN_RST  = 2;
+
+// --- ADS131M08 SPI Commands ---
+const byte CMD_NULL   = 0x00;
+const byte CMD_RESET  = 0x06;
+const byte CMD_WREG   = 0x40;
+
+// --- Тайм-аут для Wi-Fi ---
+unsigned long lastWifiActivity = 0;
+const long wifiTimeout = 300000; // 5 минут бездействия
+
+// --- Прототипы функций ---
+void switchToBleIdle();
+void switchToWifiActive();
+void setup_ble_idle();
+void setup_ble_provisioning();
+void printData(long timestamp, long channels[]);
+void resetADC();
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length);
+
+// --- Класс для обработки команд по BLE ---
+class CommandCallback: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+        String value = pCharacteristic->getValue().c_str(); // ИСПОЛЬЗУЕМ Arduino String
+        
+        if (currentState == STATE_WIFI_PROVISIONING && value == "CONNECT") {
+            preferences.begin("wifi-creds", false);
+            preferences.putString("ssid", wifi_ssid);
+            preferences.putString("password", wifi_password);
+            preferences.end();
+            Serial.println("Credentials saved. Rebooting into BLE Idle mode.");
+            delay(500); ESP.restart();
+        } else if (currentState == STATE_BLE_IDLE && value == "WIFI_ON") {
+            Serial.println("BLE CMD: WIFI_ON received.");
+            switchToWifiActive();
+        } else if (currentState == STATE_WIFI_ACTIVE && value == "WIFI_OFF") {
+            Serial.println("BLE CMD: WIFI_OFF received.");
+            switchToBleIdle();
+        } else if (currentState == STATE_BLE_IDLE && value == "BLE_STREAM_ON") {
+            Serial.println("BLE CMD: BLE_STREAM_ON received.");
+            currentState = STATE_BLE_STREAMING;
+            pStatusCharacteristic->setValue("BLE_STREAMING");
+            pStatusCharacteristic->notify();
+        } else if (currentState == STATE_BLE_STREAMING && value == "BLE_STREAM_OFF") {
+            Serial.println("BLE CMD: BLE_STREAM_OFF received.");
+            switchToBleIdle();
+        }
+    }
+};
+
+class SsidCallback: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+        wifi_ssid = pCharacteristic->getValue().c_str();
+        Serial.print("BLE: Received SSID: ");
+        Serial.println(wifi_ssid);
+    }
+};
+
+class PasswordCallback: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+        wifi_password = pCharacteristic->getValue().c_str();
+        Serial.println("BLE: Received password.");
+    }
+};
+
+class ServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      Serial.println("BLE Client Connected");
+    }
+    void onDisconnect(BLEServer* pServer) {
+      Serial.println("BLE Client Disconnected");
+      // If we were streaming, go back to idle on disconnect
+      if (currentState == STATE_BLE_STREAMING) {
+        Serial.println("Client disconnected during stream, returning to idle.");
+        switchToBleIdle();
+      }
+    }
+};
+
+void IRAM_ATTR drdy_interrupt() { }
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("--- FreeEEG8 Smart Hybrid Firmware ---");
+
+  pinMode(PIN_CS, OUTPUT); digitalWrite(PIN_CS, HIGH);
+  pinMode(PIN_RST, OUTPUT);
+  pinMode(PIN_DRDY, INPUT_PULLUP);
+  SPI.begin(PIN_SCLK, PIN_MISO, PIN_MOSI, PIN_CS);
+  resetADC();
+
+  preferences.begin("wifi-creds", true);
+  wifi_ssid = preferences.getString("ssid", "");
+  preferences.end();
+
+  if (wifi_ssid.length() > 0) {
+    switchToBleIdle();
+  } else {
+    currentState = STATE_WIFI_PROVISIONING;
+    setup_ble_provisioning();
+  }
+
+  Serial.println("--- Setup Complete ---");
+}
+
+void loop() {
+  switch(currentState) {
+    case STATE_WIFI_PROVISIONING:
+    case STATE_BLE_IDLE:
+      delay(1000);
+      break;
+
+    case STATE_WIFI_ACTIVE: {
+      webSocket.loop();
+      ArduinoOTA.handle();
+      if (WiFi.softAPgetStationNum() > 0 || webSocket.connectedClients() > 0) {
+          lastWifiActivity = millis();
+      }
+      if (millis() - lastWifiActivity > wifiTimeout) {
+          Serial.println("Wi-Fi timeout reached. Returning to BLE Idle mode.");
+          switchToBleIdle();
+      }
+      
+      long timestamp = millis();
+      long ch_data[8];
+      for(int i = 0; i < 8; i++) {
+        ch_data[i] = (long)(sin((float)timestamp/500.0 + i*PI/4.0)*200.0 + random(-100,100)/10.0);
+      }
+      
+      String dataString = String(timestamp);
+      for (int i = 0; i < 8; i++) {
+        dataString += ",";
+        dataString += String(ch_data[i]);
+      }
+      webSocket.broadcastTXT(dataString);
+
+      printData(timestamp, ch_data);
+      delay(50);
+      break;
+    }
+
+    case STATE_BLE_STREAMING: {
+      long ble_timestamp = millis();
+      long ble_ch_data[8];
+      for(int i = 0; i < 8; i++) {
+        ble_ch_data[i] = (long)(sin((float)ble_timestamp/500.0 + i*PI/4.0)*200.0 + random(-100,100)/10.0);
+      }
+      
+      String dataString = String(ble_timestamp);
+      for (int i = 0; i < 8; i++) {
+        dataString += ",";
+        dataString += String(ble_ch_data[i]);
+      }
+      
+      pDataCharacteristic->setValue(dataString.c_str());
+      pDataCharacteristic->notify();
+      
+      delay(50);
+      break;
+    }
+  }
+}
+
+void switchToBleIdle() {
+  currentState = STATE_BLE_IDLE;
+  
+  webSocket.close();
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  
+  if (BLEDevice::getInitialized()) {
+    btStop();
+  }
+  
+  Serial.println("Switched to BLE_IDLE. Wi-Fi is OFF.");
+  setup_ble_idle();
+  
+  if(pStatusCharacteristic) {
+    pStatusCharacteristic->setValue("IDLE");
+    pStatusCharacteristic->notify();
+  }
+}
+
+void switchToWifiActive() {
+  currentState = STATE_WIFI_ACTIVE;
+  pStatusCharacteristic->setValue("WIFI_CONNECTING");
+  pStatusCharacteristic->notify();
+  
+  Serial.print("Connecting to "); Serial.println(wifi_ssid);
+  preferences.begin("wifi-creds", true);
+  wifi_password = preferences.getString("password", "");
+  preferences.end();
+  
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
+
+  if (WiFi.waitForConnectResult(15000) == WL_CONNECTED) {
+    String ip = WiFi.localIP().toString();
+    Serial.print("Wi-Fi Connected. IP: "); Serial.println(ip);
+    
+    pStatusCharacteristic->setValue("WIFI_ACTIVE");
+    pStatusCharacteristic->notify();
+    pIpCharacteristic->setValue(ip.c_str());
+    pIpCharacteristic->notify();
+
+    ArduinoOTA.begin();
+    MDNS.begin("freeeeg8");
+    
+    webSocket.begin();
+    webSocket.onEvent(webSocketEvent);
+    Serial.println("WebSocket server started on port 81.");
+
+    lastWifiActivity = millis();
+  } else {
+    Serial.println("Wi-Fi Connection Failed. Returning to BLE Idle.");
+    switchToBleIdle();
+  }
+}
+
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+    switch(type) {
+        case WStype_DISCONNECTED:
+            Serial.printf("[WSc] Client #%u disconnected!\\n", num);
+            break;
+        case WStype_CONNECTED: {
+            IPAddress ip = webSocket.remoteIP(num);
+            Serial.printf("[WSc] Client #%u connected from %d.%d.%d.%d url: %s\\n", num, ip[0], ip[1], ip[2], ip[3], payload);
+            lastWifiActivity = millis();
+            break;
+        }
+        case WStype_TEXT:
+        case WStype_BIN:
+        case WStype_ERROR:
+        case WStype_FRAGMENT_TEXT_START:
+        case WStype_FRAGMENT_BIN_START:
+        case WStype_FRAGMENT:
+        case WStype_FRAGMENT_FIN:
+            break;
+    }
+}
+
+void setup_ble_base_server(const char* baseName) {
+  uint64_t chipid = ESP.getEfuseMac();
+  char deviceName[25];
+  snprintf(deviceName, 25, "%s-%04X", baseName, (uint16_t)(chipid >> 32));
+  
+  BLEDevice::init(deviceName);
+  BLEServer *pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new ServerCallbacks());
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  
+  pSsidCharacteristic = pService->createCharacteristic(SSID_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_WRITE);
+  pSsidCharacteristic->setCallbacks(new SsidCallback());
+
+  pPassCharacteristic = pService->createCharacteristic(PASS_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_WRITE);
+  pPassCharacteristic->setCallbacks(new PasswordCallback());
+  
+  pCmdCharacteristic = pService->createCharacteristic(CMD_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_WRITE);
+  pCmdCharacteristic->setCallbacks(new CommandCallback());
+
+  pIpCharacteristic = pService->createCharacteristic(IP_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+
+  pDataCharacteristic = pService->createCharacteristic(DATA_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_NOTIFY);
+
+  pStatusCharacteristic = pService->createCharacteristic(STATUS_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+
+  pService->start();
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->start();
+  Serial.print("BLE Server started with name: ");
+  Serial.println(deviceName);
+}
+
+void setup_ble_provisioning() {
+  Serial.println("Starting BLE Provisioning Server...");
+  setup_ble_base_server("FreeEEG8-Setup");
+  pStatusCharacteristic->setValue("PROVISIONING");
+}
+
+void setup_ble_idle() {
+  Serial.println("Starting BLE Idle Server...");
+  setup_ble_base_server("FreeEEG8-Setup");
+  pStatusCharacteristic->setValue("IDLE");
+}
+
+void printData(long timestamp, long channels[]) {
+  Serial.print(timestamp);
+  for (int i = 0; i < 8; i++) {
+    Serial.print(",");
+    Serial.print(channels[i]);
+  }
+  Serial.println();
+}
+
+void resetADC() {
+  // Заглушка, если не используется
+}

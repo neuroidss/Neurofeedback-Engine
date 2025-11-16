@@ -5,7 +5,7 @@ import type { AIModel, APIConfig, ValidatedSource } from '../types';
 import { ModelProvider } from '../types';
 import { AI_MODELS } from '../constants';
 
-const MOCK_SMR_ABSTRACT = `Sensorimotor rhythm (SMR) neurofeedback, targeting the 12-15 Hz frequency band over the sensorimotor cortex, has been investigated as a treatment for Attention Deficit Hyperactivity Disorder (ADHD). The protocol aims to enhance SMR activity, which is associated with states of focused calm and reduced motor activity. This study trained participants to voluntarily increase their SMR power. Positive reinforcement was provided when the ratio of SMR power to theta power (4-8 Hz) exceeded a set threshold. Results suggest that successful upregulation of the SMR/theta ratio correlates with improved attention and reduced impulsivity.`;
+const MOCK_SMR_ABSTRACT = `Sensorimotor rhythm (SMR) neurofeedback, targeting the 12-15 Hz frequency band, is associated with states of focused calm. The protocol aims to enhance SMR activity. The core metric is the ratio of SMR power (12-15 Hz) to theta power (4-8 Hz). Positive reinforcement is provided when this SMR/theta ratio increases. The user interface should provide simple, clear feedback via a vertical bar that grows in height and changes color from blue to green as the ratio improves.`;
 
 const MOCK_SMR_SOURCE: ValidatedSource = {
     uri: 'internal://smr-example-protocol-1',

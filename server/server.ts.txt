@@ -315,6 +315,39 @@ app.post('/api/execute', async (req, res) => {
                 }));
                 return res.json({ success: true, processes: processList });
             }
+            case 'compile_firmware': {
+                const { firmwareCode, boardFQBN } = args;
+                if (!firmwareCode) return res.status(400).json({ error: 'firmwareCode is required.'});
+                console.log(`[Firmware] Simulating compilation for board: ${boardFQBN}`);
+                
+                await new Promise(resolve => setTimeout(resolve, 3000)); // Simulate compile time
+
+                const logs = [
+                    `Compiling sketch for board ${boardFQBN}...`,
+                    `Sketch uses 874324 bytes (41%) of program storage space. Maximum is 2097152 bytes.`,
+                    `Global variables use 54321 bytes (16%) of dynamic memory.`,
+                    `Compilation finished successfully.`
+                ].join('\n');
+                
+                return res.json({ success: true, message: 'Compilation successful.', firmwarePath: '/tmp/build/FreeEEG8_alpha.bin', logs });
+            }
+             case 'flash_firmware_ota': {
+                const { firmwarePath, deviceIp } = args;
+                if (!firmwarePath || !deviceIp) return res.status(400).json({ error: 'firmwarePath and deviceIp are required.'});
+                console.log(`[Firmware] Simulating OTA flash to ${deviceIp} with firmware from ${firmwarePath}`);
+                
+                await new Promise(resolve => setTimeout(resolve, 5000)); // Simulate flash time
+                
+                const logs = [
+                    `Connecting to ${deviceIp}...`,
+                    `Uploading...`,
+                    `[=================================] 100%`,
+                    `Upload complete.`,
+                    `Device restarting.`
+                ].join('\n');
+
+                return res.json({ success: true, message: 'OTA flash successful.', logs });
+            }
         }
     } catch(e) {
         const errorMessage = e instanceof Error ? e.message : 'Unknown error during built-in command execution.';

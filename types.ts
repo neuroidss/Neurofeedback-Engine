@@ -14,6 +14,8 @@ export interface ToolParameter {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
   description: string;
   required: boolean;
+  // FIX: Added optional defaultValue to support default parameter values in tool definitions.
+  defaultValue?: any;
 }
 
 export interface EEGDataRequirements {
