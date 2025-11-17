@@ -29,11 +29,11 @@ const SMART_HYBRID_FIRMWARE_CODE = `/**
 // --- WebSocket Server ---
 WebSocketsServer webSocket = WebSocketsServer(81);
 
-// --- Состояния устройства ---
+// --- Device States ---
 enum DeviceState { STATE_WIFI_PROVISIONING, STATE_BLE_IDLE, STATE_WIFI_ACTIVE, STATE_BLE_STREAMING };
 DeviceState currentState;
 
-// --- Хранилище, Wi-Fi, BLE UUIDs ---
+// --- Storage, Wi-Fi, BLE UUIDs ---
 Preferences preferences;
 String wifi_ssid, wifi_password;
 
@@ -65,11 +65,11 @@ const byte CMD_NULL   = 0x00;
 const byte CMD_RESET  = 0x06;
 const byte CMD_WREG   = 0x40;
 
-// --- Тайм-аут для Wi-Fi ---
+// --- Wi-Fi Timeout ---
 unsigned long lastWifiActivity = 0;
-const long wifiTimeout = 300000; // 5 минут бездействия
+const long wifiTimeout = 300000; // 5 minutes of inactivity
 
-// --- Прототипы функций ---
+// --- Function Prototypes ---
 void switchToBleIdle();
 void switchToWifiActive();
 void setup_ble_idle();
@@ -78,10 +78,10 @@ void printData(long timestamp, long channels[]);
 void resetADC();
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length);
 
-// --- Класс для обработки команд по BLE ---
+// --- Class for handling BLE commands ---
 class CommandCallback: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
-        String value = pCharacteristic->getValue().c_str(); // ИСПОЛЬЗУЕМ Arduino String
+        String value = pCharacteristic->getValue().c_str(); // USE Arduino String
         
         if (currentState == STATE_WIFI_PROVISIONING && value == "CONNECT") {
             preferences.begin("wifi-creds", false);
@@ -354,7 +354,7 @@ void printData(long timestamp, long channels[]) {
 }
 
 void resetADC() {
-  // Заглушка, если не используется
+  // Stub, if not used
 }
 `;
 

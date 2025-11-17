@@ -32,6 +32,7 @@ export function useAppStateManager() {
         deepSeekAPIKey: '',
         deepSeekBaseUrl: 'https://api.tokenfactory.nebius.com/v1/',
         ollamaHost: 'http://localhost:11434',
+        useQuantumSDR: false,
     });
     // Live feed state
     const [liveFeed, setLiveFeed] = useState<any[]>([]);
@@ -103,6 +104,7 @@ export function useAppStateManager() {
             deepSeekAPIKey: storedState?.apiConfig?.deepSeekAPIKey || process.env.NEBIUS_API_KEY || '',
             deepSeekBaseUrl: storedState?.apiConfig?.deepSeekBaseUrl || 'https://api.tokenfactory.nebius.com/v1/',
             ollamaHost: storedState?.apiConfig?.ollamaHost || 'http://localhost:11434',
+            useQuantumSDR: storedState?.apiConfig?.useQuantumSDR || false,
         }));
 
         if (storedState?.apiConfig?.googleAIAPIKey) {
@@ -184,6 +186,7 @@ export function useAppStateManager() {
             deepSeekAPIKey: apiConfig.deepSeekAPIKey,
             deepSeekBaseUrl: apiConfig.deepSeekBaseUrl,
             ollamaHost: apiConfig.ollamaHost,
+            useQuantumSDR: apiConfig.useQuantumSDR,
         };
         saveStateToStorage({ apiConfig: configToSave });
     }, [apiConfig]);

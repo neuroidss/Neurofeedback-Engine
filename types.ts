@@ -96,6 +96,7 @@ export interface APIConfig {
   deepSeekAPIKey?: string;
   deepSeekBaseUrl?: string;
   ollamaHost?: string;
+  useQuantumSDR?: boolean;
 }
 
 export type UIToolRunnerProps = Record<string, any>;

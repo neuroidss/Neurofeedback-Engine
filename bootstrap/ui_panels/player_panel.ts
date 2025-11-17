@@ -13,6 +13,8 @@ export const PLAYER_PANEL_CODE = `
   const streamCharsRef = useRef(new Map());
   const eegBufferRef = useRef({});
   const runningProtocolRef = useRef(null);
+  const asyncLoopControllerRef = useRef({ active: false });
+
 
   useEffect(() => { runningProtocolRef.current = runningProtocol; }, [runningProtocol]);
 
@@ -30,7 +32,7 @@ export const PLAYER_PANEL_CODE = `
     setConnectionStatus('');
   };
 
-  const startWebSocketSession = (url, protocol) => {
+  const startWebSocketSession = (url, protocol, processor, isAsync) => {
     if (webSocketManagerRef.current.ws) {
         runtime.logEvent('[Player] WebSocket session already exists. Closing old one.');
         stopWebSocketSession();
@@ -53,7 +55,7 @@ export const PLAYER_PANEL_CODE = `
         if (manager.reconnectTimeout) clearTimeout(manager.reconnectTimeout);
     };
 
-    newWs.onmessage = (event) => {
+    newWs.onmessage = async (event) => {
         setRawData(event.data);
         const dataPoints = event.data.split(',').map(Number);
         if (dataPoints.length < 9) return; // Expect timestamp + 8 channels
@@ -61,26 +63,19 @@ export const PLAYER_PANEL_CODE = `
         const requiredChannels = protocol.dataRequirements.channels;
         const incomingChannels = dataPoints.slice(1);
         
-        // Map hardware channels to required protocol channels
         HARDWARE_CHANNEL_MAP.forEach((chName, idx) => {
             if (requiredChannels.includes(chName) && eegBufferRef.current[chName]) {
                 eegBufferRef.current[chName].push(incomingChannels[idx]);
-                // Keep buffer at a fixed size, e.g., 256 samples
-                if (eegBufferRef.current[chName].length > 256) {
-                    eegBufferRef.current[chName].shift();
-                }
+                if (eegBufferRef.current[chName].length > 256) eegBufferRef.current[chName].shift();
             }
         });
         
-        // Check if we have enough data to process
         const isBufferReady = requiredChannels.every(ch => eegBufferRef.current[ch]?.length === 256);
 
         if (isBufferReady) {
             try {
-                // Ensure we are still running the correct protocol
                 if (runningProtocolRef.current?.id === protocol.id) {
-                    const processFn = (0, eval)(protocol.processingCode.trim());
-                    const newData = processFn(eegBufferRef.current, 256); // Assume 256 Hz sample rate for now
+                    const newData = isAsync ? await processor.update(eegBufferRef.current, 256) : processor(eegBufferRef.current, 256);
                     setProcessedData(newData);
                 }
             } catch (e) {
@@ -103,7 +98,7 @@ export const PLAYER_PANEL_CODE = `
             setConnectionStatus('Reconnecting...');
             if (manager.retries < manager.maxRetries) {
                 manager.retries++;
-                manager.reconnectTimeout = setTimeout(() => startWebSocketSession(manager.url, manager.protocol), 2000 * manager.retries);
+                manager.reconnectTimeout = setTimeout(() => startWebSocketSession(manager.url, manager.protocol, processor, isAsync), 2000 * manager.retries);
             } else {
                 runtime.logEvent('[Player] ❌ Max WebSocket reconnect attempts reached. Stopping protocol.');
                 stopRunningProtocol();
@@ -118,12 +113,11 @@ export const PLAYER_PANEL_CODE = `
     
     runtime.logEvent(\`[Player] Stopped protocol: \${protocolName}\`);
     if (eegIntervalId) clearInterval(eegIntervalId);
+    asyncLoopControllerRef.current.active = false;
     setEegIntervalId(null);
     
     stopWebSocketSession();
 
-    // The BLE stream is intentionally left running to allow for seamless protocol switching.
-    // We only detach the data handler to prevent further processing for the old protocol.
     const activeDevice = connectedDevices.find(d => d.id === activeDataSourceId);
     if (activeDevice && activeDevice.mode === 'ble') {
         const streamChars = streamCharsRef.current.get(activeDevice.id);
@@ -136,7 +130,6 @@ export const PLAYER_PANEL_CODE = `
     setProcessedData(null);
     setRawData(null);
     
-    // Do not clear connectionStatus for BLE, as the connection persists
     if (activeDevice?.mode !== 'ble') {
         setConnectionStatus('');
     }
@@ -168,64 +161,97 @@ export const PLAYER_PANEL_CODE = `
     eegBufferRef.current = {};
     protocol.dataRequirements.channels.forEach(ch => eegBufferRef.current[ch] = []);
 
-    if (activeDataSourceId === 'simulator') {
-        const intervalId = setInterval(() => {
-            try {
-                const mockEegChannels = {};
-                protocol.dataRequirements.channels.forEach(ch => { mockEegChannels[ch] = Array.from({ length: 256 }, () => Math.random() * 2 - 1); });
-                const processFn = (0, eval)(protocol.processingCode.trim());
-                const newData = processFn(mockEegChannels, 256);
-                setProcessedData(newData);
-                setRawData(JSON.stringify(mockEegChannels['Cz'].slice(0, 8)).slice(1,-1));
-            } catch (e) {
-                runtime.logEvent(\`[Player] ERROR executing processingCode: \${e.message}\`);
-                clearInterval(intervalId); 
-                setRunningProtocol(null);
+    let processor;
+    let isAsync = false;
+    try {
+        const processorFactory = (0, eval)(protocol.processingCode.trim());
+        // For async protocols, the factory itself needs the runtime to pass down.
+        if (typeof processorFactory === 'function' && processorFactory.length > 0) {
+            processor = processorFactory(runtime);
+            if (processor && typeof processor.update === 'function') {
+                isAsync = true;
+                runtime.logEvent('[Player] Detected async processing protocol.');
+            } else {
+                // If it took runtime but didn't return an update function, treat as sync
+                processor = processorFactory;
+                isAsync = false;
             }
-        }, 500);
-        setEegIntervalId(intervalId);
+        } else {
+             // For simple sync functions or async factories that don't need runtime
+            processor = processorFactory();
+             if (processor && typeof processor.update === 'function') {
+                isAsync = true;
+                runtime.logEvent('[Player] Detected async processing protocol.');
+             } else {
+                processor = processorFactory;
+             }
+        }
+
+    } catch(e) {
+        runtime.logEvent(\`[Player] FATAL ERROR: Could not eval processingCode. \${e.message}\`);
+        stopRunningProtocol();
+        return;
+    }
+
+
+    if (activeDataSourceId === 'simulator') {
+        if(isAsync) {
+            asyncLoopControllerRef.current.active = true;
+            const runAsyncLoop = async () => {
+                if (!asyncLoopControllerRef.current.active) return;
+                try {
+                    const mockEegChannels = {};
+                    protocol.dataRequirements.channels.forEach(ch => { mockEegChannels[ch] = Array.from({ length: 256 }, () => Math.random() * 2 - 1); });
+                    const newData = await processor.update(mockEegChannels, 256);
+                    if (asyncLoopControllerRef.current.active) setProcessedData(newData);
+                } catch(e) {
+                     runtime.logEvent(\`[Player] ERROR executing async processingCode: \${e.message}\`);
+                     if (asyncLoopControllerRef.current.active) stopRunningProtocol();
+                }
+                if (asyncLoopControllerRef.current.active) setTimeout(runAsyncLoop, 500);
+            };
+            runAsyncLoop();
+        } else {
+            const intervalId = setInterval(() => {
+                try {
+                    const mockEegChannels = {};
+                    protocol.dataRequirements.channels.forEach(ch => { mockEegChannels[ch] = Array.from({ length: 256 }, () => Math.random() * 2 - 1); });
+                    const newData = processor(mockEegChannels, 256);
+                    setProcessedData(newData);
+                    setRawData(JSON.stringify(mockEegChannels['Cz']?.slice(0, 8) || []).slice(1,-1));
+                } catch (e) {
+                    runtime.logEvent(\`[Player] ERROR executing processingCode: \${e.message}\`);
+                    stopRunningProtocol();
+                }
+            }, 500);
+            setEegIntervalId(intervalId);
+        }
     } else if (activeDevice.mode === 'ble') {
         const runBleWithReconnect = async () => {
             try {
+                // ... connection logic ...
                 let deviceRef = deviceHandlesRef.current.get(activeDevice.id);
-                if (!deviceRef) {
-                    throw new Error("Device handle not found. Please use the 'Connect' button for this device first.");
-                }
-
-                let server = deviceRef.server;
+                if (!deviceRef) throw new Error("Device handle not found. Please connect first.");
                 if (!deviceRef.handle.gatt.connected) {
-                    runtime.logEvent(\`[Player] BLE connection lost. Reconnecting to \${activeDevice.name}...\`);
-                    setConnectionStatus(\`Reconnecting to \${activeDevice.name}...\`);
                     server = await deviceRef.handle.gatt.connect();
                     deviceHandlesRef.current.set(activeDevice.id, { ...deviceRef, server });
-                    runtime.logEvent('[Player] ✅ Reconnected successfully.');
                 }
                 
-                let dataChar;
-                const existingStream = streamCharsRef.current.get(activeDevice.id);
-
-                if (existingStream) {
-                    runtime.logEvent('[Player] Existing BLE stream detected. Re-using characteristics.');
-                    dataChar = existingStream.dataChar;
-                } else {
-                    runtime.logEvent('[Player] No active BLE stream found. Initializing new one.');
-                    setConnectionStatus(\`Initializing stream for \${deviceRef.handle.name}...\`);
-                    const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
-                    const CMD_CHAR_UUID = "beb54840-36e1-4688-b7f5-ea07361b26a8";
-                    const DATA_CHAR_UUID = "beb54843-36e1-4688-b7f5-ea07361b26a8";
-                    const service = await server.getPrimaryService(SERVICE_UUID);
-                    const cmdChar = await service.getCharacteristic(CMD_CHAR_UUID);
-                    dataChar = await service.getCharacteristic(DATA_CHAR_UUID);
+                // ... stream setup ...
+                const dataChar = (await (async () => {
+                    const existing = streamCharsRef.current.get(activeDevice.id);
+                    if(existing) return existing.dataChar;
+                    const service = await deviceRef.server.getPrimaryService("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
+                    const cmdChar = await service.getCharacteristic("beb54840-36e1-4688-b7f5-ea07361b26a8");
+                    const dataChar = await service.getCharacteristic("beb54843-36e1-4688-b7f5-ea07361b26a8");
                     streamCharsRef.current.set(activeDevice.id, { cmdChar, dataChar });
-                    
                     await dataChar.startNotifications();
-                    setConnectionStatus('Starting BLE stream...');
                     await cmdChar.writeValue(new TextEncoder().encode('BLE_STREAM_ON'));
-                }
-
-                const decoder = new TextDecoder();
-                dataChar.oncharacteristicvaluechanged = (event) => {
-                    const value = decoder.decode(event.target.value);
+                    return dataChar;
+                })());
+                
+                dataChar.oncharacteristicvaluechanged = async (event) => {
+                    const value = new TextDecoder().decode(event.target.value);
                     setRawData(value);
                     const dataPoints = value.split(',').map(Number);
                     if (dataPoints.length < 9) return;
@@ -242,8 +268,8 @@ export const PLAYER_PANEL_CODE = `
                     if (ready) {
                         try {
                            if (runningProtocolRef.current?.id === protocol.id) {
-                                const processFn = (0, eval)(protocol.processingCode.trim());
-                                setProcessedData(processFn(eegBufferRef.current, 256));
+                                const newData = isAsync ? await processor.update(eegBufferRef.current, 256) : processor(eegBufferRef.current, 256);
+                                setProcessedData(newData);
                             }
                         } catch (e) {
                             runtime.logEvent(\`[Player] ERROR processing BLE data: \${e.message}\`);
@@ -252,15 +278,8 @@ export const PLAYER_PANEL_CODE = `
                     }
                 };
                 setConnectionStatus('Connected via BLE');
-                runtime.logEvent('[Player] BLE data stream started.');
             } catch (e) {
                 runtime.logEvent(\`[Player] ERROR starting BLE stream: \${e.message}\`);
-                setConnectionStatus(\`BLE Error: \${e.message}\`);
-                const streamChars = streamCharsRef.current.get(activeDevice.id);
-                if (streamChars) {
-                    streamChars.dataChar.stopNotifications().catch(err => {});
-                    streamCharsRef.current.delete(activeDevice.id);
-                }
                 stopRunningProtocol();
             }
         };
@@ -271,7 +290,7 @@ export const PLAYER_PANEL_CODE = `
             runtime.logEvent(\`[Player] ERROR: Device '\${activeDevice.name}' is active but has no IP.\`);
             setRunningProtocol(null); return;
         }
-        startWebSocketSession(\`ws://\${deviceIp}:81\`, protocol);
+        startWebSocketSession(\`ws://\${deviceIp}:81\`, protocol, processor, isAsync);
     }
   };
 
@@ -483,8 +502,8 @@ export const PLAYER_PANEL_CODE = `
   );
 
   const renderProtocolLibrary = () => (
-    <div className="bg-slate-800/50 p-4 rounded-lg flex flex-col">
-        <div className="flex justify-between items-center mb-3">
+    <div className="bg-slate-800/50 p-4 rounded-lg flex flex-col flex-grow min-h-0">
+        <div className="flex justify-between items-center mb-3 flex-shrink-0">
             <h2 className="text-xl font-bold text-violet-300">Protocol Library</h2>
             <div className="flex gap-2">
                  <button onClick={handleExport} className="text-xs px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded-md">Export / Import</button>
@@ -545,9 +564,9 @@ export const PLAYER_PANEL_CODE = `
     };
     
     return (
-        <div className="bg-slate-800/50 p-4 rounded-lg flex flex-col">
+        <div className="bg-slate-800/50 p-4 rounded-lg flex flex-col flex-shrink-0">
             <h2 className="text-xl font-bold text-teal-300 mb-3">Data & Devices</h2>
-            <div className="flex-grow space-y-4">
+            <div className="space-y-4">
                 <div className="p-2 bg-slate-900/50 rounded-md border border-slate-700/80">
                   <h4 className="font-semibold text-sm text-slate-300">Protocol Requirements</h4>
                   {requirements ? (

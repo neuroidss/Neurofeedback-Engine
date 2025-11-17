@@ -12,6 +12,7 @@ export const SETTINGS_MODAL_CODE = `
             deepSeekAPIKey: formData.get('deepSeekAPIKey'),
             deepSeekBaseUrl: formData.get('deepSeekBaseUrl'),
             ollamaHost: formData.get('ollamaHost'),
+            useQuantumSDR: formData.get('useQuantumSDR') === 'on',
         };
         setApiConfig(newConfig);
         setSettingsVisible(false);
@@ -57,6 +58,14 @@ export const SETTINGS_MODAL_CODE = `
                             <label className="block text-sm font-medium text-slate-300">Ollama Host URL</label>
                             <input type="text" name="ollamaHost" defaultValue={apiConfig.ollamaHost} placeholder="e.g., http://localhost:11434" className="mt-1 block w-full bg-slate-900 border border-slate-600 rounded-md p-2 text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:outline-none" />
                         </div>
+                        {/* Quantum Boost */}
+                        <div className="pt-2">
+                            <label className="flex items-center space-x-2 text-sm font-medium text-slate-300">
+                                <input type="checkbox" name="useQuantumSDR" defaultChecked={apiConfig.useQuantumSDR} className="h-5 w-5 rounded bg-slate-900 border-slate-600 text-cyan-600 focus:ring-cyan-500" />
+                                <span>Enable Quantum Computing Boost (via D-Wave Stubs)</span>
+                            </label>
+                            <p className="text-xs text-slate-500 ml-7">Enables specialized protocols that offload NP-hard problems to a quantum annealer simulation.</p>
+                        </div>
                     </div>
                     <div className="mt-6 flex justify-end gap-3">
                         <button type="button" onClick={() => setSettingsVisible(false)} className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white font-bold rounded-lg">Cancel</button>
@@ -67,4 +76,4 @@ export const SETTINGS_MODAL_CODE = `
         </div>
     );
   };
-`;
+`

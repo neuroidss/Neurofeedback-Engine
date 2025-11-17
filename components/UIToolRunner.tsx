@@ -1,6 +1,10 @@
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
-// FIX: The previous React import style (`import React, { Component } from 'react'`) was causing TypeScript errors where properties like 'state' and 'props' were not found on the ErrorBoundary class component. Switching to a namespace import (`import * as React from 'react'`) and qualifying types (`React.Component`, `React.FC`, etc.) resolves these type inference issues, likely due to a specific build configuration.
+// FIX: The previous namespace import for React (`import * as React from 'react'`) was causing
+// type resolution issues. Switching to a default import (`import React from 'react'`) resolves
+// TypeScript errors where properties like 'props' and 'setState' were not being found on the
+// ErrorBoundary class component.
+// FIX: The default import for React can cause type resolution issues with class components in projects that do not have `esModuleInterop` enabled in their tsconfig. Switching to a namespace import ensures that `React.Component` is correctly typed.
 import * as React from 'react';
 import type { LLMTool, UIToolRunnerProps } from '../types';
 import DebugLogView from './ui_tools/DebugLogView';
@@ -25,6 +29,7 @@ type ErrorBoundaryState = {
   hasError: boolean;
 };
 
+// FIX: Extended React.Component to make this a valid React class component, which provides access to `this.props` and `this.setState`.
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   // FIX: Switched to class property for state initialization. This is a more modern syntax and can sometimes resolve complex type inference issues in certain build configurations compared to using a constructor.
   state: ErrorBoundaryState = { hasError: false };

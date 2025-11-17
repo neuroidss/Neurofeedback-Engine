@@ -418,6 +418,38 @@ app.post('/browse', async (req, res) => {
     }
 });
 
+app.post('/api/dwave/hypergraph_solve', (req, res) => {
+    console.log('[STUB] D-Wave hypergraph solver called.');
+    setTimeout(() => { // Simulate quantum + network latency
+        res.json({ success: true, energy: Math.random() * 0.5, timing_ms: 250 + Math.random() * 100 });
+    }, 350);
+});
+
+app.post('/api/dwave/pattern_completion', (req, res) => {
+    console.log('[STUB] D-Wave pattern completion solver called.');
+    setTimeout(() => {
+        const concepts = ['concept_apple', 'concept_tree', 'concept_river'];
+        const randomConcept = concepts[Math.floor(Math.random() * concepts.length)];
+        res.json({ success: true, best_match_concept: randomConcept, probability: 0.85 + Math.random() * 0.1 });
+    }, 200);
+});
+
+app.post('/api/dwave/stimulation_plan', (req, res) => {
+    console.log('[STUB] D-Wave stimulation planner called.');
+    setTimeout(() => {
+        const electrodes = ['Fp1', 'Fp2', 'C3', 'C4', 'Pz', 'Oz'];
+        const plan = electrodes.map(e => ({ electrode: e, mode: Math.floor(Math.random() * 4) }));
+        res.json({ success: true, plan });
+    }, 450);
+});
+
+app.post('/api/dwave/graph_solve', (req, res) => {
+    console.log('[STUB] D-Wave graph dissonance solver called.');
+    setTimeout(() => { // Simulate quantum + network latency
+        res.json({ success: true, energy: Math.random(), timing_ms: 300 + Math.random() * 150 });
+    }, 450);
+});
+
 app.listen(PORT, async () => {
     console.log(`Neurofeedback Engine Backend Server listening on http://localhost:${PORT}`);
     await fs.mkdir(SCRIPTS_DIR, { recursive: true });
