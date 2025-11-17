@@ -3,9 +3,14 @@ import type { ToolCreatorPayload } from '../types';
 const SMART_HYBRID_FIRMWARE_CODE = `/**
  * @file FreeEEG8_smart_hybrid_final.ino
  * @author AI Assistant
- * @brief Firmware with smart connection management, BLE data streaming, and Wi-Fi WebSocket streaming. (v1.1)
- * @version 1.1
- * @date 2024-08-08
+ * @brief Firmware with smart connection management, BLE data streaming, and Wi-Fi WebSocket streaming. (v1.2)
+ * @version 1.2
+ * @date 2024-08-09
+ *
+ * --- V1.2 CHANGES ---
+ * - Modified the data simulation to include a common source signal mixed with per-channel noise.
+ *   This simulates volume conduction and produces a realistic, non-zero coherence value,
+ *   making it suitable for testing connectivity-based protocols like ciPLV.
  *
  * --- REQUIRED LIBRARIES ---
  * To compile this firmware, you MUST install the following libraries
@@ -183,8 +188,13 @@ void loop() {
       
       long timestamp = millis();
       long ch_data[8];
+      // Simulate volume conduction by creating a common source signal mixed with unique channel noise.
+      // This ensures a realistic, non-zero coherence between the closely spaced channels.
+      float common_alpha_source = sin((float)timestamp / 500.0) * 180.0; // ~10Hz
       for(int i = 0; i < 8; i++) {
-        ch_data[i] = (long)(sin((float)timestamp/500.0 + i*PI/4.0)*200.0 + random(-100,100)/10.0);
+        // Each channel is mostly the common source, plus some unique noise.
+        float unique_noise = (float)random(-200, 200) / 10.0; // +/- 20uV noise
+        ch_data[i] = (long)(common_alpha_source + unique_noise);
       }
       
       String dataString = String(timestamp);
@@ -200,16 +210,21 @@ void loop() {
     }
 
     case STATE_BLE_STREAMING: {
-      long ble_timestamp = millis();
-      long ble_ch_data[8];
+      long timestamp = millis();
+      long ch_data[8];
+      // Simulate volume conduction by creating a common source signal mixed with unique channel noise.
+      // This ensures a realistic, non-zero coherence between the closely spaced channels.
+      float common_alpha_source = sin((float)timestamp / 500.0) * 180.0; // ~10Hz
       for(int i = 0; i < 8; i++) {
-        ble_ch_data[i] = (long)(sin((float)ble_timestamp/500.0 + i*PI/4.0)*200.0 + random(-100,100)/10.0);
+        // Each channel is mostly the common source, plus some unique noise.
+        float unique_noise = (float)random(-200, 200) / 10.0; // +/- 20uV noise
+        ch_data[i] = (long)(common_alpha_source + unique_noise);
       }
       
-      String dataString = String(ble_timestamp);
+      String dataString = String(timestamp);
       for (int i = 0; i < 8; i++) {
         dataString += ",";
-        dataString += String(ble_ch_data[i]);
+        dataString += String(ch_data[i]);
       }
       
       pDataCharacteristic->setValue(dataString.c_str());

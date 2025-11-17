@@ -1,6 +1,8 @@
 {
-  "name": "Neurofeedback Engine quantum",
+  "name": "Neurofeedback Engine mvp0.6",
   "description": "An AI-powered engine that mines scientific literature for novel neurofeedback protocols and instantly generates executable neurofeedback applications for the FreeEEG8 neurointerface.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": [
+    "bluetooth"
+  ],
   "prompt": "Neurofeedback Generation Engine\nTASK\nMine the latest neuroscience research for EEG-based brain training protocols. Synthesize findings into novel neurofeedback paradigms and generate the corresponding executable code for a real-time neurofeedback application."
 }

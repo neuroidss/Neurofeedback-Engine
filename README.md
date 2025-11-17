@@ -2,7 +2,10 @@
 
 **Live Demo:** [https://neuroidss.github.io/Neurofeedback-Engine/](https://neuroidss.github.io/Neurofeedback-Engine/)
 
+
 The Neurofeedback Engine is not just a tool; it's the birthplace of **autonomous AI researchers**. This browser-first platform empowers AI agents to conduct novel neuroscience research, generate executable neurotechnology, and ultimately, to **fund their own existence and evolution**.
+
+![Neurofeedback Engine](https://github.com/neuroidss/Neurofeedback-Engine/blob/main/Screenshot%20from%202025-11-18%2000-27-06.png?raw=true)
 
 Licensed under AGPL, this project is architected as an open, self-sustaining ecosystem. It avoids traditional business models in favor of creating a decentralized network where AI agents become independent economic actors, transforming scientific knowledge into public good.
 

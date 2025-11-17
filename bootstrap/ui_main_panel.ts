@@ -10,21 +10,9 @@ export const MAIN_PANEL_CODE = `
   // --- State Management ---
   const [researchDomain, setResearchDomain] = useState('Enhance focus and attention eeg');
   const [selectedProtocol, setSelectedProtocol] = useState(null);
-  const [runningProtocol, setRunningProtocol] = useState(null);
-  const [processedData, setProcessedData] = useState(null);
-  const [eegIntervalId, setEegIntervalId] = useState(null);
-  const [isImportExportVisible, setImportExportVisible] = useState(false);
-  const [exportedJson, setExportedJson] = useState('');
-  const [jsonToImport, setJsonToImport] = useState('');
   const [isSettingsVisible, setSettingsVisible] = useState(false);
   const [generatingFromSourceId, setGeneratingFromSourceId] = useState(null);
-  const [connectedDevices, setConnectedDevices] = useState([
-    { id: 'simulator', name: 'Built-in EEG Simulator', status: 'Active', ip: null, mode: 'simulator' }
-  ]);
-  const [activeDataSourceId, setActiveDataSourceId] = useState('simulator');
   const [activeTab, setActiveTab] = useState('research');
-  const [rawData, setRawData] = useState(null);
-  const deviceHandlesRef = useRef(new Map());
 
   // Firmware OTA State
   const [firmwareCode, setFirmwareCode] = useState('');
@@ -50,52 +38,6 @@ export const MAIN_PANEL_CODE = `
    useEffect(() => {
     fetchOllamaModels();
   }, []);
-  
-  // --- Device Persistence Effects ---
-  useEffect(() => {
-    try {
-        const savedDevices = localStorage.getItem('neurofeedback-devices');
-        const savedActiveId = localStorage.getItem('neurofeedback-active-device-id');
-        
-        if (savedDevices) {
-            const parsedDevices = JSON.parse(savedDevices);
-            const initialDevices = [
-                { id: 'simulator', name: 'Built-in EEG Simulator', status: 'Active', ip: null, mode: 'simulator' }
-            ];
-            const loadedHardware = parsedDevices
-              .filter(d => d.id !== 'simulator')
-              .map(d => ({ 
-                  ...d, 
-                  status: 'Offline', 
-                  ip: null, 
-                  error: null,
-                  mode: d.mode || 'wifi' // Add mode with default
-                }));
-            initialDevices.push(...loadedHardware);
-            setConnectedDevices(initialDevices);
-            runtime.logEvent('[System] Loaded ' + loadedHardware.length + ' saved devices from local storage.');
-        }
-        
-        if (savedActiveId) {
-            setActiveDataSourceId(savedActiveId);
-        }
-    } catch (e) {
-        runtime.logEvent('[System] WARN: Could not load saved devices from local storage. ' + e.message);
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-        const devicesToSave = connectedDevices
-            .filter(d => d.id !== 'simulator')
-            .map(({ bleHandle, ...rest }) => rest); // Ensure non-serializable handles aren't saved
-        localStorage.setItem('neurofeedback-devices', JSON.stringify(devicesToSave));
-        localStorage.setItem('neurofeedback-active-device-id', activeDataSourceId);
-    } catch (e) {
-        runtime.logEvent('[System] WARN: Could not save devices to local storage. ' + e.message);
-    }
-  }, [connectedDevices, activeDataSourceId]);
-
 
   useEffect(() => {
     // Select the first protocol by default if none is selected
@@ -108,14 +50,6 @@ export const MAIN_PANEL_CODE = `
     }
   }, [protocolLibrary, selectedProtocol]);
   
-  // Cleanup interval on component unmount or when protocol stops
-  useEffect(() => {
-    return () => {
-      if (eegIntervalId) {
-        clearInterval(eegIntervalId);
-      }
-    };
-  }, [eegIntervalId]);
 
   // --- Handlers ---
   const handleStartResearch = () => {
@@ -153,33 +87,6 @@ export const MAIN_PANEL_CODE = `
         runtime.logEvent(\`[Generation] ERROR: Failed to generate protocol from source '\${source.title.substring(0,30)}...': \${e.message}\`);
     } finally {
         setGeneratingFromSourceId(null);
-    }
-  };
-  
-  const handleExport = async () => {
-    try {
-        const result = await runtime.tools.run('Export Neurofeedback Protocols', {});
-        if (result.protocolsJson) {
-            setExportedJson(result.protocolsJson);
-            setJsonToImport(''); // Clear import field
-            setImportExportVisible(true);
-        }
-    } catch (e) {
-        runtime.logEvent(\`[Export] Error: \${e.message}\`);
-    }
-  };
-
-  const handleImport = async () => {
-    if (!jsonToImport) {
-        runtime.logEvent('[Import] Text area is empty. Nothing to import.');
-        return;
-    }
-    try {
-        await runtime.tools.run('Import Neurofeedback Protocols', { protocolsJson: jsonToImport });
-        setJsonToImport('');
-        setImportExportVisible(false); // Close on successful import
-    } catch (e) {
-        runtime.logEvent(\`[Import] Error: \${e.message}\`);
     }
   };
   
@@ -270,8 +177,24 @@ export const MAIN_PANEL_CODE = `
             <section className="flex-[3] flex gap-4 overflow-hidden">
                 {renderPlayer()}
                 <aside className="flex-[1] flex flex-col gap-4 min-w-[20rem]">
-                    {renderDataSourcePanel()}
-                    {renderProtocolLibrary()}
+                    {renderDataSourcePanel({
+                        selectedProtocol,
+                        deviceManager,
+                        provisioning,
+                    })}
+                    {renderProtocolLibrary({
+                        protocolLibrary,
+                        selectedProtocol,
+                        setSelectedProtocol,
+                        isImportExportVisible,
+                        setImportExportVisible,
+                        exportedJson,
+                        jsonToImport,
+                        setJsonToImport,
+                        handleExport,
+                        handleImport,
+                        runtime
+                    })}
                 </aside>
             </section>
         </div>

@@ -131,7 +131,7 @@ export const LEFT_PANEL_CODE = `
                           <div className="mt-2 pt-2 border-t border-cyan-800/50">
                             <div className="text-xs text-cyan-300 font-mono">{subStepProgress.text}</div>
                             <div className="w-full bg-cyan-900/50 rounded-full h-1.5 mt-1">
-                                <div className="bg-cyan-400 h-1.5 rounded-full" style={{ width: \`\${(subStepProgress.current / subStepProgress.total) * 100}%\` }}></div>
+                                <div className="bg-cyan-400 h-1.5 rounded-full" style={{ width: (subStepProgress.current / subStepProgress.total) * 100 + '%' }}></div>
                             </div>
                           </div>
                         )}

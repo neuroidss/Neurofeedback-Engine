@@ -83,7 +83,37 @@ const IMPORT_PROTOCOLS: ToolCreatorPayload = {
     `
 };
 
+const FACTORY_RESET_PROTOCOLS: ToolCreatorPayload = {
+    name: 'Factory Reset Protocols',
+    description: 'Deletes all user-created or AI-generated protocols and associated data from local storage and reloads the application to restore the default set.',
+    category: 'Automation',
+    executionEnvironment: 'Client',
+    purpose: 'To provide a way for users to revert to a clean, default state.',
+    parameters: [],
+    implementationCode: `
+        runtime.logEvent('[Reset] Clearing all protocol data from local storage...');
+        
+        // This is the key where the main app state (including tools) is stored
+        const STORAGE_KEY = 'singularity-agent-factory-state';
+        localStorage.removeItem(STORAGE_KEY);
+
+        // This is the key for the map/dossier data
+        const MAP_STORAGE_KEY = 'neurofeedback-engine-protocols-state';
+        localStorage.removeItem(MAP_STORAGE_KEY);
+        
+        runtime.logEvent('[Reset] ✅ Storage cleared. Reloading application to apply factory defaults.');
+        
+        // Use a short timeout to ensure the log has a chance to be seen before the page reloads.
+        setTimeout(() => {
+            window.location.reload();
+        }, 500);
+
+        return { success: true, message: 'Factory reset initiated. The application will now reload.' };
+    `
+};
+
 export const UTILITY_PROTOCOLS: ToolCreatorPayload[] = [
     EXPORT_PROTOCOLS,
     IMPORT_PROTOCOLS,
+    FACTORY_RESET_PROTOCOLS,
 ];

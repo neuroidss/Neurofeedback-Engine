@@ -1,11 +1,9 @@
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
-// FIX: The previous namespace import for React (`import * as React from 'react'`) was causing
-// type resolution issues. Switching to a default import (`import React from 'react'`) resolves
-// TypeScript errors where properties like 'props' and 'setState' were not being found on the
-// ErrorBoundary class component.
-// FIX: The default import for React can cause type resolution issues with class components in projects that do not have `esModuleInterop` enabled in their tsconfig. Switching to a namespace import ensures that `React.Component` is correctly typed.
-import * as React from 'react';
+// FIX: Switched to a default import for React (`import React from 'react'`) to resolve
+// type resolution issues where properties like 'props' and 'setState' were not being found on the
+// ErrorBoundary class component. The previous namespace import was causing this issue in the current build configuration.
+import React from 'react';
 import type { LLMTool, UIToolRunnerProps } from '../types';
 import DebugLogView from './ui_tools/DebugLogView';
 import * as Icons from './icons';

@@ -10,6 +10,7 @@ import { DIAGNOSTIC_TOOLS } from './diagnostic_tools';
 import { PROTOCOL_TOOLS } from './protocol_tools';
 import { FIRMWARE_TOOLS } from './firmware_tools';
 import { SYNERGY_FORGE_UI_CODE } from './ui_components';
+import { DSP_TOOLS } from './dsp_tools';
 
 const SYNERGY_FORGE_TOOLS: ToolCreatorPayload[] = [{
     name: 'Neurofeedback Engine Main UI',
@@ -55,4 +56,5 @@ export const BOOTSTRAP_TOOL_PAYLOADS: ToolCreatorPayload[] = [
     ...DIAGNOSTIC_TOOLS,
     ...PROTOCOL_TOOLS,
     ...FIRMWARE_TOOLS,
+    ...DSP_TOOLS,
 ];

@@ -502,8 +502,8 @@ const WM_OPTIMIZER_PROTOCOL: ToolCreatorPayload = {
     const orbStyle = useMemo(() => ({
         width: '200px', height: '200px',
         borderRadius: '50%',
-        backgroundColor: \`hsl(\${hue}, 100%, \${brightness}%)\`,
-        boxShadow: \`0 0 80px hsl(\${hue}, 100%, \${brightness}%)\`,
+        backgroundColor: 'hsl(' + hue + ', 100%, ' + brightness + '%)',
+        boxShadow: '0 0 80px hsl(' + hue + ', 100%, ' + brightness + '%)',
         transition: 'all 0.5s ease-in-out',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         flexDirection: 'column'
