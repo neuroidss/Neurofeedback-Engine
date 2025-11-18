@@ -1,9 +1,11 @@
+
 import { useState, useEffect, useCallback } from 'react';
 import { loadStateFromStorage, saveStateToStorage, saveMapStateToStorage, loadMapStateToStorage } from '../versioning';
-import type { AIModel, APIConfig, ValidatedSource } from '../types';
+import type { AIModel, APIConfig, ValidatedSource, LLMTool } from '../types';
 // FIX: ModelProvider is now imported from its source in `types.ts` instead of from `constants.ts`.
 import { ModelProvider } from '../types';
 import { AI_MODELS } from '../constants';
+
 
 const MOCK_SMR_ABSTRACT = `Sensorimotor rhythm (SMR) neurofeedback, targeting the 12-15 Hz frequency band, is associated with states of focused calm. The protocol aims to enhance SMR activity. The core metric is the ratio of SMR power (12-15 Hz) to theta power (4-8 Hz). Positive reinforcement is provided when this SMR/theta ratio increases. The user interface should provide simple, clear feedback via a vertical bar that grows in height and changes color from blue to green as the ratio improves.`;
 
@@ -23,6 +25,13 @@ const MOCK_SMR_SOURCE: ValidatedSource = {
 // to potentially resolve type inference issues in consuming hooks.
 export function useAppStateManager() {
     const [eventLog, setEventLog] = useState<string[]>([]);
+
+    // FIX: Moved logEvent declaration before its first use to resolve the 'used before declaration' error.
+    const logEvent = useCallback((message: string) => {
+        const timestamp = new Date().toLocaleTimeString();
+        setEventLog(prev => [...prev, `[${timestamp}] ${message}`]);
+    }, []);
+
     const [apiCallCount, setApiCallCount] = useState<Record<string, number>>({});
     const [selectedModel, setSelectedModel] = useState<AIModel>(AI_MODELS[0]);
     const [apiConfig, setApiConfig] = useState<APIConfig>({
@@ -33,6 +42,10 @@ export function useAppStateManager() {
         deepSeekBaseUrl: 'https://api.tokenfactory.nebius.com/v1/',
         ollamaHost: 'http://localhost:11434',
         useQuantumSDR: false,
+        computeBackend: 'gpu', // Default to GPU
+        defaultWifiSSID: '',
+        defaultWifiPassword: '',
+        autoRestoreSession: false,
     });
     // Live feed state
     const [liveFeed, setLiveFeed] = useState<any[]>([]);
@@ -51,6 +64,12 @@ export function useAppStateManager() {
     // --- NEW: Budgetary Guardian State ---
     const [apiCallTimestamps, setApiCallTimestamps] = useState<number[]>([]);
     const [isBudgetGuardTripped, setIsBudgetGuardTripped] = useState(false);
+    
+    // --- NEW: Global EEG Data Stream ---
+    const [globalEegData, setGlobalEegData] = useState(null);
+    
+    // --- NEW: Vibecoder OS State ---
+    const [vibecoderHistory, setVibecoderHistory] = useState<any[]>([]);
 
 
     const fetchOllamaModels = useCallback(async () => {
@@ -88,7 +107,7 @@ export function useAppStateManager() {
             setOllamaState({ loading: false, error: message });
             setOllamaModels([]);
         }
-    }, [apiConfig.ollamaHost]);
+    }, [apiConfig.ollamaHost, logEvent]);
 
 
     // Load state from storage on initial mount
@@ -105,6 +124,11 @@ export function useAppStateManager() {
             deepSeekBaseUrl: storedState?.apiConfig?.deepSeekBaseUrl || 'https://api.tokenfactory.nebius.com/v1/',
             ollamaHost: storedState?.apiConfig?.ollamaHost || 'http://localhost:11434',
             useQuantumSDR: storedState?.apiConfig?.useQuantumSDR || false,
+            // Handle legacy boolean useGPUAcceleration -> new computeBackend enum
+            computeBackend: storedState?.apiConfig?.computeBackend || ((storedState?.apiConfig as any)?.useGPUAcceleration === false ? 'worker' : 'gpu'),
+            defaultWifiSSID: process.env.WIFI_SSID || '',
+            defaultWifiPassword: process.env.WIFI_PASSWORD || '',
+            autoRestoreSession: storedState?.apiConfig?.autoRestoreSession || false,
         }));
 
         if (storedState?.apiConfig?.googleAIAPIKey) {
@@ -113,10 +137,8 @@ export function useAppStateManager() {
             logEvent("[SYSTEM] Loaded Gemini API key from environment variable.");
         }
         
-        const log = (msg: string) => setEventLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
-
         // Load map state
-        let mapState = loadMapStateToStorage(log);
+        let mapState = loadMapStateToStorage(logEvent);
         if (mapState) {
             const hasDuplicates = (arr: any[], idSelector: (item: any) => any) => {
                 if (!Array.isArray(arr)) return false;
@@ -138,7 +160,7 @@ export function useAppStateManager() {
             
             // Check for duplicates in the two main arrays that are rendered with keys
             if (hasDuplicates(liveFeed, item => item.id) || hasDuplicates(allSources, item => item.id)) {
-                log("[SYSTEM] ERROR: Corrupted cache detected (duplicate items). Clearing cache to prevent application freeze.");
+                logEvent("[SYSTEM] ERROR: Corrupted cache detected (duplicate items). Clearing cache to prevent application freeze.");
                 localStorage.removeItem('synergy-forge-map-state');
                 mapState = null; // Nullify state to force a fresh start
             }
@@ -168,12 +190,7 @@ export function useAppStateManager() {
         
         // Initialize with a welcome message
         setEventLog(prev => [`[${new Date().toLocaleTimeString()}] [SYSTEM] Session started.`, ...prev]);
-    }, []);
-
-    const logEvent = useCallback((message: string) => {
-        const timestamp = new Date().toLocaleTimeString();
-        setEventLog(prev => [...prev, `[${timestamp}] ${message}`]);
-    }, []);
+    }, [logEvent]);
 
     // Effect to persist apiConfig state whenever it changes
     useEffect(() => {
@@ -187,6 +204,8 @@ export function useAppStateManager() {
             deepSeekBaseUrl: apiConfig.deepSeekBaseUrl,
             ollamaHost: apiConfig.ollamaHost,
             useQuantumSDR: apiConfig.useQuantumSDR,
+            computeBackend: apiConfig.computeBackend,
+            autoRestoreSession: apiConfig.autoRestoreSession,
         };
         saveStateToStorage({ apiConfig: configToSave });
     }, [apiConfig]);
@@ -204,7 +223,7 @@ export function useAppStateManager() {
             liveFeed,
             taskPrompt,
         }, logEvent);
-    }, [allSources, validatedSources, mapData, pcaModel, mapNormalization, liveFeed, taskPrompt]);
+    }, [allSources, validatedSources, mapData, pcaModel, mapNormalization, liveFeed, taskPrompt, logEvent]);
 
 
     return {
@@ -242,5 +261,11 @@ export function useAppStateManager() {
         setApiCallTimestamps,
         isBudgetGuardTripped,
         setIsBudgetGuardTripped,
+        // Global EEG Data Stream
+        globalEegData,
+        setGlobalEegData,
+        // Vibecoder OS
+        vibecoderHistory,
+        setVibecoderHistory,
     };
 }

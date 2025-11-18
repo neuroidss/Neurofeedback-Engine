@@ -1,5 +1,5 @@
 import { LLMTool, APIConfig, ValidatedSource } from './types';
-import { PCA } from 'https://esm.sh/ml-pca';
+import { PCA } from 'ml-pca';
 
 const STORAGE_KEY = 'singularity-agent-factory-state';
 const MAP_STORAGE_KEY = 'neurofeedback-engine-protocols-state';

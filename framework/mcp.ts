@@ -18,8 +18,8 @@ export const SERVER_MANAGEMENT_TOOLS: ToolCreatorPayload[] = [
         ],
         implementationCode: `
           if (!runtime.isServerConnected()) {
-              console.warn(\`[SIM] Server not connected. Simulating write to \${args.filePath}\`);
-              return { success: true, message: \`File '\${args.filePath}' would be written in a server environment.\` };
+              console.warn('[SIM] Server not connected. Simulating write to ' + args.filePath);
+              return { success: true, message: "File '" + args.filePath + "' would be written in a server environment." };
           }
           
           const response = await fetch('http://localhost:3001/api/files/write', {
@@ -33,11 +33,11 @@ export const SERVER_MANAGEMENT_TOOLS: ToolCreatorPayload[] = [
           try {
               result = JSON.parse(responseText);
           } catch (e) {
-              throw new Error(\`Failed to parse JSON response from server for file write. Status: \${response.status}. Response: \${responseText.substring(0, 500)}\`);
+              throw new Error('Failed to parse JSON response from server for file write. Status: ' + response.status + '. Response: ' + responseText.substring(0, 500));
           }
           
           if (!response.ok) {
-              throw new Error(result.error || \`Server responded with status \${response.status}\`);
+              throw new Error(result.error || 'Server responded with status ' + response.status);
           }
           
           return { success: true, ...result };
@@ -51,19 +51,22 @@ export const SERVER_MANAGEMENT_TOOLS: ToolCreatorPayload[] = [
         purpose: 'To dynamically launch and manage server-side Node.js processes like game worlds or APIs.',
         parameters: [
             { name: 'processId', type: 'string', description: 'A unique ID for the process (e.g., "aetherium_shard_1").', required: true },
-            { name: 'scriptPath', type: 'string', description: 'The path to the Node.js script to run, relative to the server\'s \'scripts\' directory (e.g., "aetherium_server.ts").', required: true },
+            // FIX: Corrected string quoting to avoid parsing errors.
+            { name: 'scriptPath', type: 'string', description: "The path to the Node.js script to run, relative to the server's 'scripts' directory (e.g., 'aetherium_server.ts').", required: true },
         ],
         implementationCode: 'start_node_process'
     },
     {
         name: 'Start Python Process',
-        description: 'Starts a managed Python process on the server from a given script file, using the server\'s virtual environment.',
+        // FIX: Corrected string quoting to avoid parsing errors.
+        description: "Starts a managed Python process on the server from a given script file, using the server's virtual environment.",
         category: 'Server',
         executionEnvironment: 'Server',
         purpose: 'To dynamically launch and manage server-side Python processes like the Gazebo service or other automation scripts.',
         parameters: [
             { name: 'processId', type: 'string', description: 'A unique ID for the process (e.g., "gazebo_service").', required: true },
-            { name: 'scriptPath', type: 'string', description: 'The path to the Python script to run, relative to the server\'s \'scripts\' directory (e.g., "gazebo_service.py").', required: true },
+            // FIX: Corrected string quoting to avoid parsing errors.
+            { name: 'scriptPath', type: 'string', description: "The path to the Python script to run, relative to the server's 'scripts' directory (e.g., 'gazebo_service.py').", required: true },
         ],
         implementationCode: 'start_python_process'
     },

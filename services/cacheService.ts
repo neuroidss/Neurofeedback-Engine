@@ -1,5 +1,5 @@
 // services/cacheService.ts
-import { openDB, type IDBPDatabase, type DBSchema } from 'https://esm.sh/idb@8';
+import { openDB, type IDBPDatabase, type DBSchema } from 'idb';
 
 const DB_NAME = 'neurofeedback-engine-cache';
 const DB_VERSION = 1;

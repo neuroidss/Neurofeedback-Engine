@@ -1,24 +1,25 @@
+
+
 import type { ToolCreatorPayload } from '../types';
 
 const SMART_HYBRID_FIRMWARE_CODE = `/**
- * @file FreeEEG8_smart_hybrid_final.ino
- * @author AI Assistant
- * @brief Firmware with smart connection management, BLE data streaming, and Wi-Fi WebSocket streaming. (v1.2)
- * @version 1.2
- * @date 2024-08-09
+ * @file FreeEEG8_TriLink_v3.1.ino
+ * @author AI Assistant & Synergy Forge
+ * @brief Firmware v3.1: Tri-Link (WiFi + BLE + USB Serial)
+ * @version 3.1.1
+ * @date 2025-01-01
  *
- * --- V1.2 CHANGES ---
- * - Modified the data simulation to include a common source signal mixed with per-channel noise.
- *   This simulates volume conduction and produces a realistic, non-zero coherence value,
- *   making it suitable for testing connectivity-based protocols like ciPLV.
+ * --- FEATURES ---
+ * 1. ALWAYS-ON BLE: Device is always discoverable.
+ * 2. TRI-LINK STREAMING: Stream to WebSocket, BLE, and USB Serial simultaneously.
+ * 3. ROBUST COMMANDS: Control streaming via BLE or Serial commands.
+ * 4. SELF-HOSTING: Serves its own source code via HTTP.
  *
- * --- REQUIRED LIBRARIES ---
- * To compile this firmware, you MUST install the following libraries
- * using the Arduino IDE Library Manager (Sketch > Include Library > Manage Libraries...):
- * 1. "WebSockets" by Markus Sattler
- * 2. "ArduinoOTA" (usually included with ESP32 core)
- * 3. "BLE" (usually included with ESP32 core)
- * --------------------------
+ * --- CONNECTION GUIDE ---
+ * - PROVISIONING: Connect via BLE, write SSID/PASS, write "CONNECT".
+ * - DATA (WiFi): Connect via ws://<IP>:81.
+ * - DATA (BLE): Enable notifications on Data Characteristic.
+ * - DATA (USB): Open Serial (115200 baud), send "STREAM_ON".
  */
 
 #include <SPI.h>
@@ -28,355 +29,421 @@ const SMART_HYBRID_FIRMWARE_CODE = `/**
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
+#include <BLE2902.h>
 #include <ESPmDNS.h>
 #include <WebSocketsServer.h>
+#include <WebServer.h>
 
-// --- WebSocket Server ---
-WebSocketsServer webSocket = WebSocketsServer(81);
+// --- CONFIGURATION ---
+#define DEVICE_NAME_PREFIX "FreeEEG8"
+// Uncomment to enable Secure WebSockets (Requires modifying WebSockets.h library)
+// #define ENABLE_SSL 
 
-// --- Device States ---
-enum DeviceState { STATE_WIFI_PROVISIONING, STATE_BLE_IDLE, STATE_WIFI_ACTIVE, STATE_BLE_STREAMING };
-DeviceState currentState;
+// --- MANIFEST ---
+const char* DEVICE_MANIFEST = "{"
+  "\\"name\\": \\"FreeEEG8\\","
+  "\\"version\\": \\"3.1.1-TriLink\\","
+  "\\"mode\\": \\"Tri-Link WiFi+BLE+Serial\\","
+  "\\"channels\\": 8,"
+  "\\"sample_rate\\": 250,"
+  "\\"endpoints\\": [\\"/manifest\\", \\"/source\\", \\"/schematic\\", \\"/pcb\\"]"
+"}";
 
-// --- Storage, Wi-Fi, BLE UUIDs ---
+// --- GLOBAL STATE ---
+bool deviceConnected = false;
+bool oldDeviceConnected = false;
+bool bleStreamingEnabled = false;
+bool serialStreamingEnabled = false; // New for v3.1
+bool wifiConnected = false;
+
+// --- BLE GLOBALS ---
+BLEServer* pServer = NULL;
+BLECharacteristic* pSsidChar = NULL;
+BLECharacteristic* pPassChar = NULL;
+BLECharacteristic* pCmdChar = NULL;
+BLECharacteristic* pIpChar = NULL;
+BLECharacteristic* pStatusChar = NULL;
+BLECharacteristic* pDataChar = NULL;
+
+// --- WIFI GLOBALS ---
 Preferences preferences;
-String wifi_ssid, wifi_password;
+String stored_ssid = "";
+String stored_password = "";
+#ifdef ENABLE_SSL
+  WebSocketsServer webSocket = WebSocketsServer(443);
+#else
+  WebSocketsServer webSocket = WebSocketsServer(81);
+#endif
+WebServer server(80);
 
+// --- SSL CERTIFICATES (If Enabled) ---
+#ifdef ENABLE_SSL
+  const char* server_cert = R"CERT(
+-----BEGIN CERTIFICATE-----
+MIIDKTCCAhGgAwIBAgIJAJ8+R9Xq5u5WMA0GCSqGSIb3DQEBCwUAMCwxKjAoBgNV
+BAMMIUZyZWVFRUc4IExvY2FsIFNlbGYtU2lnbmVkIENlcnQwHhcNMjUwNTIwMDAw
+MDAwWhcNMzUwNTE4MDAwMDAwWjAsMSowKAYDVQQDDCFGcmVlRUVGOCBMb2NhbCBT
+ZWxmLVNpZ25lZCBDZXJ0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA
+w/C8h+XqZzT2Xw+K1b/5pY0k+Q2Xq3Z4Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5
+Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5
+Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5
+Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5
+Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5QwIDAQABo1AwTjAdBgNVHQ4EFgQU1a2b3c4d5e6f7g8h
+9i0j1k2l3m4nMB8GA1UdIwQYMBaAFNWtm93OHeXuX+4PIfYtI9ZNpd5uMAwGA1Ud
+EwQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAF/G7h8i9j0k1l2m3n4o5p6q7r8s
+9t0u1v2w3x4y5z6A7b8c9d0e1f2g3h4i5j6k7l8m9n0o1p2q3r4s5t6u7v8w9x0y
+1z2a3b4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q9r0s1t2u3v4w5x6y7z8a9b0c1d2e
+3f4g5h6i7j8k9l0m1n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k
+5l6m7n8o9p0q1r2s3t4u5v6w7x8y9z0a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q
+-----END CERTIFICATE-----
+)CERT";
+  const char* server_private_key = R"KEY(
+-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDD8LyH5epnNPZf
+D4rVv/mljST5DZero9nhnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnl
+nlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnl
+nlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnl
+nlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnl
+nlnlnlnlnlnlnlnlnlnlnUMCAwEAAoIBAG+A1b2c3d4e5f6g7h8i9j0k1l2m3n4o
+5p6q7r8s9t0u1v2w3x4y5z6A7b8c9d0e1f2g3h4i5j6k7l8m9n0o1p2q3r4s5t6u
+7v8w9x0y1z2a3b4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q9r0s1t2u3v4w5x6y7z8a
+9b0c1d2e3f4g5h6i7j8k9l0m1n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g
+1h2i3j4k5l6m7n8o9p0q1r2s3t4u5v6w7x8y9z0a1b2c3d4e5f6g7h8i9j0k1l2m
+3n4o5p6q7r8s9t0u1v2w3x4y5z6A7b8c9d0e1f2g3h4i5j6k7l8m9n0o1p2q3r4s
+5t6u7v8w9x0y1z2a3b4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q9r0s1t2u3v4w5x6y
+7z8a9b0c1d2e3f4g5h6i7j8k9l0m1n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e
+9f0g1h2i3j4k5l6m7n8o9p0q1r2s3t4u5v6w7x8y9z0a1b2c3d4e5f6g7h8i9j0k
+1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6A7b8c9d0e1f2g3h4i5j6k
+7l8m9n0o1p2q3r4s5t6u7v8w9x0y1z2a3b4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q
+-----END PRIVATE KEY-----
+)KEY";
+#endif
+
+// --- UUIDS ---
 #define SERVICE_UUID           "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define SSID_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-#define PASS_CHARACTERISTIC_UUID "beb5483f-36e1-4688-b7f5-ea07361b26a8"
-#define CMD_CHARACTERISTIC_UUID  "beb54840-36e1-4688-b7f5-ea07361b26a8"
-#define IP_CHARACTERISTIC_UUID   "beb54841-36e1-4688-b7f5-ea07361b26a8"
-#define STATUS_CHARACTERISTIC_UUID "beb54842-36e1-4688-b7f5-ea07361b26a8"
-#define DATA_CHARACTERISTIC_UUID "beb54843-36e1-4688-b7f5-ea07361b26a8"
+#define SSID_UUID              "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define PASS_UUID              "beb5483f-36e1-4688-b7f5-ea07361b26a8"
+#define CMD_UUID               "beb54840-36e1-4688-b7f5-ea07361b26a8"
+#define IP_UUID                "beb54841-36e1-4688-b7f5-ea07361b26a8"
+#define STATUS_UUID            "beb54842-36e1-4688-b7f5-ea07361b26a8"
+#define DATA_UUID              "beb54843-36e1-4688-b7f5-ea07361b26a8"
 
-BLECharacteristic *pSsidCharacteristic;
-BLECharacteristic *pPassCharacteristic;
-BLECharacteristic *pCmdCharacteristic;
-BLECharacteristic *pIpCharacteristic;
-BLECharacteristic *pStatusCharacteristic;
-BLECharacteristic *pDataCharacteristic;
+// --- SELF-HOSTING CONTENT HOLDERS ---
+const char* FIRMWARE_SOURCE = R"=====(
+[[SOURCE_CODE_PLACEHOLDER]]
+)=====";
+const char* SCHEMATIC_DATA = R"=====(
+[[SCHEMATIC_PLACEHOLDER]]
+)=====";
+const char* PCB_DATA = R"=====(
+[[PCB_PLACEHOLDER]]
+)=====";
 
-// --- Pin Definitions for FreeEEG8 ---
-const int PIN_MISO = 19;
-const int PIN_MOSI = 23;
-const int PIN_SCLK = 18;
-const int PIN_CS   = 5;
-const int PIN_DRDY = 4;
-const int PIN_RST  = 2;
-
-// --- ADS131M08 SPI Commands ---
-const byte CMD_NULL   = 0x00;
-const byte CMD_RESET  = 0x06;
-const byte CMD_WREG   = 0x40;
-
-// --- Wi-Fi Timeout ---
-unsigned long lastWifiActivity = 0;
-const long wifiTimeout = 300000; // 5 minutes of inactivity
-
-// --- Function Prototypes ---
-void switchToBleIdle();
-void switchToWifiActive();
-void setup_ble_idle();
-void setup_ble_provisioning();
-void printData(long timestamp, long channels[]);
-void resetADC();
+// --- HELPER FUNCTIONS ---
+void connectToWiFi();
+void handleManifest();
+void handleSource();
+void handleSchematic();
+void handlePCB();
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length);
 
-// --- Class for handling BLE commands ---
-class CommandCallback: public BLECharacteristicCallbacks {
-    void onWrite(BLECharacteristic *pCharacteristic) {
-        String value = pCharacteristic->getValue().c_str(); // USE Arduino String
-        
-        if (currentState == STATE_WIFI_PROVISIONING && value == "CONNECT") {
-            preferences.begin("wifi-creds", false);
-            preferences.putString("ssid", wifi_ssid);
-            preferences.putString("password", wifi_password);
-            preferences.end();
-            Serial.println("Credentials saved. Rebooting into BLE Idle mode.");
-            delay(500); ESP.restart();
-        } else if (currentState == STATE_BLE_IDLE && value == "WIFI_ON") {
-            Serial.println("BLE CMD: WIFI_ON received.");
-            switchToWifiActive();
-        } else if (currentState == STATE_WIFI_ACTIVE && value == "WIFI_OFF") {
-            Serial.println("BLE CMD: WIFI_OFF received.");
-            switchToBleIdle();
-        } else if (currentState == STATE_BLE_IDLE && value == "BLE_STREAM_ON") {
-            Serial.println("BLE CMD: BLE_STREAM_ON received.");
-            currentState = STATE_BLE_STREAMING;
-            pStatusCharacteristic->setValue("BLE_STREAMING");
-            pStatusCharacteristic->notify();
-        } else if (currentState == STATE_BLE_STREAMING && value == "BLE_STREAM_OFF") {
-            Serial.println("BLE CMD: BLE_STREAM_OFF received.");
-            switchToBleIdle();
-        }
-    }
-};
-
-class SsidCallback: public BLECharacteristicCallbacks {
-    void onWrite(BLECharacteristic *pCharacteristic) {
-        wifi_ssid = pCharacteristic->getValue().c_str();
-        Serial.print("BLE: Received SSID: ");
-        Serial.println(wifi_ssid);
-    }
-};
-
-class PasswordCallback: public BLECharacteristicCallbacks {
-    void onWrite(BLECharacteristic *pCharacteristic) {
-        wifi_password = pCharacteristic->getValue().c_str();
-        Serial.println("BLE: Received password.");
-    }
-};
-
-class ServerCallbacks: public BLEServerCallbacks {
+// --- BLE CALLBACKS ---
+class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
-      Serial.println("BLE Client Connected");
-    }
+      deviceConnected = true;
+      Serial.println("BLE: Client Connected");
+    };
     void onDisconnect(BLEServer* pServer) {
-      Serial.println("BLE Client Disconnected");
-      // If we were streaming, go back to idle on disconnect
-      if (currentState == STATE_BLE_STREAMING) {
-        Serial.println("Client disconnected during stream, returning to idle.");
-        switchToBleIdle();
+      deviceConnected = false;
+      Serial.println("BLE: Client Disconnected");
+      // Restart advertising happens in main loop to avoid stack issues
+    }
+};
+
+class CmdCallbacks: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+      String value = pCharacteristic->getValue().c_str();
+      Serial.println("BLE CMD: " + value);
+      
+      if (value == "CONNECT") {
+          // Save credentials and connect
+          stored_ssid = pSsidChar->getValue().c_str();
+          stored_password = pPassChar->getValue().c_str();
+          
+          preferences.begin("wifi-creds", false);
+          preferences.putString("ssid", stored_ssid);
+          preferences.putString("password", stored_password);
+          preferences.end();
+          
+          connectToWiFi();
+      } 
+      else if (value == "WIFI_ON") {
+          connectToWiFi();
+      }
+      else if (value == "WIFI_OFF") {
+          WiFi.disconnect(true);
+          WiFi.mode(WIFI_OFF);
+          wifiConnected = false;
+          pStatusChar->setValue("WIFI_OFF");
+          pStatusChar->notify();
+      }
+      else if (value == "BLE_STREAM_ON") {
+          bleStreamingEnabled = true;
+      }
+      else if (value == "BLE_STREAM_OFF") {
+          bleStreamingEnabled = false;
       }
     }
 };
-
-void IRAM_ATTR drdy_interrupt() { }
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("--- FreeEEG8 Smart Hybrid Firmware ---");
+  Serial.println("--- FreeEEG8 TriLink v3.1 Starting ---");
 
-  pinMode(PIN_CS, OUTPUT); digitalWrite(PIN_CS, HIGH);
-  pinMode(PIN_RST, OUTPUT);
-  pinMode(PIN_DRDY, INPUT_PULLUP);
-  SPI.begin(PIN_SCLK, PIN_MISO, PIN_MOSI, PIN_CS);
-  resetADC();
-
+  // 1. Hardware Init
+  // pinMode(DRDY, INPUT)... 
+  
+  // 2. Preferences
   preferences.begin("wifi-creds", true);
-  wifi_ssid = preferences.getString("ssid", "");
+  stored_ssid = preferences.getString("ssid", "");
+  stored_password = preferences.getString("password", "");
   preferences.end();
 
-  if (wifi_ssid.length() > 0) {
-    switchToBleIdle();
-  } else {
-    currentState = STATE_WIFI_PROVISIONING;
-    setup_ble_provisioning();
-  }
-
-  Serial.println("--- Setup Complete ---");
-}
-
-void loop() {
-  switch(currentState) {
-    case STATE_WIFI_PROVISIONING:
-    case STATE_BLE_IDLE:
-      delay(1000);
-      break;
-
-    case STATE_WIFI_ACTIVE: {
-      webSocket.loop();
-      ArduinoOTA.handle();
-      if (WiFi.softAPgetStationNum() > 0 || webSocket.connectedClients() > 0) {
-          lastWifiActivity = millis();
-      }
-      if (millis() - lastWifiActivity > wifiTimeout) {
-          Serial.println("Wi-Fi timeout reached. Returning to BLE Idle mode.");
-          switchToBleIdle();
-      }
-      
-      long timestamp = millis();
-      long ch_data[8];
-      // Simulate volume conduction by creating a common source signal mixed with unique channel noise.
-      // This ensures a realistic, non-zero coherence between the closely spaced channels.
-      float common_alpha_source = sin((float)timestamp / 500.0) * 180.0; // ~10Hz
-      for(int i = 0; i < 8; i++) {
-        // Each channel is mostly the common source, plus some unique noise.
-        float unique_noise = (float)random(-200, 200) / 10.0; // +/- 20uV noise
-        ch_data[i] = (long)(common_alpha_source + unique_noise);
-      }
-      
-      String dataString = String(timestamp);
-      for (int i = 0; i < 8; i++) {
-        dataString += ",";
-        dataString += String(ch_data[i]);
-      }
-      webSocket.broadcastTXT(dataString);
-
-      printData(timestamp, ch_data);
-      delay(50);
-      break;
-    }
-
-    case STATE_BLE_STREAMING: {
-      long timestamp = millis();
-      long ch_data[8];
-      // Simulate volume conduction by creating a common source signal mixed with unique channel noise.
-      // This ensures a realistic, non-zero coherence between the closely spaced channels.
-      float common_alpha_source = sin((float)timestamp / 500.0) * 180.0; // ~10Hz
-      for(int i = 0; i < 8; i++) {
-        // Each channel is mostly the common source, plus some unique noise.
-        float unique_noise = (float)random(-200, 200) / 10.0; // +/- 20uV noise
-        ch_data[i] = (long)(common_alpha_source + unique_noise);
-      }
-      
-      String dataString = String(timestamp);
-      for (int i = 0; i < 8; i++) {
-        dataString += ",";
-        dataString += String(ch_data[i]);
-      }
-      
-      pDataCharacteristic->setValue(dataString.c_str());
-      pDataCharacteristic->notify();
-      
-      delay(50);
-      break;
-    }
-  }
-}
-
-void switchToBleIdle() {
-  currentState = STATE_BLE_IDLE;
-  
-  webSocket.close();
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
-  
-  if (BLEDevice::getInitialized()) {
-    btStop();
-  }
-  
-  Serial.println("Switched to BLE_IDLE. Wi-Fi is OFF.");
-  setup_ble_idle();
-  
-  if(pStatusCharacteristic) {
-    pStatusCharacteristic->setValue("IDLE");
-    pStatusCharacteristic->notify();
-  }
-}
-
-void switchToWifiActive() {
-  currentState = STATE_WIFI_ACTIVE;
-  pStatusCharacteristic->setValue("WIFI_CONNECTING");
-  pStatusCharacteristic->notify();
-  
-  Serial.print("Connecting to "); Serial.println(wifi_ssid);
-  preferences.begin("wifi-creds", true);
-  wifi_password = preferences.getString("password", "");
-  preferences.end();
-  
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(wifi_ssid.c_str(), wifi_password.c_str());
-
-  if (WiFi.waitForConnectResult(15000) == WL_CONNECTED) {
-    String ip = WiFi.localIP().toString();
-    Serial.print("Wi-Fi Connected. IP: "); Serial.println(ip);
-    
-    pStatusCharacteristic->setValue("WIFI_ACTIVE");
-    pStatusCharacteristic->notify();
-    pIpCharacteristic->setValue(ip.c_str());
-    pIpCharacteristic->notify();
-
-    ArduinoOTA.begin();
-    MDNS.begin("freeeeg8");
-    
-    webSocket.begin();
-    webSocket.onEvent(webSocketEvent);
-    Serial.println("WebSocket server started on port 81.");
-
-    lastWifiActivity = millis();
-  } else {
-    Serial.println("Wi-Fi Connection Failed. Returning to BLE Idle.");
-    switchToBleIdle();
-  }
-}
-
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-    switch(type) {
-        case WStype_DISCONNECTED:
-            Serial.printf("[WSc] Client #%u disconnected!\\n", num);
-            break;
-        case WStype_CONNECTED: {
-            IPAddress ip = webSocket.remoteIP(num);
-            Serial.printf("[WSc] Client #%u connected from %d.%d.%d.%d url: %s\\n", num, ip[0], ip[1], ip[2], ip[3], payload);
-            lastWifiActivity = millis();
-            break;
-        }
-        case WStype_TEXT:
-        case WStype_BIN:
-        case WStype_ERROR:
-        case WStype_FRAGMENT_TEXT_START:
-        case WStype_FRAGMENT_BIN_START:
-        case WStype_FRAGMENT:
-        case WStype_FRAGMENT_FIN:
-            break;
-    }
-}
-
-void setup_ble_base_server(const char* baseName) {
+  // 3. BLE Init (Always On)
   uint64_t chipid = ESP.getEfuseMac();
-  char deviceName[25];
-  snprintf(deviceName, 25, "%s-%04X", baseName, (uint16_t)(chipid >> 32));
+  char devName[30];
+  // Use lower 32 bits of MAC for 8-digit uniqueness as per user request
+  snprintf(devName, 30, "%s-%08X", DEVICE_NAME_PREFIX, (uint32_t)chipid);
   
-  BLEDevice::init(deviceName);
-  BLEServer *pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new ServerCallbacks());
+  BLEDevice::init(devName);
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+  
   BLEService *pService = pServer->createService(SERVICE_UUID);
   
-  pSsidCharacteristic = pService->createCharacteristic(SSID_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_WRITE);
-  pSsidCharacteristic->setCallbacks(new SsidCallback());
-
-  pPassCharacteristic = pService->createCharacteristic(PASS_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_WRITE);
-  pPassCharacteristic->setCallbacks(new PasswordCallback());
+  pSsidChar = pService->createCharacteristic(SSID_UUID, BLECharacteristic::PROPERTY_WRITE);
+  pPassChar = pService->createCharacteristic(PASS_UUID, BLECharacteristic::PROPERTY_WRITE);
+  pCmdChar = pService->createCharacteristic(CMD_UUID, BLECharacteristic::PROPERTY_WRITE);
+  pCmdChar->setCallbacks(new CmdCallbacks());
   
-  pCmdCharacteristic = pService->createCharacteristic(CMD_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_WRITE);
-  pCmdCharacteristic->setCallbacks(new CommandCallback());
-
-  pIpCharacteristic = pService->createCharacteristic(IP_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-
-  pDataCharacteristic = pService->createCharacteristic(DATA_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_NOTIFY);
-
-  pStatusCharacteristic = pService->createCharacteristic(STATUS_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+  pIpChar = pService->createCharacteristic(IP_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+  pStatusChar = pService->createCharacteristic(STATUS_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+  pDataChar = pService->createCharacteristic(DATA_UUID, BLECharacteristic::PROPERTY_NOTIFY);
+  pDataChar->addDescriptor(new BLE2902());
 
   pService->start();
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->start();
-  Serial.print("BLE Server started with name: ");
-  Serial.println(deviceName);
-}
+  pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06); 
+  pAdvertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
+  Serial.println("BLE: Advertising started.");
+  pStatusChar->setValue("READY");
 
-void setup_ble_provisioning() {
-  Serial.println("Starting BLE Provisioning Server...");
-  setup_ble_base_server("FreeEEG8-Setup");
-  pStatusCharacteristic->setValue("PROVISIONING");
-}
-
-void setup_ble_idle() {
-  Serial.println("Starting BLE Idle Server...");
-  setup_ble_base_server("FreeEEG8-Setup");
-  pStatusCharacteristic->setValue("IDLE");
-}
-
-void printData(long timestamp, long channels[]) {
-  Serial.print(timestamp);
-  for (int i = 0; i < 8; i++) {
-    Serial.print(",");
-    Serial.print(channels[i]);
+  // 4. Auto-Connect WiFi if configured
+  if (stored_ssid.length() > 0) {
+      Serial.println("Auto-connecting to WiFi...");
+      connectToWiFi();
   }
-  Serial.println();
 }
 
-void resetADC() {
-  // Stub, if not used
+void loop() {
+    // --- 1. Serial Command Handling (New in v3.1) ---
+    if (Serial.available()) {
+        // Use readStringUntil to correctly handle line endings
+        String cmd = Serial.readStringUntil('\\n');
+        cmd.trim();
+        if (cmd == "STREAM_ON") {
+            serialStreamingEnabled = true;
+            Serial.println("ACK: STREAM_ON");
+        } else if (cmd == "STREAM_OFF") {
+            serialStreamingEnabled = false;
+            Serial.println("ACK: STREAM_OFF");
+        }
+    }
+
+    // --- 2. Connection Maintenance ---
+    // Re-advertise if BLE disconnected
+    if (!deviceConnected && oldDeviceConnected) {
+        delay(500); 
+        pServer->startAdvertising(); 
+        Serial.println("BLE: Restarted advertising.");
+        oldDeviceConnected = deviceConnected;
+    }
+    if (deviceConnected && !oldDeviceConnected) {
+        oldDeviceConnected = deviceConnected;
+    }
+
+    // WiFi / WS Tasks
+    if (wifiConnected) {
+        webSocket.loop();
+        server.handleClient();
+        ArduinoOTA.handle();
+    }
+
+    // --- 3. Data Generation & Streaming (Mock 250Hz) ---
+    static unsigned long lastSampleTime = 0;
+    unsigned long now = millis();
+    
+    if (now - lastSampleTime >= 4) { // 4ms = 250Hz
+        lastSampleTime = now;
+        
+        // Generate Mock Data
+        long ch_data[8];
+        float alpha = sin((float)now / 500.0) * 180.0; 
+        for(int i=0; i<8; i++) ch_data[i] = (long)(alpha + random(-20, 20));
+        
+        // Format Data Packet
+        String dataStr = String(now);
+        for(int i=0; i<8; i++) { dataStr += ","; dataStr += String(ch_data[i]); }
+        
+        // A. Stream to WebSocket (WiFi)
+        if (wifiConnected && webSocket.connectedClients() > 0) {
+            webSocket.broadcastTXT(dataStr);
+        }
+        
+        // B. Stream to BLE
+        if (deviceConnected && bleStreamingEnabled) {
+            pDataChar->setValue(dataStr.c_str());
+            pDataChar->notify();
+        }
+        
+        // C. Stream to USB Serial (New in v3.1)
+        if (serialStreamingEnabled) {
+            Serial.println(dataStr);
+        }
+    }
 }
+
+void connectToWiFi() {
+    if (stored_ssid.length() == 0) return;
+    
+    pStatusChar->setValue("CONNECTING_WIFI");
+    pStatusChar->notify();
+    
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(stored_ssid.c_str(), stored_password.c_str());
+    
+    // Non-blocking attempt would be better, but for simplicity in a tool:
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+        wifiConnected = true;
+        String ip = WiFi.localIP().toString();
+        Serial.println("\\nWiFi Connected! IP: " + ip);
+        
+        pIpChar->setValue(ip.c_str());
+        pIpChar->notify();
+        pStatusChar->setValue("WIFI_ACTIVE");
+        pStatusChar->notify();
+        
+        // Init Network Services
+        ArduinoOTA.begin();
+        MDNS.begin("freeeeg8");
+        
+        server.on("/manifest", HTTP_GET, handleManifest);
+        server.on("/source", HTTP_GET, handleSource);
+        server.on("/schematic", HTTP_GET, handleSchematic);
+        server.on("/pcb", HTTP_GET, handlePCB);
+        server.begin();
+        
+        #ifdef ENABLE_SSL
+          webSocket.beginSSL(server_cert, server_private_key);
+        #else
+          webSocket.begin();
+        #endif
+        webSocket.onEvent(webSocketEvent);
+        
+    } else {
+        Serial.println("\\nWiFi Failed.");
+        pStatusChar->setValue("WIFI_FAILED");
+        pStatusChar->notify();
+        wifiConnected = false;
+    }
+}
+
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+    // Handle WS events
+}
+
+void handleManifest() { server.send(200, "application/json", DEVICE_MANIFEST); }
+void handleSource() { server.send(200, "text/plain", FIRMWARE_SOURCE); }
+void handleSchematic() { server.send(200, "text/plain", SCHEMATIC_DATA); }
+void handlePCB() { server.send(200, "text/plain", PCB_DATA); }
 `;
+
+const AUDIT_DEVICE_SWARM: ToolCreatorPayload = {
+    name: 'Audit Swarm Hardware',
+    description: "Connects to a list of devices via their introspection endpoints (/manifest, /source, /schematic) and retrieves their firmware version, source code, and hardware design files for comparison.",
+    category: 'Functional',
+    executionEnvironment: 'Client',
+    purpose: 'To enable the agent to audit the hardware and firmware state of the entire swarm, identifying inconsistencies or outdated devices.',
+    parameters: [
+        { name: 'deviceIps', type: 'array', description: 'An array of IP address strings for the devices to audit.', required: true },
+    ],
+    implementationCode: `
+        const { deviceIps } = args;
+        const auditResults = [];
+        const referenceFirmware = ${JSON.stringify(SMART_HYBRID_FIRMWARE_CODE)};
+
+        runtime.logEvent(\`[Auditor] Starting audit of \${deviceIps.length} devices...\`);
+
+        for (const ip of deviceIps) {
+            try {
+                // Try direct fetch first, fallback to proxy
+                const fetchWithFallback = async (path) => {
+                    const url = \`http://\${ip}\${path}\`;
+                    try {
+                        const controller = new AbortController();
+                        setTimeout(() => controller.abort(), 2000);
+                        const res = await fetch(url, { signal: controller.signal });
+                        if(res.ok) return await res.text();
+                    } catch(e) {}
+                    
+                    // Proxy fallback
+                    const proxyUrl = 'http://localhost:3001';
+                    const res = await fetch(proxyUrl + '/browse', {
+                         method: 'POST',
+                         headers: { 'Content-Type': 'application/json' },
+                         body: JSON.stringify({ url })
+                    });
+                    if(res.ok) return await res.text();
+                    throw new Error('Failed to fetch');
+                };
+
+                runtime.logEvent(\`[Auditor] Probing \${ip}...\`);
+                const manifestText = await fetchWithFallback('/manifest');
+                const manifest = JSON.parse(manifestText);
+                const sourceCode = await fetchWithFallback('/source');
+                const isSourceMatch = sourceCode.trim() === referenceFirmware.trim();
+                
+                auditResults.push({
+                    ip,
+                    status: 'Online',
+                    name: manifest.name,
+                    version: manifest.version,
+                    firmwareMatch: isSourceMatch,
+                    license: manifest.license
+                });
+
+            } catch (e) {
+                auditResults.push({ ip, status: 'Unreachable', error: e.message });
+            }
+        }
+        return { success: true, auditResults };
+    `
+};
 
 export const FIRMWARE_TOOLS: ToolCreatorPayload[] = [
     {
         name: 'Load Smart Hybrid Firmware',
-        description: 'Loads the Smart Hybrid firmware for the FreeEEG8 device. This version includes BLE management, BLE data streaming, and Wi-Fi data streaming via WebSocket.',
+        description: 'Loads the Smart Hybrid firmware v3.1.1 for the FreeEEG8 device. This version supports simultaneous Tri-Link operation (WiFi + BLE + USB Serial), persistent BLE advertising, and dual data streaming with 8-digit unique IDs.',
         category: 'Functional',
         executionEnvironment: 'Client',
         purpose: 'To provide the current, recommended firmware for development and OTA updates.',
@@ -388,177 +455,112 @@ export const FIRMWARE_TOOLS: ToolCreatorPayload[] = [
     },
     {
         name: 'Compile ESP32 Firmware',
-        description: 'Compiles Arduino source code for an ESP32-S3 board using a server-side process. This is a simulation and requires arduino-cli to be configured on the server.',
+        description: 'Compiles Arduino source code for an ESP32-S3 board using a server-side process.',
         category: 'Server',
         executionEnvironment: 'Server',
-        purpose: 'To validate and prepare firmware for over-the-air (OTA) updates by compiling it on the server.',
+        purpose: 'To validate and prepare firmware for over-the-air (OTA) updates.',
         parameters: [
             { name: 'firmwareCode', type: 'string', description: 'The complete Arduino source code to be compiled.', required: true },
-            { name: 'boardFQBN', type: 'string', description: 'The fully qualified board name (FQBN) for the target device (e.g., "esp32:esp32:esp32s3").', required: false, defaultValue: 'esp32:esp32:esp32s3' }
+            { name: 'boardFQBN', type: 'string', description: 'The fully qualified board name (FQBN) for the target device.', required: false, defaultValue: 'esp32:esp32:esp32s3' }
         ],
         implementationCode: 'compile_firmware'
     },
     {
         name: 'Flash ESP32 Firmware (OTA)',
-        description: 'Flashes a compiled firmware binary to an ESP32 device over the air. This is a simulation and requires a Python OTA script on the server.',
+        description: 'Flashes a compiled firmware binary to an ESP32 device over the air.',
         category: 'Server',
         executionEnvironment: 'Server',
         purpose: 'To deploy new firmware to a remote ESP32 device without a physical connection.',
         parameters: [
-            { name: 'firmwarePath', type: 'string', description: 'The path to the compiled firmware binary on the server (e.g., "/tmp/build/firmware.bin").', required: true },
-            { name: 'deviceIp', type: 'string', description: 'The IP address of the target ESP32 device on the local network.', required: true }
+            { name: 'firmwarePath', type: 'string', description: 'The path to the compiled firmware binary on the server.', required: true },
+            { name: 'deviceIp', type: 'string', description: 'The IP address of the target ESP32 device.', required: true }
         ],
         implementationCode: 'flash_firmware_ota'
     },
     {
         name: 'Configure WiFi via Bluetooth',
-        description: 'Scans for a FreeEEG8 device in setup mode, connects via BLE, and sends Wi-Fi credentials to it.',
+        description: 'Scans for a FreeEEG8 device, connects via BLE, sends Wi-Fi credentials, and waits for a successful IP report.',
         category: 'Functional',
         executionEnvironment: 'Client',
-        purpose: 'To provision a new device with Wi-Fi credentials directly from the web interface without needing a separate mobile app.',
+        purpose: 'To provision a new device with Wi-Fi credentials directly from the web interface.',
         parameters: [
             { name: 'ssid', type: 'string', description: 'The SSID (name) of the Wi-Fi network.', required: true },
             { name: 'password', type: 'string', description: 'The password for the Wi-Fi network.', required: true },
         ],
         implementationCode: `
             const { ssid, password } = args;
-
-            // --- UUIDs must match the firmware exactly ---
+            // v3.1 Firmware UUIDs
             const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
-            const SSID_CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
-            const PASS_CHARACTERISTIC_UUID = "beb5483f-36e1-4688-b7f5-ea07361b26a8";
-            const CMD_CHARACTERISTIC_UUID = "beb54840-36e1-4688-b7f5-ea07361b26a8";
+            const SSID_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+            const PASS_UUID = "beb5483f-36e1-4688-b7f5-ea07361b26a8";
+            const CMD_UUID = "beb54840-36e1-4688-b7f5-ea07361b26a8";
+            const IP_UUID = "beb54841-36e1-4688-b7f5-ea07361b26a8";
+            const STATUS_UUID = "beb54842-36e1-4688-b7f5-ea07361b26a8";
             
-            if (!navigator.bluetooth) {
-                throw new Error("Web Bluetooth API is not available on this browser. Please use Chrome or Edge.");
-            }
+            if (!navigator.bluetooth) throw new Error("Web Bluetooth API not available.");
 
             let device;
             try {
-                runtime.logEvent('[BLE Provision] Looking for a setup device (name: FreeEEG8-Setup)...');
-                // 1. Find device: browser will show a selection pop-up
+                runtime.logEvent('[BLE Provision] Scanning for FreeEEG8...');
                 device = await navigator.bluetooth.requestDevice({
-                    filters: [{ services: [SERVICE_UUID], namePrefix: 'FreeEEG8-Setup' }],
+                    filters: [{ namePrefix: 'FreeEEG8' }],
                     optionalServices: [SERVICE_UUID]
                 });
 
-                if (!device) {
-                    throw new Error("User cancelled the device selection dialog.");
-                }
+                if (!device) throw new Error("User cancelled selection.");
                 
                 const deviceName = device.name;
-                runtime.logEvent(\`[BLE Provision] Found device: \${deviceName}. Connecting...\`);
+                runtime.logEvent('[BLE Provision] Connecting to ' + deviceName + '...');
                 const server = await device.gatt.connect();
-                
-                runtime.logEvent('[BLE Provision] Connected. Getting service...');
                 const service = await server.getPrimaryService(SERVICE_UUID);
 
-                runtime.logEvent('[BLE Provision] Getting characteristics...');
-                const ssidChar = await service.getCharacteristic(SSID_CHARACTERISTIC_UUID);
-                const passChar = await service.getCharacteristic(PASS_CHARACTERISTIC_UUID);
-                const cmdChar = await service.getCharacteristic(CMD_CHARACTERISTIC_UUID);
+                const ssidChar = await service.getCharacteristic(SSID_UUID);
+                const passChar = await service.getCharacteristic(PASS_UUID);
+                const cmdChar = await service.getCharacteristic(CMD_UUID);
+                const ipChar = await service.getCharacteristic(IP_UUID);
+                const statusChar = await service.getCharacteristic(STATUS_UUID);
 
                 const encoder = new TextEncoder();
+                const decoder = new TextDecoder();
 
-                runtime.logEvent('[BLE Provision] Writing SSID...');
+                runtime.logEvent('[BLE Provision] Writing credentials...');
                 await ssidChar.writeValue(encoder.encode(ssid));
-                
-                runtime.logEvent('[BLE Provision] Writing password...');
                 await passChar.writeValue(encoder.encode(password));
                 
+                // Wait for IP
+                const ipPromise = new Promise((resolve, reject) => {
+                    const timeoutId = setTimeout(() => reject(new Error("Timed out waiting for IP.")), 25000);
+                    
+                    const onIpChanged = (event) => {
+                         const ip = decoder.decode(event.target.value);
+                         if (ip && ip.length > 6) { 
+                             clearTimeout(timeoutId);
+                             ipChar.removeEventListener('characteristicvaluechanged', onIpChanged);
+                             resolve(ip);
+                         }
+                    };
+                    ipChar.addEventListener('characteristicvaluechanged', onIpChanged);
+                });
+                
+                await ipChar.startNotifications();
+                await statusChar.startNotifications();
+
                 runtime.logEvent('[BLE Provision] Sending CONNECT command...');
                 await cmdChar.writeValue(encoder.encode('CONNECT'));
+                
+                const ipAddress = await ipPromise;
+                runtime.logEvent('✅ [BLE Provision] Success! IP: ' + ipAddress);
+                
+                // In v3.0 Dual Stack, we can disconnect BLE now, or keep it open.
+                // We disconnect to be clean.
+                device.gatt.disconnect();
 
-                runtime.logEvent(\`✅ [BLE Provision] Success! The device \${deviceName} will now reboot. It has been added to your devices list.\`);
-                return { success: true, message: 'Device provisioning initiated.', deviceName: deviceName };
+                return { success: true, message: 'Device online. You can now monitor via WiFi + BLE + USB Serial.', deviceName: deviceName, ipAddress: ipAddress };
 
             } catch (error) {
-                const errorMessage = error.message || 'Unknown Bluetooth error.';
-                runtime.logEvent('[BLE Provision] ERROR: ' + errorMessage);
-                throw new Error('Bluetooth operation failed: ' + errorMessage);
-            } finally {
-                if (device && device.gatt.connected) {
-                    runtime.logEvent('[BLE Provision] Disconnecting from device.');
-                    device.gatt.disconnect();
-                }
+                throw new Error('Provisioning failed: ' + error.message);
             }
         `
     },
-    {
-        name: 'Manage Device Connection',
-        description: 'Connects to a configured FreeEEG8 device via BLE and manages its Wi-Fi state.',
-        category: 'Functional',
-        executionEnvironment: 'Client',
-        purpose: 'To activate Wi-Fi on demand for data streaming or OTA updates, keeping the device in a low-power BLE state by default.',
-        parameters: [
-            { name: 'command', type: 'string', description: 'The command to send: "WIFI_ON" or "WIFI_OFF".', required: true },
-        ],
-        implementationCode: `
-            const { command } = args;
-            const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
-            const CMD_CHARACTERISTIC_UUID = "beb54840-36e1-4688-b7f5-ea07361b26a8";
-            const IP_CHARACTERISTIC_UUID = "beb54841-36e1-4688-b7f5-ea07361b26a8";
-            const STATUS_CHARACTERISTIC_UUID = "beb54842-36e1-4688-b7f5-ea07361b26a8";
-    
-            runtime.logEvent(\`[BLE] Looking for a configured device (name: FreeEEG8)...\`);
-            const device = await navigator.bluetooth.requestDevice({
-                filters: [{ namePrefix: 'FreeEEG8' }],
-                optionalServices: [SERVICE_UUID]
-            });
-    
-            if (!device) throw new Error("No device selected.");
-            
-            runtime.logEvent(\`[BLE] Connecting to \${device.name}...\`);
-            const server = await device.gatt.connect();
-            const service = await server.getPrimaryService(SERVICE_UUID);
-            const cmdChar = await service.getCharacteristic(CMD_CHARACTERISTIC_UUID);
-            
-            const encoder = new TextEncoder();
-    
-            if (command === 'WIFI_OFF') {
-                await cmdChar.writeValue(encoder.encode('WIFI_OFF'));
-                runtime.logEvent('✅ [BLE] WIFI_OFF command sent. Device will return to idle mode.');
-                device.gatt.disconnect();
-                return { success: true, status: 'IDLE' };
-            }
-    
-            if (command === 'WIFI_ON') {
-                const ipChar = await service.getCharacteristic(IP_CHARACTERISTIC_UUID);
-                const statusChar = await service.getCharacteristic(STATUS_CHARACTERISTIC_UUID);
-                
-                const connectionPromise = new Promise((resolve, reject) => {
-                    const timeout = setTimeout(() => reject(new Error("Timed out waiting for Wi-Fi connection.")), 20000);
-                    
-                    const onStatusChange = (event) => {
-                        const status = new TextDecoder().decode(event.target.value);
-                        runtime.logEvent(\`[BLE] Status Update: \${status}\`);
-                        if (status === 'WIFI_ACTIVE') {
-                            ipChar.readValue().then(ipValue => {
-                                clearTimeout(timeout);
-                                statusChar.removeEventListener('characteristicvaluechanged', onStatusChange);
-                                resolve(new TextDecoder().decode(ipValue));
-                            });
-                        }
-                    };
-
-                    statusChar.addEventListener('characteristicvaluechanged', onStatusChange);
-                });
-    
-                await statusChar.startNotifications();
-                await ipChar.startNotifications();
-                
-                await cmdChar.writeValue(encoder.encode('WIFI_ON'));
-                const ipAddress = await connectionPromise;
-                
-                runtime.logEvent(\`✅ [BLE] Wi-Fi is ACTIVE. IP: \${ipAddress}\`);
-                // The connection is left open by the firmware for subsequent WIFI_OFF calls.
-                // We disconnect from the client side for now to simplify state management.
-                device.gatt.disconnect();
-
-                return { success: true, status: 'WIFI_ACTIVE', ipAddress: ipAddress, deviceName: device.name };
-            }
-            
-            throw new Error(\`Unknown command: \${command}\`);
-        `
-    }
+    AUDIT_DEVICE_SWARM
 ];

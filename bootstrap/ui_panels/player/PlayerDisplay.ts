@@ -6,7 +6,9 @@ const renderPlayerDisplay = ({
   rawData,
   connectionStatus,
   handleRunProtocol,
-  runtime
+  runtime,
+  vibecoderHistory,
+  sandboxedTool
 }) => {
     const isRunningThis = runningProtocol && selectedProtocol && runningProtocol.id === selectedProtocol.id;
 
@@ -20,7 +22,15 @@ const renderPlayerDisplay = ({
                 </div>
                 <div className="flex-grow bg-black rounded-md relative min-h-0">
                     {runningProtocol && runningProtocol.id === selectedProtocol.id ? (
-                        <UIToolRunner tool={runningProtocol} props={{ processedData, runtime }} />
+                        <UIToolRunner 
+                            tool={runningProtocol} 
+                            props={{ 
+                                processedData, 
+                                runtime,
+                                vibecoderHistory,
+                                sandboxedTool
+                            }} 
+                        />
                     ) : (
                          <div className="h-full w-full flex items-center justify-center">
                            <p className="text-slate-500">Waiting for EEG data...</p>
@@ -31,13 +41,12 @@ const renderPlayerDisplay = ({
                    <div className="bg-black/40 rounded p-2 border border-slate-700">
                       <h4 className="text-xs font-mono text-slate-500">RAW DATA STREAM DEBUG</h4>
                       <p className="text-xs font-mono text-green-400 whitespace-pre-wrap overflow-y-auto max-h-12">
-                        {connectionStatus && \`[\${connectionStatus}] \`}
-                        {rawData ? (typeof rawData === 'string' ? rawData : JSON.stringify(rawData)) : "No data received yet..."}
+                        {(connectionStatus ? '[' + connectionStatus + '] ' : '') + (rawData ? (typeof rawData === 'string' ? rawData : JSON.stringify(rawData)) : "No data received yet...")}
                       </p>
                    </div>
                     <button 
                         onClick={() => handleRunProtocol(selectedProtocol)}
-                        className={\`w-full py-3 rounded-lg font-bold text-lg flex items-center justify-center gap-2 \${isRunningThis ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-green-600 hover:bg-green-500 text-white'}\`}
+                        className={'w-full py-3 rounded-lg font-bold text-lg flex items-center justify-center gap-2 ' + (isRunningThis ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-green-600 hover:bg-green-500 text-white')}
                     >
                         {isRunningThis ? <StopIcon className="h-6 w-6" /> : <PlayIcon className="h-6 w-6" />}
                         {isRunningThis ? 'Stop Session' : 'Start Session'}

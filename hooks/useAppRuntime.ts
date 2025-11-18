@@ -28,6 +28,8 @@ export function useAppRuntime() {
 
     // --- NEW: Sub-step progress state ---
     const [subStepProgress, setSubStepProgress] = useState<SubStepProgress>(null);
+    const [activeAppId, setActiveAppId] = useState<string | null>(null);
+
 
     const swarmManager = useSwarmManager({
         logEvent: stateManager.logEvent,
@@ -85,6 +87,11 @@ export function useAppRuntime() {
         isServerConnected: () => toolManager.isServerConnected,
         forceRefreshServerTools: toolManager.forceRefreshServerTools,
         reportProgress: setSubStepProgress, // Expose the progress setter to tools
+        startSwarmTask: swarmManager.startSwarmTask,
+        handleStopSwarm: swarmManager.handleStopSwarm,
+        os: {
+          launchApp: (appId: string) => setActiveAppId(appId),
+        },
         // This is a new addition to expose read-only state to tools that need it.
         // It's a function to prevent stale closures.
         getState: () => ({
@@ -97,7 +104,21 @@ export function useAppRuntime() {
             eventLog: stateManager.eventLog,
             ModelProvider, // Expose the enum
             isSwarmRunning: isSwarmRunningRef.current, // Use the ref to get the live value
+            globalEegData: stateManager.globalEegData, // Expose raw EEG data
+            subStepProgress: subStepProgress,
+            activeAppId: activeAppId,
         }),
+        eeg: {
+            setGlobalEegData: stateManager.setGlobalEegData,
+            getGlobalEegData: () => stateManager.globalEegData,
+        },
+        vibecoder: {
+            getHistory: () => stateManager.vibecoderHistory,
+            recordIteration: (iterationData: any) => {
+                stateManager.setVibecoderHistory(prev => [...prev, iterationData]);
+            },
+            clearHistory: () => stateManager.setVibecoderHistory([]),
+        },
         tools: {
             run: async (toolName: string, args: Record<string, any>): Promise<any> => {
                 if (!executeActionRef.current) {
@@ -160,7 +181,7 @@ export function useAppRuntime() {
         },
         getObservationHistory: () => [], // Placeholder for a more advanced feature
         clearObservationHistory: () => {}, // Placeholder
-    }), [stateManager, toolManager, swarmManager, setSubStepProgress]);
+    }), [stateManager, toolManager, swarmManager, setSubStepProgress, subStepProgress, activeAppId, setActiveAppId]);
 
     const executeAction = useMemo<ExecuteActionFunction>(() => {
         const fn = async (
@@ -251,7 +272,7 @@ export function useAppRuntime() {
     }, [getTool, stateManager.logEvent, runtimeApi, toolManager.isServerConnected]);
 
     executeActionRef.current = executeAction;
-
+    
     return {
         ...stateManager,
         ...toolManager,
@@ -259,5 +280,7 @@ export function useAppRuntime() {
         subStepProgress, // Expose the progress state
         runtimeApi,
         getTool,
+        activeAppId,
+        setActiveAppId,
     };
 };

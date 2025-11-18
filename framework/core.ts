@@ -14,7 +14,7 @@ export const FRAMEWORK_CORE_TOOLS: LLMTool[] = [
       { name: 'reason', type: 'string', description: 'A brief summary of why the task is considered complete.', required: true },
     ],
     implementationCode: `
-      return { success: true, message: \`Task completed. Reason: \${args.reason}\` };
+      return { success: true, message: 'Task completed. Reason: ' + args.reason };
     `
   },
   {
@@ -59,16 +59,16 @@ export const FRAMEWORK_CORE_TOOLS: LLMTool[] = [
             });
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.error || \`Server responded with status \${response.status}\`);
+                throw new Error(result.error || 'Server responded with status ' + response.status);
             }
-            return { success: true, message: \`Server tool '\${result.tool.name}' created successfully.\`, tool: result.tool };
+            return { success: true, message: "Server tool '" + result.tool.name + "' created successfully.", tool: result.tool };
         } catch (e) {
-            throw new Error(\`Failed to create server tool via API: \${e.message}\`);
+            throw new Error('Failed to create server tool via API: ' + e.message);
         }
       } else {
         const newTool = runtime.tools.add(toolPayload);
         const location = toolPayload.executionEnvironment === 'Server' ? 'client-side (simulated)' : 'client-side';
-        return { success: true, message: \`Successfully created new \${location} tool: '\${newTool.name}'. Purpose: \${toolPayload.purpose}\`, tool: newTool };
+        return { success: true, message: 'Successfully created new ' + location + ' tool: \\'' + newTool.name + '\\'. Purpose: ' + toolPayload.purpose, tool: newTool };
       }
     `
   },

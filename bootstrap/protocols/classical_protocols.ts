@@ -6,6 +6,7 @@ import { ALPHA_ASYMMETRY_MOOD_BALANCER } from './classical/alpha_asymmetry_balan
 import { THETA_GAMMA_MEMORY_SYNC } from './classical/theta_gamma_sync';
 import { NEURAL_SYNCHRONY_PROTOCOL } from './classical/neural_synchrony';
 
+
 export const CLASSICAL_PROTOCOLS: ToolCreatorPayload[] = [
     EXAMPLE_PROTOCOL,
     SMR_FOCUS_TRAINER,

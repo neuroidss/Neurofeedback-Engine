@@ -55,7 +55,7 @@ const App: React.FC = () => {
                         setValidatedSources: appRuntime.setValidatedSources,
                         apiConfig: appRuntime.apiConfig,
                         setApiConfig: appRuntime.setApiConfig,
-                        // Pass through new script execution state and handlers
+                        setGlobalEegData: appRuntime.setGlobalEegData,
                         scriptExecutionState: appRuntime.scriptExecutionState,
                         currentScriptStepIndex: appRuntime.currentScriptStepIndex,
                         stepStatuses: appRuntime.stepStatuses,
@@ -64,7 +64,10 @@ const App: React.FC = () => {
                         stepForward: appRuntime.stepForward,
                         stepBackward: appRuntime.stepBackward,
                         runFromStep: appRuntime.runFromStep,
-                        subStepProgress: appRuntime.subStepProgress, // Pass progress down
+                        subStepProgress: appRuntime.subStepProgress,
+                        vibecoderHistory: appRuntime.vibecoderHistory,
+                        activeAppId: appRuntime.activeAppId,
+                        setActiveAppId: appRuntime.setActiveAppId,
                     }} 
                 />
             ) : (
@@ -73,18 +76,7 @@ const App: React.FC = () => {
                 </div>
             )}
             
-            {debugLogTool && (
-                 <UIToolRunner 
-                    tool={debugLogTool}
-                    props={{
-                        logs: eventLog,
-                        onReset: handleReset,
-                        apiCallCounts: apiCallCount,
-                        apiCallLimit: 999,
-                        agentCount: agentSwarm.length,
-                    }}
-                />
-            )}
+            {/* The DebugLogView is now launched via the dock in the new Main UI */}
             
             {appRuntime.isBudgetGuardTripped && (
                 <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[999] animate-fade-in">

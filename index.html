@@ -7,6 +7,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- GPU.js for Matrix Acceleration -->
+    <script src="https://cdn.jsdelivr.net/npm/gpu.js@latest/dist/gpu-browser.min.js"></script>
     <style>
       @keyframes text {
         0%, 100% {
@@ -45,28 +47,25 @@
   <script type="importmap">
 {
   "imports": {
-    "react/": "https://esm.sh/react@^19.1.0/",
-    "react": "https://esm.sh/react@^19.1.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.11.0",
-    "@huggingface/transformers": "https://esm.sh/@huggingface/transformers@^3.7.5",
-    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
-    "fs/": "https://esm.sh/fs@^0.0.1-security/",
-    "path": "https://esm.sh/path@^0.12.7",
-    "express": "https://esm.sh/express@^5.1.0",
-    "cors": "https://esm.sh/cors@^2.8.5",
-    "url": "https://esm.sh/url@^0.11.4",
-    "child_process": "https://esm.sh/child_process@^1.0.2",
-    "multer": "https://esm.sh/multer@^2.0.2",
-    "three": "https://esm.sh/three@^0.166.1",
-    "three/addons/": "https://esm.sh/three@^0.166.1/examples/jsm/",
-    "three/addons/loaders/SVGLoader.js": "https://esm.sh/three@^0.166.1/examples/jsm/loaders/SVGLoader.js",
-    "@dimforge/rapier3d-compat": "https://cdn.skypack.dev/@dimforge/rapier3d-compat",
-    "lil-gui": "https://esm.sh/lil-gui@^0.19.1",
-    "idb": "https://esm.sh/idb@^8",
+    "react": "https://cdn.jsdelivr.net/npm/react@19.0.0/+esm",
+    "react/jsx-runtime": "https://cdn.jsdelivr.net/npm/react@19.0.0/jsx-runtime/+esm",
+    "react-dom": "https://cdn.jsdelivr.net/npm/react-dom@19.0.0/+esm",
+    "react-dom/client": "https://cdn.jsdelivr.net/npm/react-dom@19.0.0/client/+esm",
+    "@google/genai": "https://cdn.jsdelivr.net/npm/@google/genai@1.11.0/+esm",
+    "@huggingface/transformers": "https://cdn.jsdelivr.net/npm/@huggingface/transformers/+esm",
+    "ml-pca": "https://cdn.jsdelivr.net/npm/ml-pca/+esm",
+    "three": "https://cdn.jsdelivr.net/npm/three@0.166.1/+esm",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.166.1/examples/jsm/",
+    "three/addons/loaders/SVGLoader.js": "https://cdn.jsdelivr.net/npm/three@0.166.1/examples/jsm/loaders/SVGLoader.js",
+    "@dimforge/rapier3d-compat": "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat/+esm",
+    "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.19.1/+esm",
+    "idb": "https://cdn.jsdelivr.net/npm/idb@8.0.0/+esm",
     "@wllama/wllama": "https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.6/esm/index.js",
-    "vite": "https://aistudiocdn.com/vite@^7.1.4",
-    "@wllama/wllama/": "https://aistudiocdn.com/@wllama/wllama@^2.3.6/",
-    "ml-pca": "https://esm.sh/ml-pca"
+    "@wllama/wllama/": "https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.6/esm/",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "vite": "https://aistudiocdn.com/vite@^7.2.2",
+    "url": "https://aistudiocdn.com/url@^0.11.4"
   }
 }
 </script>

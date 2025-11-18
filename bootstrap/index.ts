@@ -42,6 +42,10 @@ const SYNERGY_FORGE_TOOLS: ToolCreatorPayload[] = [{
         { name: 'subStepProgress', type: 'object', description: 'The progress object for the current workflow step.', required: true },
         { name: 'apiConfig', type: 'object', description: 'The current API configuration.', required: true },
         { name: 'setApiConfig', type: 'object', description: 'Function to update the API configuration.', required: true },
+        { name: 'setGlobalEegData', type: 'object', description: 'Function to publish raw EEG data to the global state.', required: true },
+        { name: 'vibecoderHistory', type: 'array', description: 'The history of vibecoding iterations.', required: true },
+        { name: 'activeAppId', type: 'string', description: 'The ID of the currently active app on the main screen.', required: true },
+        { name: 'setActiveAppId', type: 'object', description: 'Function to change the active app.', required: true },
     ],
     implementationCode: SYNERGY_FORGE_UI_CODE,
 }];

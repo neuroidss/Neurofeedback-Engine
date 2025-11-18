@@ -12,7 +12,7 @@ export const WORKFLOW_TOOLS: ToolCreatorPayload[] = [
         ],
         implementationCode: `
             const { researchDomain } = args;
-            runtime.logEvent(\`[Workflow] Starting Research Phase for domain: "\${researchDomain}"\`);
+            runtime.logEvent('[Workflow] Starting Research Phase for domain: "' + researchDomain + '"');
             const { setValidatedSources } = runtime.getState();
 
             // Step 1: Refine search queries from the broad domain
@@ -41,7 +41,7 @@ export const WORKFLOW_TOOLS: ToolCreatorPayload[] = [
             let irrelevantCount = 0;
             let failedCount = 0;
             
-            runtime.logEvent(\`[Workflow] Now processing up to \${rankedResults.length} ranked sources...\`);
+            runtime.logEvent('[Workflow] Now processing up to ' + rankedResults.length + ' ranked sources...');
             for (let i = 0; i < rankedResults.length; i++) {
                 const result = rankedResults[i];
                 if (!runtime.getState().isSwarmRunning) {
@@ -49,10 +49,10 @@ export const WORKFLOW_TOOLS: ToolCreatorPayload[] = [
                     break;
                 }
                 
-                const progressText = \`Step 4: Validating (\${i + 1}/\${rankedResults.length}) - Found: \${relevantCount}, Skipped: \${irrelevantCount + failedCount}\`;
+                const progressText = 'Step 4: Validating (' + (i + 1) + '/' + rankedResults.length + ') - Found: ' + relevantCount + ', Skipped: ' + (irrelevantCount + failedCount);
                 runtime.reportProgress({ text: progressText, current: i + 1, total: rankedResults.length });
                 
-                runtime.logEvent(\`[Workflow] [ \${i + 1}/\${rankedResults.length} ] Validating: "\${result.title.substring(0, 80)}..."\`);
+                runtime.logEvent('[Workflow] [ ' + (i + 1) + '/' + rankedResults.length + ' ] Validating: "' + result.title.substring(0, 80) + '..."');
                 
                 try {
                     const validationResult = await runtime.tools.run('Find and Validate Single Source', {
@@ -64,7 +64,7 @@ export const WORKFLOW_TOOLS: ToolCreatorPayload[] = [
                         const source = validationResult.validatedSource;
                         if (source.reliabilityScore >= 0.5) {
                             relevantCount++;
-                            runtime.logEvent(\`[Workflow] --> ✅ Source is relevant (Score: \${source.reliabilityScore}). Added to dossier.\`);
+                            runtime.logEvent('--> ✅ [Workflow] Source is relevant (Score: ' + source.reliabilityScore + '). Added to dossier.');
                             // Add the new source to the shared state
                             setValidatedSources(prev => {
                                 // Avoid duplicates
@@ -73,26 +73,26 @@ export const WORKFLOW_TOOLS: ToolCreatorPayload[] = [
                             });
                         } else {
                             irrelevantCount++;
-                            runtime.logEvent(\`[Workflow] --> ⚠️ Source was valid but deemed irrelevant (Score: \${source.reliabilityScore}). Skipping.\`);
+                            runtime.logEvent('--> ⚠️ [Workflow] Source was valid but deemed irrelevant (Score: ' + source.reliabilityScore + '). Skipping.');
                         }
                     }
                 } catch (validationError) {
                     failedCount++;
-                    runtime.logEvent(\`[Workflow] --> ❌ Validation failed for this source: \${validationError.message}. Skipping.\`);
+                    runtime.logEvent('--> ❌ [Workflow] Validation failed for this source: ' + validationError.message + '. Skipping.');
                 }
             }
 
             runtime.reportProgress(null); // Clear progress bar
             
-            const summaryMessage = \`📊 Research Phase Summary: Processed \${rankedResults.length} sources. Found \${relevantCount} relevant papers. Skipped \${irrelevantCount} as irrelevant and \${failedCount} due to validation errors.\`;
-            runtime.logEvent(\`[Workflow] \${summaryMessage}\`);
+            const summaryMessage = '📊 Research Phase Summary: Processed ' + rankedResults.length + ' sources. Found ' + relevantCount + ' relevant papers. Skipped ' + irrelevantCount + ' as irrelevant and ' + failedCount + ' due to validation errors.';
+            runtime.logEvent('[Workflow] ' + summaryMessage);
 
             if (relevantCount === 0) {
-                throw new Error(\`Workflow finished but failed to find any relevant protocols. Check logs for validation errors.\`);
+                throw new Error('Workflow finished but failed to find any relevant protocols. Check logs for validation errors.');
             }
             
-            const finalMessage = \`Research phase complete. Found \${relevantCount} relevant sources. You can now generate protocols from the Research Dossier.\`;
-            runtime.logEvent(\`[Workflow] ✅ \${finalMessage}\`);
+            const finalMessage = 'Research phase complete. Found ' + relevantCount + ' relevant sources. You can now generate protocols from the Research Dossier.';
+            runtime.logEvent('✅ [Workflow] ' + finalMessage);
             
             return {
                 success: true,

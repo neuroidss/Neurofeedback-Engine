@@ -1,3 +1,4 @@
+
 export type ToolCategory = 'UI Component' | 'Functional' | 'Automation' | 'Server';
 export type AgentStatus = 'idle' | 'working' | 'error' | 'success';
 
@@ -89,6 +90,9 @@ export interface AIModel {
   name: string;
   provider: ModelProvider;
 }
+
+export type ComputeBackend = 'gpu' | 'worker' | 'main';
+
 export interface APIConfig {
   googleAIAPIKey?: string;
   openAIAPIKey?: string;
@@ -97,6 +101,10 @@ export interface APIConfig {
   deepSeekBaseUrl?: string;
   ollamaHost?: string;
   useQuantumSDR?: boolean;
+  computeBackend?: ComputeBackend; // Replaces boolean toggle with selector
+  defaultWifiSSID?: string;
+  defaultWifiPassword?: string;
+  autoRestoreSession?: boolean; // Automatically reconnect devices and restart protocol on reload
 }
 
 export type UIToolRunnerProps = Record<string, any>;

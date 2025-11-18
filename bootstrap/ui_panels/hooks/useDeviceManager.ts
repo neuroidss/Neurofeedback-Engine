@@ -1,48 +1,55 @@
+
 export const USE_DEVICE_MANAGER_CODE = `
 const useDeviceManager = ({ runtime }) => {
-  const [connectedDevices, setConnectedDevices] = useState([
-    { id: 'simulator-free8-1', name: 'FreeEEG8 Simulator #1', status: 'Active', ip: null, mode: 'simulator', deviceType: 'FreeEEG8', channelCount: 8 }
-  ]);
-  const [activeDataSourceIds, setActiveDataSourceIds] = useState(['simulator-free8-1']);
+  // Synchronous initialization from LocalStorage to ensure data is available immediately for auto-restore
+  const [connectedDevices, setConnectedDevices] = useState(() => {
+      try {
+          const savedDevices = localStorage.getItem('neurofeedback-devices');
+          const defaultDevice = { id: 'simulator-free8-1', name: 'FreeEEG8 Simulator #1', status: 'Active', ip: null, mode: 'simulator', deviceType: 'FreeEEG8', channelCount: 8, useWss: false };
+          
+          if (savedDevices) {
+              const parsedDevices = JSON.parse(savedDevices);
+              const loadedHardware = parsedDevices
+                .filter(d => d.mode !== 'simulator')
+                .map(d => ({ ...d, status: 'Offline', error: null, useWss: d.useWss || false })); // Hardware starts offline
+              
+              // Find simulators in saved data or use default
+              const savedSimulators = parsedDevices.filter(d => d.mode === 'simulator');
+              const simulators = savedSimulators.length > 0 ? savedSimulators : [defaultDevice];
+              
+              return [...simulators, ...loadedHardware];
+          }
+          return [defaultDevice];
+      } catch (e) {
+          runtime.logEvent('[System] Error loading saved devices: ' + e.message);
+          return [{ id: 'simulator-free8-1', name: 'FreeEEG8 Simulator #1', status: 'Active', ip: null, mode: 'simulator', deviceType: 'FreeEEG8', channelCount: 8, useWss: false }];
+      }
+  });
+
+  const [activeDataSourceIds, setActiveDataSourceIds] = useState(() => {
+      try {
+          const savedActiveIds = localStorage.getItem('neurofeedback-active-device-ids');
+          if (savedActiveIds) {
+              const parsed = JSON.parse(savedActiveIds);
+              return Array.isArray(parsed) ? parsed : ['simulator-free8-1'];
+          }
+          return ['simulator-free8-1'];
+      } catch (e) {
+          return ['simulator-free8-1'];
+      }
+  });
+
   const [bluetoothAvailabilityError, setBluetoothAvailabilityError] = useState('');
 
-  // --- Persistence Effects ---
-  useEffect(() => {
-    try {
-        const savedDevices = localStorage.getItem('neurofeedback-devices');
-        if (savedDevices) {
-            const parsedDevices = JSON.parse(savedDevices);
-            const initialDevices = [
-                { id: 'simulator-free8-1', name: 'FreeEEG8 Simulator #1', status: 'Active', ip: null, mode: 'simulator', deviceType: 'FreeEEG8', channelCount: 8 }
-            ];
-            const loadedHardware = parsedDevices
-              .filter(d => d.mode !== 'simulator')
-              .map(d => ({ ...d, status: 'Offline', ip: null, error: null }));
-            initialDevices.push(...loadedHardware);
-            setConnectedDevices(initialDevices);
-        }
-        
-        const savedActiveIds = localStorage.getItem('neurofeedback-active-device-ids');
-        if (savedActiveIds) {
-            const parsedIds = JSON.parse(savedActiveIds);
-            if (Array.isArray(parsedIds) && parsedIds.length > 0) {
-                setActiveDataSourceIds(parsedIds);
-            }
-        }
-    } catch (e) {
-        runtime.logEvent('[System] WARN: Could not load saved devices from local storage. ' + e.message);
-    }
-  }, []);
-
+  // Persistence Effect: Saves state whenever it changes
   useEffect(() => {
     try {
         const devicesToSave = connectedDevices
-            .filter(d => d.mode !== 'simulator')
-            .map(({ bleHandle, ...rest }) => rest);
+            .map(({ bleDevice, port, ...rest }) => rest); // Strip non-serializable fields
         localStorage.setItem('neurofeedback-devices', JSON.stringify(devicesToSave));
         localStorage.setItem('neurofeedback-active-device-ids', JSON.stringify(activeDataSourceIds));
     } catch (e) {
-        runtime.logEvent('[System] WARN: Could not save devices to local storage. ' + e.message);
+        runtime.logEvent('[System] Failed to save devices: ' + e.message);
     }
   }, [connectedDevices, activeDataSourceIds]);
 
@@ -54,47 +61,64 @@ const useDeviceManager = ({ runtime }) => {
     else setBluetoothAvailabilityError('Web Bluetooth API is not available on this browser. Please use Chrome or Edge.');
   }, []);
 
-  const onDeviceProvisioned = (deviceName) => {
+  const onDeviceProvisioned = (deviceName, ipAddress) => {
     const newDevice = {
         id: deviceName,
         name: deviceName,
-        status: 'Offline',
-        ip: null,
-        mode: 'wifi', // Provisioning implies Wi-Fi mode
+        status: ipAddress ? 'Active' : 'Offline',
+        ip: ipAddress || null,
+        mode: 'wifi', 
+        deviceType: 'FreeEEG8', 
+        channelCount: 8,
         error: null,
+        useWss: false,
     };
-     if (!connectedDevices.find(d => d.id === newDevice.id)) {
-        setConnectedDevices(prev => [...prev, newDevice]);
+    
+    setConnectedDevices(prev => {
+        const exists = prev.find(d => d.id === newDevice.id);
+        if (exists) {
+            return prev.map(d => d.id === newDevice.id ? { ...d, ...newDevice } : d);
+        }
+        return [...prev, newDevice];
+    });
+    
+    // Automatically select it
+    if (ipAddress) {
+        setActiveDataSourceIds(prev => {
+            if (!prev.includes(newDevice.id)) return [...prev, newDevice.id];
+            return prev;
+        });
     }
   };
 
   const handleAddSimulator = (deviceType) => {
     const typePrefix = deviceType.toLowerCase().replace('eeg', '');
     const existingSimulators = connectedDevices.filter(d => d.deviceType === deviceType);
-    const newId = \`\${typePrefix}-\${existingSimulators.length + 1}\`;
+    const newId = typePrefix + '-' + (existingSimulators.length + 1);
     
     const channelCounts = {'FreeEEG8': 8, 'FreeEEG32': 32, 'FreeEEG128': 128};
 
     const newSimulator = {
         id: newId,
-        name: \`\${deviceType} Simulator #\${existingSimulators.length + 1}\`,
+        name: deviceType + ' Simulator #' + (existingSimulators.length + 1),
         status: 'Active',
         ip: null,
         mode: 'simulator',
         deviceType: deviceType,
         channelCount: channelCounts[deviceType],
-        error: null
+        error: null,
+        useWss: false
     };
     setConnectedDevices(prev => [...prev, newSimulator]);
-    runtime.logEvent(\`[Device] Added \${newSimulator.name}\`);
+    setActiveDataSourceIds(prev => [...prev, newId]); // Auto-select
+    runtime.logEvent('[Device] Added ' + newSimulator.name);
   };
 
   const handleRemoveDevice = (deviceId) => {
-    // Cannot remove the last device
     if(connectedDevices.length <= 1) return;
     setActiveDataSourceIds(prev => prev.filter(id => id !== deviceId));
     setConnectedDevices(prev => prev.filter(d => d.id !== deviceId));
-    runtime.logEvent(\`[Device] Removed device: \${deviceId}\`);
+    runtime.logEvent('[Device] Removed device: ' + deviceId);
   };
 
   const handleAddBleDevice = async () => {
@@ -110,52 +134,87 @@ const useDeviceManager = ({ runtime }) => {
             optionalServices: [SERVICE_UUID] 
         });
         if (!deviceHandle) {
-            runtime.logEvent(\`[Device] No device selected.\`);
+            runtime.logEvent('[Device] No device selected.');
             return;
         }
 
         const newDevice = {
             id: deviceHandle.name,
             name: deviceHandle.name,
-            status: 'Offline',
+            status: 'Offline', 
             ip: null,
             mode: 'ble',
-            error: null
+            bleDevice: deviceHandle,
+            deviceType: 'FreeEEG8',
+            channelCount: 8,
+            error: null,
+            useWss: false
         };
         
         if (!connectedDevices.find(d => d.id === newDevice.id)) {
             setConnectedDevices(prev => [...prev, newDevice]);
-            runtime.logEvent(\`[Device] Added new BLE device: \${newDevice.name}.\`);
+            setActiveDataSourceIds(prev => [...prev, newDevice.id]); // Auto-select
+            runtime.logEvent('[Device] Added new BLE device: ' + newDevice.name + '.');
         } else {
-            runtime.logEvent(\`[Device] Device \${newDevice.name} is already in the list.\`);
+            runtime.logEvent('[Device] Device ' + newDevice.name + ' is already in the list.');
         }
     } catch (e) {
-        runtime.logEvent(\`[Device] ERROR adding BLE device: \${e.message}\`);
+        runtime.logEvent('[Device] ERROR adding BLE device: ' + e.message);
+    }
+  };
+
+  const handleAddSerialDevice = async () => {
+    if (!navigator.serial) {
+        runtime.logEvent('[Device] Web Serial API is not supported in this browser. Use Chrome or Edge.');
+        return;
+    }
+    try {
+        runtime.logEvent('[Device] Requesting USB Serial device...');
+        const port = await navigator.serial.requestPort();
+        const id = 'usb-serial-' + Date.now(); 
+        
+        const newDevice = {
+            id: id,
+            name: 'USB Device (Serial)',
+            status: 'Offline',
+            ip: null,
+            mode: 'serial',
+            port: port, 
+            deviceType: 'FreeEEG8', 
+            channelCount: 8,
+            error: null,
+            useWss: false
+        };
+        
+        setConnectedDevices(prev => [...prev, newDevice]);
+        setActiveDataSourceIds(prev => [...prev, newDevice.id]); // Auto-select
+        runtime.logEvent('[Device] Added USB Serial device.');
+        
+    } catch (e) {
+        runtime.logEvent('[Device] Serial selection failed: ' + e.message);
     }
   };
   
   const handleToggleDataSource = (deviceId) => {
     setActiveDataSourceIds(prev => {
         const isSelected = prev.includes(deviceId);
-        const device = connectedDevices.find(d => d.id === deviceId);
-        if (!device) return prev;
-        
-        const isHardware = device.mode !== 'simulator';
-
         if (isSelected) {
             return prev.length > 1 ? prev.filter(id => id !== deviceId) : prev;
         } else {
-            if (isHardware) {
-                return [deviceId];
-            } else {
-                const hardwareSelected = prev.some(id => {
-                  const d = connectedDevices.find(dev => dev.id === id);
-                  return d && d.mode !== 'simulator';
-                });
-                return hardwareSelected ? [deviceId] : [...prev, deviceId];
-            }
+            return [...prev, deviceId];
         }
     });
+  };
+
+  const handleToggleWss = (deviceId) => {
+    setConnectedDevices(prev => prev.map(d => {
+        if (d.id === deviceId) {
+            const newWssState = !d.useWss;
+            runtime.logEvent(\`[Device] Toggled WSS for \${d.name}: \${newWssState ? 'ON (wss://)' : 'OFF (ws://)'}\`);
+            return { ...d, useWss: newWssState };
+        }
+        return d;
+    }));
   };
 
   return {
@@ -168,7 +227,9 @@ const useDeviceManager = ({ runtime }) => {
     handleAddSimulator,
     handleRemoveDevice,
     handleAddBleDevice,
-    handleToggleDataSource
+    handleAddSerialDevice,
+    handleToggleDataSource,
+    handleToggleWss
   };
 };
-`
+`;

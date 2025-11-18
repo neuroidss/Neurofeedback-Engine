@@ -10,7 +10,7 @@ const ARCHITECTURAL_PRINCIPLE_RECORDER: ToolCreatorPayload = {
     parameters: [],
     implementationCode: `
       const principle = "For everything, make a tool. Do not generate JSON. The architecture is multiple tool calls.";
-      runtime.logEvent(\`[FRAMEWORK] Core architectural principle acknowledged: \${principle}\`);
+      runtime.logEvent('[FRAMEWORK] Core architectural principle acknowledged: ' + principle);
       return { success: true, message: 'This tool serves as a record of the core architectural principle and performs no operational action.' };
     `
 };
@@ -34,21 +34,20 @@ const WORKFLOW_CREATOR_TOOL: ToolCreatorPayload = {
         throw new Error("Workflow name, description, purpose, and at least one step are required.");
       }
 
-      const newToolImplementation = \`
-        const results = [];
-        const workflowSteps = \${JSON.stringify(steps, null, 2)};
-        for (const step of workflowSteps) {
-            console.log(\`Running workflow step: \${step.toolName}\`);
-            try {
-                const result = await runtime.tools.run(step.toolName, step.arguments);
-                results.push({ step: step.toolName, success: true, result });
-            } catch (e) {
-                results.push({ step: step.toolName, success: false, error: e.message });
-                throw new Error(\`Workflow '\${name}' failed at step '\${step.toolName}': \${e.message}\`);
-            }
-        }
-        return { success: true, message: "Workflow completed successfully.", results };
-      \`;
+      const newToolImplementation = 
+        'const results = [];\\n' +
+        'const workflowSteps = ' + JSON.stringify(steps, null, 2) + ';\\n' +
+        'for (const step of workflowSteps) {\\n' +
+        '    console.log("Running workflow step: " + step.toolName);\\n' +
+        '    try {\\n' +
+        '        const result = await runtime.tools.run(step.toolName, step.arguments);\\n' +
+        '        results.push({ step: step.toolName, success: true, result });\\n' +
+        '    } catch (e) {\\n' +
+        '        results.push({ step: step.toolName, success: false, error: e.message });\\n' +
+        '        throw new Error("Workflow \\'' + name + '\\' failed at step \\'' + step.toolName + '\\': " + e.message);\\n' +
+        '    }\\n' +
+        '}\\n' +
+        'return { success: true, message: "Workflow completed successfully.", results };';
       
       const result = await runtime.tools.run('Tool Creator', {
         name,
@@ -60,7 +59,7 @@ const WORKFLOW_CREATOR_TOOL: ToolCreatorPayload = {
         purpose,
       });
       
-      return { success: true, message: \`Successfully created new workflow tool: '\${name}'.\`, tool: result.tool };
+      return { success: true, message: 'Successfully created new workflow tool: \\'' + name + '\\'.', tool: result.tool };
     `
   };
 
@@ -97,7 +96,7 @@ const PROPOSE_SKILL_TOOL: ToolCreatorPayload = {
 
       runtime.clearObservationHistory();
 
-      return { success: true, message: \`Successfully created new skill '\${skillName}' based on \${observedActions.length} observed actions.\` };
+      return { success: true, message: 'Successfully created new skill \\'' + skillName + '\\' based on ' + observedActions.length + ' observed actions.' };
     `
 };
 
@@ -128,13 +127,18 @@ const GENERATE_UI_CODE_SYSTEM_INSTRUCTION = `You are a React code generator. You
 - Your code must be a valid series of JavaScript statements that ends in a \`return\` of JSX.
 - It can start with variable declarations (\`const x = ...\`) and must end with \`return (...);\`.
 
+**RULE 5: NO TEMPLATE LITERALS.**
+- DO NOT use backticks (\`) for strings. Use single quotes ('') or double quotes ("").
+- To combine strings and variables, use the '+' operator.
+- Example: \`'hsl(200, 100%, ' + (30 + alphaRatio * 40) + '%)'\`
+
 ---
 **PERFECT RESPONSE EXAMPLE:**
 (Your output should look EXACTLY like this, with NO surrounding text or markdown)
 
 const alphaRatio = processedData?.alpha_power_ratio || 0;
 const circleSize = 50 + (alphaRatio * 150);
-const circleColor = \`hsl(200, 100%, \${30 + alphaRatio * 40}%)\`;
+const circleColor = 'hsl(200, 100%, ' + (30 + alphaRatio * 40) + '%)';
 
 if (!processedData) {
   return <div style={{ color: '#888' }}>Waiting for EEG data...</div>;
@@ -170,6 +174,7 @@ const CORRECT_UI_CODE_SYSTEM_INSTRUCTION = `You are a React code debugger. You a
 2.  **HANDLE MISSING DATA:** The code must check for \`processedData\` and show a "Waiting..." message if it's missing.
 3.  **INLINE STYLES ONLY:** All styles must be inline style objects, like \`style={{ color: 'red' }}\`.
 4.  **DIRECT RETURN:** The code must be valid JavaScript statements ending in a \`return\` of JSX.
+5.  **NO TEMPLATE LITERALS:** Do not use backticks (\`). Use string concatenation with the '+' operator.
 
 **YOUR TASK:**
 Analyze the \`faultyCode\` and \`errorMessage\`. Rewrite the code to fix the error AND ensure it follows all the rules above. Your entire response must be ONLY the corrected, raw JSX code. Do not add any explanation.
@@ -192,6 +197,7 @@ return (
 
 Now, fix the faulty code based on the error and the original source material.`;
 
+// FIX: Added missing GENERATE_EEG_PROCESSING_FUNCTION_SYSTEM_INSTRUCTION constant definition.
 const GENERATE_EEG_PROCESSING_FUNCTION_SYSTEM_INSTRUCTION = `You are an expert in biomedical signal processing and JavaScript. Your task is to analyze a scientific abstract and generate the necessary artifacts for a neurofeedback protocol.
 
 **CRITICAL REQUIREMENTS:**
@@ -206,6 +212,7 @@ const GENERATE_EEG_PROCESSING_FUNCTION_SYSTEM_INSTRUCTION = `You are an expert i
 3.  **Final Response Format:** Your ENTIRE response MUST be a single, valid JSON object and nothing else. Do not wrap it in markdown backticks. The JSON object must have two keys:
     *   \`"dataRequirements"\`: An object with keys \`"type"\` (always "eeg"), \`"channels"\` (an array of strings), and \`"metrics"\` (an array of strings).
     *   \`"processingCode"\`: A string containing the complete code for the arrow function you wrote.
+4.  **NO TEMPLATE LITERALS:** In the processingCode string, DO NOT use backticks (\`). Use string concatenation with '+' instead.
 
 **EXAMPLE RESPONSE:**
 {
@@ -230,10 +237,7 @@ const GENERATE_EEG_PROCESSING_FUNCTION: ToolCreatorPayload = {
     implementationCode: `
         const { sourceMaterial } = args;
         const systemInstruction = ${JSON.stringify(GENERATE_EEG_PROCESSING_FUNCTION_SYSTEM_INSTRUCTION)};
-        const prompt = \`## Scientific Abstract ##
-\${sourceMaterial}
-
-## Processing Artifacts JSON ##\`;
+        const prompt = '## Scientific Abstract ##\\n' + sourceMaterial + '\\n\\n## Processing Artifacts JSON ##';
         runtime.logEvent('[Generator] Generating EEG processing function and data manifest...');
         const responseText = await runtime.ai.generateText(prompt, systemInstruction);
         
@@ -249,7 +253,7 @@ const GENERATE_EEG_PROCESSING_FUNCTION: ToolCreatorPayload = {
             return { success: true, ...artifacts };
         } catch (e) {
             runtime.logEvent('[Generator] ❌ Error parsing processing artifacts from AI. Response was: ' + responseText);
-            throw new Error(\`Failed to parse artifacts: \${e.message}\`);
+            throw new Error('Failed to parse artifacts: ' + e.message);
         }
     `
 };
@@ -266,7 +270,7 @@ const DEVELOP_TOOL_FROM_OBJECTIVE: ToolCreatorPayload = {
     ],
     implementationCode: `
         const { objective, sourceMaterial } = args;
-        runtime.logEvent(\`[Developer] Starting development for objective: "\${objective}"\`);
+        runtime.logEvent('[Developer] Starting development for objective: "' + objective + '"');
         
         runtime.reportProgress({ text: 'Step 1/3: Generating tool name...', current: 1, total: 3 });
         const { name: newToolName } = await runtime.tools.run('Generate Tool Name from Objective', { objective });
@@ -280,12 +284,12 @@ const DEVELOP_TOOL_FROM_OBJECTIVE: ToolCreatorPayload = {
         let dataRequirements = null;
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            runtime.logEvent(\`[Developer] Code generation attempt \${attempt}/\${maxAttempts}...\`);
+            runtime.logEvent('[Developer] Code generation attempt ' + attempt + '/' + maxAttempts + '...');
             
             try {
                 if (attempt === 1) {
                     // First attempt: generate both UI and processing code in parallel
-                    runtime.reportProgress({ text: \`Step 2/3: Generating UI & Processing code (Attempt \${attempt}/\${maxAttempts})...\`, current: 2, total: 3 });
+                    runtime.reportProgress({ text: 'Step 2/3: Generating UI & Processing code (Attempt ' + attempt + '/' + maxAttempts + ')...', current: 2, total: 3 });
                     const [uiResult, processingResult] = await Promise.all([
                         runtime.tools.run('Generate UI Component Code', { sourceMaterial }),
                         runtime.tools.run('Generate EEG Processing Function', { sourceMaterial })
@@ -295,8 +299,8 @@ const DEVELOP_TOOL_FROM_OBJECTIVE: ToolCreatorPayload = {
                     dataRequirements = processingResult.dataRequirements;
                 } else {
                     // Subsequent attempts: try to correct only the UI code.
-                    runtime.logEvent(\`[Developer] Calling corrector for faulty UI code. Error was: \${lastError.message}\`);
-                     runtime.reportProgress({ text: \`Step 2/3: Correcting UI code (Attempt \${attempt}/\${maxAttempts})...\`, current: 2, total: 3 });
+                    runtime.logEvent('[Developer] Calling corrector for faulty UI code. Error was: ' + lastError.message);
+                     runtime.reportProgress({ text: 'Step 2/3: Correcting UI code (Attempt ' + attempt + '/' + maxAttempts + ')...', current: 2, total: 3 });
                     const result = await runtime.tools.run('Correct Invalid UI Component Code', {
                         sourceMaterial: sourceMaterial,
                         faultyCode: implementationCode,
@@ -320,7 +324,7 @@ const DEVELOP_TOOL_FROM_OBJECTIVE: ToolCreatorPayload = {
                     implementationCode: implementationCode,
                     processingCode: processingCode,
                     dataRequirements: dataRequirements,
-                    purpose: \`A dynamically generated visualizer for the objective: "\${objective}"\`
+                    purpose: 'A dynamically generated visualizer for the objective: "' + objective + '"'
                 };
                 const creationResult = await runtime.tools.run('Tool Creator', newToolPayload);
                 newTool = creationResult.tool;
@@ -329,14 +333,14 @@ const DEVELOP_TOOL_FROM_OBJECTIVE: ToolCreatorPayload = {
                     throw new Error("The Tool Creator failed to return a new tool definition despite not throwing an error.");
                 }
                 
-                runtime.logEvent(\`[Developer] ✅ Code validation successful on attempt \${attempt}.\`);
+                runtime.logEvent('[Developer] ✅ Code validation successful on attempt ' + attempt + '.');
                 break; // Success, exit the loop.
 
             } catch (e) {
                 lastError = e;
-                runtime.logEvent(\`[Developer] ❌ Attempt \${attempt} failed: \${e.message}\`);
+                runtime.logEvent('[Developer] ❌ Attempt ' + attempt + ' failed: ' + e.message);
                 if (attempt === maxAttempts) {
-                    runtime.logEvent(\`[Developer] All \${maxAttempts} attempts failed. Aborting development.\`);
+                    runtime.logEvent('[Developer] All ' + maxAttempts + ' attempts failed. Aborting development.');
                 } else {
                     await new Promise(resolve => setTimeout(resolve, 500));
                 }
@@ -345,11 +349,11 @@ const DEVELOP_TOOL_FROM_OBJECTIVE: ToolCreatorPayload = {
 
         if (!newTool) {
             // If the loop finished without creating a tool, throw the last error encountered.
-            throw new Error(\`Failed to develop and validate new tool after \${maxAttempts} attempts. Last error: \${lastError ? lastError.message : 'Unknown error'}\`);
+            throw new Error('Failed to develop and validate new tool after ' + maxAttempts + ' attempts. Last error: ' + (lastError ? lastError.message : 'Unknown error'));
         }
         
         runtime.reportProgress(null);
-        runtime.logEvent(\`[Developer] --> ✅ SUCCESS! New tool '\${newTool.name}' developed.\`);
+        runtime.logEvent('[Developer] --> ✅ SUCCESS! New tool \\'' + newTool.name + '\\' developed.');
 
         return { success: true, newTool };
     `
@@ -366,10 +370,8 @@ const GENERATE_TOOL_NAME: ToolCreatorPayload = {
     ],
     implementationCode: `
         const { objective } = args;
-        const systemInstruction = \`You are a naming assistant. Your task is to create a short, catchy, and descriptive name for a software tool based on a development objective.
-The name should be 3-5 words long.
-You MUST call the 'RecordToolName' tool with the generated name. Your response MUST be ONLY this single tool call.\`;
-        const prompt = \`Generate a tool name for the objective: "\${objective}" and submit it via the 'RecordToolName' tool.\`;
+        const systemInstruction = 'You are a naming assistant. Your task is to create a short, catchy, and descriptive name for a software tool based on a development objective.\\nThe name should be 3-5 words long.\\nYou MUST call the \\'RecordToolName\\' tool with the generated name. Your response MUST be ONLY this single tool call.';
+        const prompt = 'Generate a tool name for the objective: "' + objective + '" and submit it via the \\'RecordToolName\\' tool.';
         
         const recordTool = runtime.tools.list().find(t => t.name === 'RecordToolName');
         if (!recordTool) throw new Error("Core tool 'RecordToolName' not found.");
@@ -403,10 +405,7 @@ const GENERATE_UI_CODE: ToolCreatorPayload = {
     implementationCode: `
         const { sourceMaterial } = args;
         const systemInstruction = ${JSON.stringify(GENERATE_UI_CODE_SYSTEM_INSTRUCTION)};
-        const prompt = \`## Source Material ##
-\${sourceMaterial}
-
-## React Component Code ##\`;
+        const prompt = '## Source Material ##\\n' + sourceMaterial + '\\n\\n## React Component Code ##';
         runtime.logEvent('[Generator] Generating UI component code...');
         const uiCode = await runtime.ai.generateText(prompt, systemInstruction);
         if (!uiCode || uiCode.length < 50) {
@@ -431,18 +430,15 @@ const CORRECT_UI_CODE: ToolCreatorPayload = {
     implementationCode: `
         const { sourceMaterial, faultyCode, errorMessage } = args;
         const systemInstruction = ${JSON.stringify(CORRECT_UI_CODE_SYSTEM_INSTRUCTION)};
-        const prompt = \`## Original Source Material (for context) ##
-\${sourceMaterial}
-
-## Faulty Code ##
-\`\`\`javascript
-\${faultyCode}
-\`\`\`
-
-## Compilation Error Message ##
-\${errorMessage}
-
-## Corrected React Component Code ##\`;
+        const prompt = '## Original Source Material (for context) ##\\n' +
+            sourceMaterial + '\\n\\n' +
+            '## Faulty Code ##\\n' +
+            '\\\`\\\`\\\`javascript\\n' +
+            faultyCode + '\\n' +
+            '\\\`\\\`\\\`\\n\\n' +
+            '## Compilation Error Message ##\\n' +
+            errorMessage + '\\n\\n' +
+            '## Corrected React Component Code ##';
         runtime.logEvent('[Corrector] Attempting to correct faulty UI code...');
         const correctedCode = await runtime.ai.generateText(prompt, systemInstruction);
         if (!correctedCode || correctedCode.length < 50) {
@@ -471,6 +467,127 @@ const RECORD_TOOL_NAME: ToolCreatorPayload = {
 
 // --- END: Core Self-Development Tools ---
 
+const VIBECODE_ENVIRONMENT_OPTIMIZER: ToolCreatorPayload = {
+    name: 'Vibecode Environment Optimizer',
+    description: 'Automatically writes and refines a UI component, using real-time EEG feedback from the active player session as a loss function.',
+    category: 'Automation',
+    executionEnvironment: 'Client',
+    purpose: 'To create a hyper-personalized UI/UX by iteratively designing and validating visuals against a user neural state, achieving a target "vibe" like Focus or Relaxation.',
+    parameters: [
+        { name: 'target_vibe', type: 'string', description: 'The target mental state to optimize for (e.g., "deep focus", "calm relaxation").', required: true },
+        { name: 'iterations', type: 'number', description: 'The number of optimization cycles to run.', required: false, defaultValue: 5 },
+    ],
+    implementationCode: `
+        const { target_vibe, iterations = 5 } = args;
+        
+        if (!runtime.eeg.getGlobalEegData()) {
+            throw new Error("Vibecoding requires an active EEG stream. Please start a session in the player before running this workflow.");
+        }
+        
+        runtime.logEvent('[VibeCoder] Initializing... Searching for the optimal UI for a \\'' + target_vibe + '\\' state.');
+        runtime.vibecoder.clearHistory();
+
+        // 1. Generate initial UI code
+        runtime.reportProgress({ text: 'Generating initial concept...', current: 0, total: iterations });
+        let generationResult = await runtime.tools.run('Generate UI Component Code', {
+            sourceMaterial: 'Create a minimalist, abstract UI visualization for inducing a state of ' + target_vibe + '. Use subtle colors, fluid motion, and avoid sharp edges or jarring text.'
+        });
+        let currentCode = generationResult.implementationCode;
+        
+        let bestVibeScore = -Infinity;
+        let bestCode = currentCode;
+        let lastVibeScore = -1;
+
+        // 2. Start the Vibecoding optimization loop
+        for (let i = 1; i <= iterations; i++) {
+            runtime.logEvent('[VibeCoder] << Iteration ' + i + '/' + iterations + ' >>');
+            runtime.reportProgress({ text: 'Testing Vibe (Iteration ' + i + '/' + iterations + ')...', current: i, total: iterations });
+
+            // A. Create a temporary tool to render the current UI code
+            const tempToolName = 'VibeTest_v' + i + '_' + Date.now();
+            const { tool: tempTool } = await runtime.tools.run('Tool Creator', {
+                name: tempToolName,
+                category: 'UI Component',
+                executionEnvironment: 'Client',
+                parameters: [{ name: 'processedData', type: 'object', description: 'N/A', required: false }],
+                implementationCode: currentCode,
+                purpose: 'Temporary tool for vibe testing.',
+                description: 'A temporary, dynamically generated UI component for vibecoding.'
+            });
+
+            // A.2. Launch the new tool onto the main screen for testing.
+            runtime.os.launchApp(tempTool.id);
+            
+            // B. Get a "vibe score" from the live EEG data stream
+            runtime.logEvent('[VibeCoder] Capturing live EEG data from player session (3s exposure)...');
+            await new Promise(resolve => setTimeout(resolve, 3000)); // Simulate a 3-second exposure time
+            const eegData = runtime.eeg.getGlobalEegData();
+            if (!eegData) {
+                throw new Error("EEG data stream stopped unexpectedly during vibecoding.");
+            }
+
+            runtime.logEvent('[VibeCoder] Analyzing neural coherence...');
+            const eegAnalysis = await runtime.tools.run('Calculate_Coherence_Matrix_Optimized', { 
+                eegData: eegData,
+                sampleRate: 250,
+                freqRange: [8, 12] // Focus on Alpha for this example
+            });
+            const currentVibeScore = eegAnalysis.avg_coherence || 0;
+            
+            runtime.logEvent('[VibeCoder] Vibe Score (Alpha Coherence): ' + currentVibeScore.toFixed(4));
+            runtime.vibecoder.recordIteration({ iteration: i, score: currentVibeScore, code: currentCode, toolName: tempToolName });
+
+
+            // C. Vibe Check: Decide how to mutate the code
+            let mutationPrompt;
+            if (currentVibeScore > bestVibeScore) {
+                bestVibeScore = currentVibeScore;
+                bestCode = currentCode;
+                runtime.logEvent('[VibeCoder] --> ✅ New best vibe found! Refining this design...');
+                mutationPrompt = 'The user responded positively to this design (vibe score improved to ' + currentVibeScore.toFixed(2) + '). Refine it slightly. Make it 15% more immersive or engaging, but maintain the core aesthetic. For example, enhance the color depth, smooth out an animation, or add a subtle background effect. Do not make radical changes.';
+            } else {
+                runtime.logEvent('[VibeCoder] --> ❌ Vibe score dropped. Trying a different approach.');
+                if (lastVibeScore > -1 && currentVibeScore < lastVibeScore * 0.9) {
+                    mutationPrompt = 'The last change was a failure (vibe score dropped significantly). Revert the last change and try a completely different visual metaphor for \\'' + target_vibe + '\\'. Previous successful code is provided for context, but create something new. Avoid the style that led to the drop.';
+                } else {
+                    mutationPrompt = 'The user did not respond well to this design (vibe score: ' + currentVibeScore.toFixed(2) + '). Generate a completely different visual concept for \\'' + target_vibe + '\\'. Try a new color palette (e.g., warm tones instead of cool), or a different type of motion (e.g., geometric instead of organic).';
+                }
+            }
+
+            // D. Generate the next version of the code
+            if (i < iterations) {
+                 runtime.reportProgress({ text: 'Mutating code based on feedback (Iteration ' + i + '/' + iterations + ')...', current: i, total: iterations });
+                 generationResult = await runtime.tools.run('Correct Invalid UI Component Code', {
+                    sourceMaterial: mutationPrompt,
+                    faultyCode: currentCode, // Give it context of what it's changing
+                    errorMessage: "No compilation error; this is a design mutation request based on user feedback."
+                });
+                currentCode = generationResult.correctedCode;
+                lastVibeScore = currentVibeScore;
+            }
+        }
+
+        runtime.reportProgress(null); // Clear progress bar
+        runtime.logEvent('[VibeCoder] ✅ Optimization complete. Best vibe score achieved: ' + bestVibeScore.toFixed(4));
+        
+        // Final step: Create the permanent, optimized tool
+        const finalToolName = target_vibe.replace(/\\s+/g, '_') + '_Vibe_Optimized_UI';
+        const { tool: finalTool } = await runtime.tools.run('Tool Creator', {
+            name: finalToolName,
+            description: 'A UI environment optimized for \\'' + target_vibe + '\\' using ' + iterations + ' cycles of neurofeedback-driven design.',
+            purpose: 'A hyper-personalized UI generated via Vibecoding.',
+            category: 'UI Component',
+            executionEnvironment: 'Client',
+            parameters: [{ name: 'processedData', type: 'object', description: 'N/A', required: false }],
+            implementationCode: bestCode
+        });
+
+        runtime.logEvent('[VibeCoder] --> Created final protocol: \\'' + finalToolName + '\\'. Launching it now.');
+        runtime.os.launchApp(finalTool.id);
+
+        return { success: true, optimalCode: bestCode, finalScore: bestVibeScore, finalToolName: finalToolName };
+    `
+};
 
 export const AUTOMATION_TOOLS: ToolCreatorPayload[] = [
     ARCHITECTURAL_PRINCIPLE_RECORDER,
@@ -482,4 +599,5 @@ export const AUTOMATION_TOOLS: ToolCreatorPayload[] = [
     CORRECT_UI_CODE,
     RECORD_TOOL_NAME,
     GENERATE_EEG_PROCESSING_FUNCTION,
+    VIBECODE_ENVIRONMENT_OPTIMIZER,
 ];

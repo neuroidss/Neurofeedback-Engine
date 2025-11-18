@@ -152,7 +152,7 @@ export const RESEARCH_TOOLS: ToolCreatorPayload[] = [
                 // 4. Sort by final score
                 const rankedResults = scoredResults.sort((a, b) => b.score - a.score);
 
-                runtime.logEvent(\`[Ranker] ✅ Successfully ranked \${rankedResults.length} articles. Top result: "\${(rankedResults[0]?.title || 'N/A')}" (Score: \${(rankedResults[0]?.score.toFixed(3) || 'N/A')})\`);
+                runtime.logEvent('✅ [Ranker] Successfully ranked ' + rankedResults.length + ' articles. Top result: "' + (rankedResults[0]?.title || 'N/A') + '" (Score: ' + (rankedResults[0]?.score.toFixed(3) || 'N/A') + ')');
                 return { success: true, rankedResults };
 
             } catch (e) {
@@ -171,10 +171,7 @@ export const RESEARCH_TOOLS: ToolCreatorPayload[] = [
         parameters: [],
         implementationCode: `
             runtime.logEvent('[Discovery] Attempting to discover new CORS proxy strategies...');
-            const systemInstruction = \`You are an expert at bypassing CORS. Your task is to find and provide code for public CORS proxy services.
-You MUST call the 'RecordProxyBuilders' tool with your findings.
-Your entire response MUST be ONLY a single tool call to 'RecordProxyBuilders'.
-Find 2-3 different, currently active public CORS proxies and provide their function strings in the 'builderStrings' argument.\\\`;
+            const systemInstruction = "You are an expert at bypassing CORS. Your task is to find and provide code for public CORS proxy services.\\nYou MUST call the 'RecordProxyBuilders' tool with your findings.\\nYour entire response MUST be ONLY a single tool call to 'RecordProxyBuilders'.\\nFind 2-3 different, currently active public CORS proxies and provide their function strings in the 'builderStrings' argument.";
 
             const prompt = "Find new, publicly available CORS proxy services and provide the corresponding JavaScript arrow functions to format a URL for them. Call the 'RecordProxyBuilders' tool with the results.";
 
@@ -192,7 +189,7 @@ Find 2-3 different, currently active public CORS proxies and provide their funct
                 throw new Error("AI did not generate a valid array of proxy builder strings.");
             }
             
-            runtime.logEvent(\`[Discovery] ✅ Discovered \${builderStrings.length} new potential proxy strategies.\`);
+            runtime.logEvent('✅ [Discovery] Discovered ' + builderStrings.length + ' new potential proxy strategies.');
             return { success: true, newBuilderStrings: builderStrings };
         `
     },
@@ -242,7 +239,7 @@ Find 2-3 different, currently active public CORS proxies and provide their funct
                 learnedProxyStrategies: proxyBuilders.map(p => p.builderString),
             };
 
-            runtime.logEvent(\`[Export] ✅ Exported \${learnedTools.length} learned tools and \${proxyBuilders.length} proxy strategies.\`);
+            runtime.logEvent('✅ [Export] Exported ' + learnedTools.length + ' learned tools and ' + proxyBuilders.length + ' proxy strategies.');
             console.log('--- EXPORTED SKILLS ---');
             console.log(JSON.stringify(exportData, null, 2));
 
@@ -265,11 +262,7 @@ Find 2-3 different, currently active public CORS proxies and provide their funct
         ],
         implementationCode: `
     const { researchObjective, validatedSources } = args;
-    const systemInstruction = \`You are an expert neuroscience researcher specializing in identifying novel research vectors for neurofeedback.
-Based on the user's high-level objective and the key findings from the provided literature summaries, generate 3 to 5 high-level conceptual questions designed to uncover novel, unstated connections.
-Frame these questions in the format of "Find a neurofeedback protocol that modulates [BRAIN_WAVE_A] to affect [COGNITIVE_STATE_B]" or "What is the relationship between [BRAIN_REGION_A] activity and [NEUROLOGICAL_CONDITION_B]?".
-Your goal is to provoke non-obvious connections.
-You MUST call the 'RecordConceptualQueries' tool with your findings. Your entire response must be ONLY this single tool call.\\\`;
+    const systemInstruction = "You are an expert neuroscience researcher specializing in identifying novel research vectors for neurofeedback.\\nBased on the user's high-level objective and the key findings from the provided literature summaries, generate 3 to 5 high-level conceptual questions designed to uncover novel, unstated connections.\\nFrame these questions in the format of \\"Find a neurofeedback protocol that modulates [BRAIN_WAVE_A] to affect [COGNITIVE_STATE_B]\\" or \\"What is the relationship between [BRAIN_REGION_A] activity and [NEUROLOGICAL_CONDITION_B]?\\".\\nYour goal is to provoke non-obvious connections.\\nYou MUST call the 'RecordConceptualQueries' tool with your findings. Your entire response must be ONLY this single tool call.";
 
     const sourceSummaries = validatedSources.map(s => ({ title: s.title, summary: s.summary, reliability: s.reliabilityScore })).slice(0, 20); // Limit context size
 
@@ -305,8 +298,7 @@ You MUST call the 'RecordConceptualQueries' tool with your findings. Your entire
         ],
         implementationCode: `
         const { researchObjective, maxQueries = 5 } = args;
-        const systemInstruction = \`You are an expert search query generation assistant. Your task is to break down a high-level research objective into specific, targeted search queries for scientific databases like PubMed.
-You MUST call the 'RecordRefinedQueries' tool with the list of queries you generate. Your entire response must be ONLY this single tool call.\\\`;
+        const systemInstruction = "You are an expert search query generation assistant. Your task is to break down a high-level research objective into specific, targeted search queries for scientific databases like PubMed.\\nYou MUST call the 'RecordRefinedQueries' tool with the list of queries you generate. Your entire response must be ONLY this single tool call.";
         
         const prompt = 'Based on the research objective "' + researchObjective + '", generate up to ' + maxQueries + ' specific search queries for finding scientific papers on neurofeedback protocols. Prioritize queries that include terms like "EEG", "neurofeedback protocol", "frequency band training", "alpha waves", "gamma waves", "SMR", and names of specific brain conditions or enhancements. Then, call the RecordRefinedQueries tool.';
 
@@ -320,12 +312,12 @@ You MUST call the 'RecordRefinedQueries' tool with the list of queries you gener
             if (aiResponse?.toolCalls?.length && aiResponse.toolCalls[0].name === 'RecordRefinedQueries') {
                 queries = aiResponse.toolCalls[0].arguments.queries;
                 if (!Array.isArray(queries)) throw new Error("Tool call arguments were not a valid array.");
-                runtime.logEvent('[Refine Queries] ✅ Generated ' + queries.length + ' queries via primary tool-call method.');
+                runtime.logEvent('✅ [Refine Queries] Generated ' + queries.length + ' queries via primary tool-call method.');
             } else {
                  throw new Error("AI did not call the 'RecordRefinedQueries' tool as instructed.");
             }
         } catch (e) {
-            runtime.logEvent('[Refine Queries] ⚠️ Primary tool-call method failed: ' + e.message + '. Attempting fallback text extraction...');
+            runtime.logEvent('⚠️ [Refine Queries] Primary tool-call method failed: ' + e.message + '. Attempting fallback text extraction...');
             
             // --- RESILIENCE: FALLBACK STRATEGY ---
             const fallbackSystemInstruction = "You are a search query generator. Provide a list of search queries based on the user's request, with each query on a new line. Do not add numbers, bullet points, or any other text.";
@@ -335,7 +327,7 @@ You MUST call the 'RecordRefinedQueries' tool with the list of queries you gener
                 const fallbackResponse = await runtime.ai.generateText(fallbackPrompt, fallbackSystemInstruction);
                 queries = fallbackResponse.split('\\n').map(q => q.trim()).filter(q => q.length > 5);
                 if (queries.length > 0) {
-                    runtime.logEvent('[Refine Queries] ✅ Succeeded with fallback method, generated ' + queries.length + ' queries.');
+                    runtime.logEvent('✅ [Refine Queries] Succeeded with fallback method, generated ' + queries.length + ' queries.');
                 } else {
                     throw new Error("Fallback method also failed to produce valid queries.");
                 }
@@ -367,8 +359,7 @@ You MUST call the 'RecordRefinedQueries' tool with the list of queries you gener
             const { researchObjective, originalQuery, reasonForFailure, proxyUrl } = args;
             runtime.logEvent('[Search Diagnosis] Analyzing failed query: "' + originalQuery.substring(0, 100) + '..."');
 
-            const systemInstruction = \`You are a search query diagnostics expert. A search failed. Analyze the original query and research objective, then generate 3 alternative, broader, and more general search queries that are more likely to yield results.
-You MUST call the 'RecordRefinedQueries' tool with the list of new queries you generate. Your entire response must be ONLY this single tool call.\\\`;
+            const systemInstruction = "You are a search query diagnostics expert. A search failed. Analyze the original query and research objective, then generate 3 alternative, broader, and more general search queries that are more likely to yield results.\\nYou MUST call the 'RecordRefinedQueries' tool with the list of new queries you generate. Your entire response must be ONLY this single tool call.";
 
             const prompt = 'The research objective is: "' + researchObjective + '". The following search query failed because: ' + reasonForFailure + '\\n\\nFailed Query:\\n"' + originalQuery + '"\\n\\nGenerate 3 broader alternative queries and call the RecordRefinedQueries tool.';
             
@@ -491,17 +482,7 @@ You MUST call the 'RecordRefinedQueries' tool with the list of new queries you g
 
             const validationContext = '<PRIMARY_SOURCE>\\n<TITLE>' + truncatedTitle + '</TITLE>\\n<URL>' + enrichedSource.link + '</URL>\\n<SNIPPET>\\n' + truncatedSnippet + '\\n</SNIPPET>\\n</PRIMARY_SOURCE>';
 
-            const systemInstruction = \`You are an automated data extraction service. Your SOLE function is to analyze the provided scientific source and call the 'RecordValidatedSource' tool with all required arguments.
-
-**CRITICAL INSTRUCTIONS:**
-1.  Your entire response MUST be ONLY a single tool call to 'RecordValidatedSource'.
-2.  You MUST provide values for ALL of the following arguments:
-    - 'uri': The URL of the source.
-    - 'title': The title of the source.
-    - 'summary': A concise summary.
-    - 'reliabilityScore': A score from 0.0 to 1.0 indicating relevance to the research objective. This is VERY IMPORTANT.
-    - 'justification': Your reason for the score.
-3.  Do NOT write ANY text, explanations, or markdown. Your response is ONLY the tool call.\\\`;
+            const systemInstruction = "You are an automated data extraction service. Your SOLE function is to analyze the provided scientific source and call the 'RecordValidatedSource' tool with all required arguments.\\n\\n**CRITICAL INSTRUCTIONS:**\\n1.  Your entire response MUST be ONLY a single tool call to 'RecordValidatedSource'.\\n2.  You MUST provide values for ALL of the following arguments:\\n    - 'uri': The URL of the source.\\n    - 'title': The title of the source.\\n    - 'summary': A concise summary.\\n    - 'reliabilityScore': A score from 0.0 to 1.0 indicating relevance to the research objective. This is VERY IMPORTANT.\\n    - 'justification': Your reason for the score.\\n3.  Do NOT write ANY text, explanations, or markdown. Your response is ONLY the tool call.";
 
             const validationPrompt = 'Research Objective: "' + researchObjective + '"\\n\\nBased on the objective, assess, summarize, and record the following source by calling the \\'RecordValidatedSource\\' tool.\\n\\n' + validationContext;
 
@@ -604,14 +585,7 @@ You MUST call the 'RecordRefinedQueries' tool with the list of new queries you g
             return { success: true, reference_titles: [] };
         }
         
-        const systemInstruction = \`You are an expert research assistant. Your task is to extract the titles of publications from the 'References' or 'Bibliography' section of a scientific paper.
-- Focus ONLY on the titles of the referenced works.
-- Exclude authors, journal names, page numbers, and years.
-- You MUST respond with ONLY a single, valid JSON object. Do not add any text, explanations, or markdown formatting before or after the JSON object. The format must be:
-{
-  "reference_titles": ["The complete title of the first reference.", "The complete title of the second reference."]
-}
-- If no references are found, return an empty array.\\\`;
+        const systemInstruction = "You are an expert research assistant. Your task is to extract the titles of publications from the 'References' or 'Bibliography' section of a scientific paper.\\n- Focus ONLY on the titles of the referenced works.\\n- Exclude authors, journal names, page numbers, and years.\\n- You MUST respond with ONLY a single, valid JSON object. Do not add any text, explanations, or markdown formatting before or after the JSON object. The format must be:\\n{\\n  \\"reference_titles\\": [\\"The complete title of the first reference.\\", \\"The complete title of the second reference.\\"]\\n}\\n- If no references are found, return an empty array.";
 
         const prompt = 'Here is the text of a scientific paper. Please extract the publication titles from its reference list at the end of the document.\\\\n\\\\n' + sourceContent.substring(0, 50000); // Truncate to avoid excessive token usage
 
@@ -623,7 +597,7 @@ You MUST call the 'RecordRefinedQueries' tool with the list of new queries you g
             if (!jsonMatch) throw new Error("No JSON object found in the AI's response. Raw response: " + aiResponseText);
             responseJson = JSON.parse(jsonMatch[0]);
         } catch (e) {
-            runtime.logEvent('[Extract Refs] ❌ Error parsing JSON. AI Response: ' + aiResponseText);
+            runtime.logEvent('❌ [Extract Refs] Error parsing JSON. AI Response: ' + aiResponseText);
             throw new Error('Failed to parse the AI\\\\'s reference extraction response. Details: ' + e.message);
         }
         
@@ -631,7 +605,7 @@ You MUST call the 'RecordRefinedQueries' tool with the list of new queries you g
             throw new Error("AI response did not contain a valid 'reference_titles' array.");
         }
         
-        runtime.logEvent('[Extract Refs] ✅ Extracted ' + responseJson.reference_titles.length + ' reference titles.');
+        runtime.logEvent('✅ [Extract Refs] Extracted ' + responseJson.reference_titles.length + ' reference titles.');
         return { success: true, reference_titles: responseJson.reference_titles };
     `
     },

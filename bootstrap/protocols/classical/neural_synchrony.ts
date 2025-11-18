@@ -1,3 +1,4 @@
+
 // bootstrap/protocols/classical/neural_synchrony.ts
 import type { ToolCreatorPayload } from '../../../types';
 
@@ -32,10 +33,10 @@ export const NEURAL_SYNCHRONY_PROTOCOL: ToolCreatorPayload = {
                 };
             }
             
-            // Infer number of devices from channel name prefixes (e.g., 'simulator-1-Cz')
-            const hasPrefixes = channelNames.some(ch => ch.includes('-'));
+            // Infer number of devices from channel name prefixes (e.g., 'simulator-1:Cz')
+            const hasPrefixes = channelNames.some(ch => ch.includes(':'));
             const numDevices = hasPrefixes
-                ? new Set(channelNames.map(ch => ch.split('-')[0])).size
+                ? new Set(channelNames.map(ch => ch.split(':')[0])).size
                 : 1;
 
             try {
@@ -90,11 +91,12 @@ export const NEURAL_SYNCHRONY_PROTOCOL: ToolCreatorPayload = {
         const allChannels = useMemo(() => {
             const channelSet = new Set();
             Object.keys(matrix).forEach(key => {
-                const [ch1, ch2] = key.split('-');
-                channelSet.add(ch1);
-                channelSet.add(ch2);
+                // Split by double underscore to support robust pair parsing
+                const [ch1, ch2] = key.split('__');
+                if (ch1) channelSet.add(ch1);
+                if (ch2) channelSet.add(ch2);
             });
-            return Array.from(channelSet);
+            return Array.from(channelSet).sort();
         }, [matrix]);
 
         const channelPositions = useMemo(() => {
@@ -112,8 +114,9 @@ export const NEURAL_SYNCHRONY_PROTOCOL: ToolCreatorPayload = {
         const connections = useMemo(() => {
             return Object.entries(matrix)
                 .map(([key, value]) => {
-                    if (value < 0.3) return null; // Threshold to avoid clutter
-                    const [ch1, ch2] = key.split('-');
+                    if (value < 0.1) return null; // LOWERED THRESHOLD from 0.3 to 0.1
+                    const [ch1, ch2] = key.split('__');
+                    if (!channelPositions[ch1] || !channelPositions[ch2]) return null;
                     return {
                         p1: channelPositions[ch1],
                         p2: channelPositions[ch2],
@@ -127,6 +130,24 @@ export const NEURAL_SYNCHRONY_PROTOCOL: ToolCreatorPayload = {
             const hue = 20 + value * 40; // orange to yellow
             const lightness = 50 + value * 20;
             return \`hsl(\${hue}, 100%, \${lightness}%)\`;
+        };
+        
+        const getLabel = (channel) => {
+             // Parse format "DeviceID:ChannelName" or simple "ChannelName"
+             const parts = channel.split(':');
+             if (parts.length < 2) return channel; // Local single device case
+             
+             const devId = parts[0];
+             const chName = parts[1];
+             
+             // Shorten ID for display: "simulator-free8-1" -> "Sim1"
+             let shortId = devId;
+             const simMatch = devId.match(/simulator.*-(\d+)$/);
+             if (simMatch) shortId = 'S' + simMatch[1];
+             else if (devId.toLowerCase().includes('freeeeg')) shortId = 'H' + devId.slice(-1);
+             else shortId = devId.substring(0,3);
+             
+             return shortId + ':' + chName;
         };
 
         return (
@@ -149,7 +170,7 @@ export const NEURAL_SYNCHRONY_PROTOCOL: ToolCreatorPayload = {
                         <g key={channel}>
                             <circle cx={pos.x} cy={pos.y} r="8" fill="#0D9488" stroke="#14b8a6" strokeWidth="1" />
                             <text x={pos.x} y={pos.y} dy="3" textAnchor="middle" fontSize="7" fill="white" fontWeight="bold">
-                                {channel.split('-').pop().replace('simulator','s')}
+                                {getLabel(channel)}
                             </text>
                         </g>
                     );
@@ -173,7 +194,7 @@ export const NEURAL_SYNCHRONY_PROTOCOL: ToolCreatorPayload = {
         return <div style={containerStyle}>Waiting for EEG data...</div>;
     }
 
-    const title = isMultiDevice ? 'Group Synchrony' : 'Local Coherence';
+    const title = isMultiDevice ? 'Group Synchrony (' + deviceCount + ')' : 'Local Coherence';
     
     return (
         <div style={containerStyle}>
