@@ -39,7 +39,7 @@ An experimental, autonomous optimization loop:
 ## AI Model Support
 
 The engine is agnostic to the underlying LLM provider and supports:
-*   **Google Gemini:** 2.5 Flash/Pro, 1.5 Pro (optimized for complex reasoning & multimodal input).
+*   **Google Gemini:** 2.5 Flash/Pro, 3 Pro (optimized for complex reasoning & multimodal input).
 *   **DeepSeek (via Nebius):** DeepSeek-V3 and R1 models.
 *   **OpenAI:** GPT-4o/mini.
 *   **Local / Private:**
