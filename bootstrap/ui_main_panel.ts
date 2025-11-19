@@ -6,6 +6,7 @@ import { USE_PROTOCOL_RUNNER_CODE } from './ui_panels/hooks/useProtocolRunner';
 import { USE_PROVISIONING_CODE } from './ui_panels/hooks/useProvisioning';
 import { USE_FIRMWARE_MANAGER_CODE } from './ui_panels/hooks/useFirmwareManager';
 import { RENDER_FUNCTIONS_CODE } from './ui_panels/render_functions';
+import { PLAYER_DISPLAY_CODE } from './ui_panels/player/PlayerDisplay';
 
 export const MAIN_PANEL_CODE = `
   const { useState, useEffect, useMemo, useRef } = React;
@@ -19,6 +20,9 @@ export const MAIN_PANEL_CODE = `
   ${USE_PROVISIONING_CODE}
   
   ${USE_FIRMWARE_MANAGER_CODE}
+  
+  // --- Injected Player Display ---
+  ${PLAYER_DISPLAY_CODE}
 
   // --- Main UI State ---
   const [leftTab, setLeftTab] = useState('research'); // 'research' | 'library' | 'firmware'
@@ -28,10 +32,18 @@ export const MAIN_PANEL_CODE = `
   const [showSettings, setShowSettings] = useState(false); // State for settings modal
   const wasVibecodingRef = useRef(false);
   
+  // --- Evolution Modal State ---
+  const [evoModalOpen, setEvoModalOpen] = useState(false);
+  const [evoTargetProtocol, setEvoTargetProtocol] = useState(null);
+  const [evoGoalInput, setEvoGoalInput] = useState('');
+  
   // --- Research Panel State (Lifted Up) ---
   const [researchInput, setResearchInput] = useState('Enhance focus and attention eeg');
   const [autonomyEnabled, setAutonomyEnabled] = useState(false);
   const [generatingIds, setGeneratingIds] = useState(new Set());
+  
+  // --- Import/Export Refs ---
+  const fileInputRef = useRef(null);
   
   // --- API Counter ---
   const { apiCallCount } = runtime.getState();
@@ -184,12 +196,148 @@ export const MAIN_PANEL_CODE = `
       }
   };
 
+  const handleExportLibrary = async () => {
+      runtime.logEvent('[System] Exporting library...');
+      try {
+          const result = await runtime.tools.run('Export Neurofeedback Protocols', {});
+          if (result && result.protocolsJson) {
+              const blob = new Blob([result.protocolsJson], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'neurofeedback_protocols_' + new Date().toISOString().slice(0,10) + '.json';
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+              runtime.logEvent('[System] 💾 Protocol library exported successfully.');
+          } else {
+               runtime.logEvent('[System] ⚠️ Export tool returned no data.');
+          }
+      } catch (e) {
+          runtime.logEvent('[System] ❌ Export failed: ' + e.message);
+      }
+  };
+  
+  const handleImportClick = () => {
+      if (fileInputRef.current) {
+          fileInputRef.current.click();
+      }
+  };
+
+  const handleFileImport = async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+          try {
+              const content = e.target.result;
+              runtime.logEvent('[System] 📥 Importing protocols from file...');
+              const result = await runtime.tools.run('Import Neurofeedback Protocols', { protocolsJson: content });
+              if (result.success) {
+                   runtime.logEvent('[System] ✅ ' + result.message);
+                   // Force refresh logic if needed, though tool list usually updates automatically via React state
+              } else {
+                   runtime.logEvent('[System] ❌ Import failed: ' + result.message);
+              }
+          } catch (err) {
+              runtime.logEvent('[System] ❌ Critical Import Error: ' + err.message);
+          }
+          // Reset value to allow re-importing same file if needed
+          event.target.value = '';
+      };
+      reader.readAsText(file);
+  };
+
+  const handleFactoryReset = async () => {
+      console.log('Factory reset requested');
+      if (window.confirm("⚠️ FACTORY RESET WARNING ⚠️\\n\\nThis will delete ALL generated protocols and custom tools.\\nThe application will reload.\\n\\nAre you sure?")) {
+          try {
+              runtime.logEvent('[System] 🛑 Factory reset initiated by user.');
+              await runtime.tools.run('Factory Reset Protocols', {});
+          } catch(e) {
+              console.error(e);
+              runtime.logEvent('[System] ❌ Reset failed: ' + e.message);
+          }
+      }
+  };
+  
+  const handleEvolveRequest = (protocol) => {
+      setEvoTargetProtocol(protocol);
+      setEvoModalOpen(true);
+  };
+  
+  const handleEvolveConfirm = () => {
+      if (!evoGoalInput.trim() || !evoTargetProtocol) return;
+      
+      runtime.logEvent("[System] 🧬 Initiating Universal Evolution for: " + evoTargetProtocol.name);
+      setEvoModalOpen(false);
+      
+      startSwarmTask({
+            task: {
+                userRequest: { 
+                    text: "Evolve the tool '" + evoTargetProtocol.name + "' based on this goal: " + evoGoalInput 
+                },
+                isScripted: true,
+                script: [
+                    {
+                        name: "Evolve Protocol Safely",
+                        arguments: {
+                            baseToolName: evoTargetProtocol.name,
+                            observedInterest: evoGoalInput
+                        }
+                    }
+                ]
+            },
+            systemPrompt: "You are an Evolutionary Architect. Execute the evolution script.",
+            allTools: runtime.tools.list()
+        });
+        setEvoGoalInput('');
+  };
+
+  const renderEvolveModal = () => {
+      if (!evoModalOpen) return null;
+      return (
+          <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
+               <div className="bg-slate-900 border-2 border-purple-500 rounded-lg shadow-2xl w-full max-w-md p-6">
+                   <h2 className="text-lg font-bold text-purple-300 mb-1">🧬 Protocol Evolution</h2>
+                   <p className="text-xs text-slate-400 mb-4">Target: <span className="text-white font-bold">{evoTargetProtocol?.name}</span></p>
+                   
+                   <label className="text-xs text-slate-300 block mb-2">Evolution Vector (What should change?)</label>
+                   <textarea 
+                        value={evoGoalInput}
+                        onChange={(e) => setEvoGoalInput(e.target.value)}
+                        className="w-full bg-black/50 border border-slate-600 rounded p-2 text-sm text-white mb-4 h-24 focus:border-purple-500 outline-none"
+                        placeholder="e.g., 'Add a scoring system', 'Make visuals react to Theta waves', 'Gamify the feedback loop'"
+                        autoFocus
+                   />
+                   
+                   <div className="flex justify-end gap-3">
+                       <button onClick={() => setEvoModalOpen(false)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs">Cancel</button>
+                       <button onClick={handleEvolveConfirm} className="px-4 py-2 bg-purple-700 hover:bg-purple-600 text-white font-bold rounded text-xs">Initiate Evolution</button>
+                   </div>
+               </div>
+          </div>
+      );
+  };
+
   // --- Render Functions (Extracted) ---
   ${RENDER_FUNCTIONS_CODE}
 
   return (
     <div className="h-full w-full bg-black text-slate-200 font-sans flex overflow-hidden relative">
         {renderSettingsModal()}
+        {renderEvolveModal()}
+        
+        {/* Hidden Input for Import */}
+        <input 
+            type="file" 
+            ref={fileInputRef}
+            style={{ display: 'none' }} 
+            accept=".json"
+            onChange={handleFileImport}
+        />
         
         {protocolRunner.authNeededDevice && (
             <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
@@ -278,22 +426,19 @@ export const MAIN_PANEL_CODE = `
                     'grid-cols-2 grid-rows-2' 
                 }\`}>
                     {protocolRunner.runningProtocols.map(app => (
-                        <div key={app.id} className="relative border border-slate-800/50 overflow-hidden">
-                            <div className="absolute top-4 left-4 z-20 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 flex items-center gap-2">
-                                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-                                <span className="font-bold text-xs text-white">{app.name}</span>
-                                <button onClick={() => protocolRunner.toggleProtocol(app)} className="ml-2 text-slate-400 hover:text-white">×</button>
-                            </div>
-                            <div className="w-full h-full">
-                                 <UIToolRunner 
-                                    tool={app} 
-                                    props={{ 
-                                        processedData: protocolRunner.processedDataMap[app.id], 
-                                        runtime,
-                                        vibecoderHistory
-                                    }} 
-                                />
-                            </div>
+                        <div key={app.id} className="relative border border-slate-800/50 overflow-hidden bg-[#050505] p-2">
+                            {renderPlayerDisplay({
+                                selectedProtocol: app,
+                                runningProtocol: app,
+                                processedData: protocolRunner.processedDataMap[app.id],
+                                rawData: protocolRunner.rawData,
+                                connectionStatus: protocolRunner.connectionStatus,
+                                handleRunProtocol: (p) => protocolRunner.toggleProtocol(p),
+                                runtime,
+                                vibecoderHistory,
+                                startSwarmTask,
+                                onEvolve: handleEvolveRequest
+                            })}
                         </div>
                     ))}
                 </div>
@@ -306,13 +451,13 @@ export const MAIN_PANEL_CODE = `
             )}
             
             {protocolRunner.runningProtocols.length > 0 && (
-                 <div className="absolute bottom-0 left-0 right-0 h-12 bg-slate-900/80 backdrop-blur-md border-t border-slate-800 flex items-center justify-between px-6 z-30">
-                     <div className="text-xs text-slate-400 flex items-center gap-2">
+                 <div className="absolute bottom-0 left-0 right-0 h-8 bg-slate-900/80 backdrop-blur-md border-t border-slate-800 flex items-center justify-between px-6 z-30 pointer-events-none">
+                     <div className="text-[10px] text-slate-400 flex items-center gap-2">
                          <span className="text-green-400 font-mono font-bold">{protocolRunner.connectionStatus || 'Connecting...'}</span>
                          <span>|</span>
                          <span>{protocolRunner.runningProtocols.length} Active Sessions</span>
                      </div>
-                     <div className="text-xs text-slate-500 font-mono">
+                     <div className="text-[10px] text-slate-500 font-mono">
                         API Ops: {totalApiCalls}
                      </div>
                  </div>

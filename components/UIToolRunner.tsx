@@ -1,3 +1,4 @@
+
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
 // FIX: Switched to a default import for React (`import React from 'react'`) to resolve
@@ -70,7 +71,12 @@ const UIToolRunner: React.FC<UIToolRunnerComponentProps> = ({ tool, props }) => 
     }
 
     const code = tool.implementationCode || '';
-    const sanitizedCode = code.replace(/export default .*;?/g, '');
+    // FIX: Aggressively strip markdown code blocks which AI models often add despite instructions.
+    // Also strip 'export default' which is common in React snippets.
+    const sanitizedCode = code
+      .replace(/^```(javascript|js|jsx|typescript|ts)?\s*[\r\n]*/i, '') // Remove leading markdown fence
+      .replace(/```\s*$/, '') // Remove trailing markdown fence
+      .replace(/export default .*;?/g, '');
 
     // Decouple component compilation from the live props object.
     // The list of props to destructure is derived from the tool's static definition.

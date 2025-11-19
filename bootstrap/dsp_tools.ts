@@ -9,6 +9,10 @@
 
 
 
+
+
+
+
 import type { ToolCreatorPayload } from '../types';
 
 export const DSP_TOOLS: ToolCreatorPayload[] = [
@@ -28,12 +32,45 @@ export const DSP_TOOLS: ToolCreatorPayload[] = [
             const debugLog = [];
             
             // --- GPU Initialization (Singleton-ish pattern) ---
-            if (!window.gpuInstance && window.GPU) {
+            if (!window.gpuInstance) {
                 try {
-                   window.gpuInstance = new window.GPU();
-                   debugLog.push('[DSP] GPU instance initialized.');
+                    // Robustly find the GPU constructor.
+                    // Some CDN builds export the class at window.GPU, others at window.GPU.GPU.
+                    let GPUConstructor = null;
+
+                    if (window.GPU) {
+                        // Prioritize the namespace pattern (window.GPU.GPU) as window.GPU might be an object/function that isn't a constructor
+                        if (window.GPU.GPU && typeof window.GPU.GPU === 'function') {
+                            GPUConstructor = window.GPU.GPU;
+                        } 
+                        else if (typeof window.GPU === 'function') {
+                            GPUConstructor = window.GPU;
+                        }
+                    }
+
+                    if (GPUConstructor) {
+                       try {
+                           window.gpuInstance = new GPUConstructor();
+                           debugLog.push('[DSP] GPU instance initialized.');
+                       } catch (initErr) {
+                           debugLog.push('[DSP] GPU instantiation failed: ' + initErr.message);
+                           // If we tried one and failed, maybe try the other? (Rare edge case)
+                           if (GPUConstructor === window.GPU && window.GPU.GPU) {
+                               try {
+                                   window.gpuInstance = new window.GPU.GPU();
+                                   debugLog.push('[DSP] GPU initialized via fallback (window.GPU.GPU).');
+                               } catch(e2) { debugLog.push('[DSP] Fallback failed: ' + e2.message); }
+                           }
+                       }
+                    } else {
+                        if (!window.GPU) {
+                             debugLog.push('[DSP] GPU.js not loaded (window.GPU is undefined).');
+                        } else {
+                             debugLog.push('[DSP] Failed to init GPU: window.GPU exists but valid constructor not found.');
+                        }
+                    }
                 } catch(e) {
-                   debugLog.push('[DSP] Failed to init GPU: ' + e.message);
+                   debugLog.push('[DSP] Critical GPU Init Error: ' + e.message);
                 }
             }
             
@@ -59,7 +96,15 @@ export const DSP_TOOLS: ToolCreatorPayload[] = [
                     const gpu = window.gpuInstance;
 
                     // --- GPU KERNEL 1: Analytic Signal (Hilbert Approx) ---
-                    if (!window.analyticKernel) {
+                    // Check if kernel exists AND if dimensions match the current data.
+                    // If dimensions change (e.g., adding more devices), we MUST recompile.
+                    if (!window.analyticKernel || window.analyticKernel.dim_ch !== numChannels || window.analyticKernel.dim_len !== dataLength) {
+                        
+                        // Clean up old kernel if it exists
+                        if (window.analyticKernel && typeof window.analyticKernel.destroy === 'function') {
+                            try { window.analyticKernel.destroy(); } catch(e) {}
+                        }
+
                         window.analyticKernel = gpu.createKernel(function(data, len) {
                             // Simple FIR Hilbert approximation
                             const ch = this.thread.z;
@@ -86,13 +131,27 @@ export const DSP_TOOLS: ToolCreatorPayload[] = [
                             
                             return ret / mag;
                             
-                        }).setOutput([2, dataLength, numChannels]);
+                        })
+                        .setOutput([2, dataLength, numChannels])
+                        .setPipeline(true) // Keep on GPU for next step
+                        .setImmutable(true);
+                        
+                        // Tag kernel with dimensions for future checks
+                        window.analyticKernel.dim_ch = numChannels;
+                        window.analyticKernel.dim_len = dataLength;
+                        
+                        debugLog.push('[DSP] Recompiled Analytic Kernel for ' + numChannels + 'ch x ' + dataLength + 'pts');
                     }
                     
                     const analyticData = window.analyticKernel(rawMatrix, dataLength);
                     
                     // --- GPU KERNEL 2: Coherence Matrix (Complex Dot Product) ---
-                    if (!window.coherenceMatrixKernel) {
+                    if (!window.coherenceMatrixKernel || window.coherenceMatrixKernel.dim_ch !== numChannels) {
+                         
+                         if (window.coherenceMatrixKernel && typeof window.coherenceMatrixKernel.destroy === 'function') {
+                            try { window.coherenceMatrixKernel.destroy(); } catch(e) {}
+                         }
+
                          window.coherenceMatrixKernel = gpu.createKernel(function(analyticData, len) {
                              const chA = this.thread.y;
                              const chB = this.thread.x;
@@ -126,10 +185,15 @@ export const DSP_TOOLS: ToolCreatorPayload[] = [
                          .setOutput([numChannels, numChannels])
                          .setConstants({ len: dataLength })
                          .setTactic('precision');
+                         
+                         window.coherenceMatrixKernel.dim_ch = numChannels;
+                         debugLog.push('[DSP] Recompiled Coherence Kernel for ' + numChannels + 'x' + numChannels);
                     }
                     
+                    // Update constants if length changed but channel count didn't (rare but possible)
                     if (window.coherenceMatrixKernel.constants.len !== dataLength) {
-                        // Dimension changed, usually safe to ignore or re-compile in prod
+                        // Usually safest to just recompile, but for length we can ignore or let it be handled by next check
+                        // We will assume the dimension check above catches most cases.
                     }
 
                     const coherenceMatrixGPU = window.coherenceMatrixKernel(analyticData, dataLength);
@@ -137,6 +201,11 @@ export const DSP_TOOLS: ToolCreatorPayload[] = [
                     const coherence_matrix = {};
                     let totalCiPLV = 0;
                     let count = 0;
+                    
+                    // Read back texture result to CPU
+                    // If using pipeline, coherenceMatrixGPU is a Texture. We need to .toArray() it if it's not the final step?
+                    // Actually, if the kernel output is not pipeline, it returns array. 
+                    // We did NOT setPipeline(true) on the second kernel, so it returns JS Array (Float32Array usually).
                     
                     for(let i=0; i<numChannels; i++) {
                         for(let j=i+1; j<numChannels; j++) {
@@ -164,60 +233,67 @@ export const DSP_TOOLS: ToolCreatorPayload[] = [
                     // Inline Worker Code
                     const workerScript = \`
                         self.onmessage = function(e) {
-                            const { rawMatrix, channels } = e.data;
-                            const numChannels = channels.length;
-                            const len = rawMatrix[0].length;
-                            const coherence_matrix = {};
-                            let total = 0;
-                            let count = 0;
-                            
-                            // Pre-compute Analytic Signal (Simple Hilbert)
-                            const analytic = new Array(numChannels);
-                            for(let c=0; c<numChannels; c++) {
-                                const row = new Float32Array(len * 2);
-                                for(let t=0; t<len; t++) {
-                                    const real = rawMatrix[c][t];
-                                    const imag = (t >= 5) ? rawMatrix[c][t-5] : 0;
-                                    const mag = Math.sqrt(real*real + imag*imag) + 0.000001;
-                                    row[t*2] = real / mag;
-                                    row[t*2+1] = imag / mag;
+                            try {
+                                const { rawMatrix, channels } = e.data;
+                                if (!rawMatrix || rawMatrix.length === 0 || !rawMatrix[0]) {
+                                    throw new Error("Invalid matrix data");
                                 }
-                                analytic[c] = row;
-                            }
-                            
-                            // O(N^2) Loop
-                            for(let i=0; i<numChannels; i++) {
-                                for(let j=i+1; j<numChannels; j++) {
-                                    let sumReal = 0;
-                                    let sumImag = 0;
-                                    const a = analytic[i];
-                                    const b = analytic[j];
-                                    
+                                const numChannels = channels.length;
+                                const len = rawMatrix[0].length;
+                                const coherence_matrix = {};
+                                let total = 0;
+                                let count = 0;
+                                
+                                // Pre-compute Analytic Signal (Simple Hilbert)
+                                const analytic = new Array(numChannels);
+                                for(let c=0; c<numChannels; c++) {
+                                    const row = new Float32Array(len * 2);
                                     for(let t=0; t<len; t++) {
-                                        const ra = a[t*2];
-                                        const ia = a[t*2+1];
-                                        const rb = b[t*2];
-                                        const ib = b[t*2+1];
-                                        sumReal += (ra*rb + ia*ib);
-                                        sumImag += (ia*rb - ra*ib);
+                                        const real = rawMatrix[c][t];
+                                        const imag = (t >= 5) ? rawMatrix[c][t-5] : 0;
+                                        const mag = Math.sqrt(real*real + imag*imag) + 0.000001;
+                                        row[t*2] = real / mag;
+                                        row[t*2+1] = imag / mag;
                                     }
-                                    
-                                    sumReal /= len;
-                                    sumImag /= len;
-                                    const numer = Math.abs(sumImag);
-                                    const denomSq = 1 - (sumReal * sumReal);
-                                    const val = (denomSq > 1e-9) ? (numer / Math.sqrt(denomSq)) : 0;
-                                    
-                                    coherence_matrix[channels[i] + '__' + channels[j]] = val;
-                                    total += val;
-                                    count++;
+                                    analytic[c] = row;
                                 }
+                                
+                                // O(N^2) Loop
+                                for(let i=0; i<numChannels; i++) {
+                                    for(let j=i+1; j<numChannels; j++) {
+                                        let sumReal = 0;
+                                        let sumImag = 0;
+                                        const a = analytic[i];
+                                        const b = analytic[j];
+                                        
+                                        for(let t=0; t<len; t++) {
+                                            const ra = a[t*2];
+                                            const ia = a[t*2+1];
+                                            const rb = b[t*2];
+                                            const ib = b[t*2+1];
+                                            sumReal += (ra*rb + ia*ib);
+                                            sumImag += (ia*rb - ra*ib);
+                                        }
+                                        
+                                        sumReal /= len;
+                                        sumImag /= len;
+                                        const numer = Math.abs(sumImag);
+                                        const denomSq = 1 - (sumReal * sumReal);
+                                        const val = (denomSq > 1e-9) ? (numer / Math.sqrt(denomSq)) : 0;
+                                        
+                                        coherence_matrix[channels[i] + '__' + channels[j]] = val;
+                                        total += val;
+                                        count++;
+                                    }
+                                }
+                                
+                                self.postMessage({ 
+                                    coherence_matrix, 
+                                    avg_coherence: count > 0 ? total/count : 0 
+                                });
+                            } catch (err) {
+                                self.postMessage({ error: err.message });
                             }
-                            
-                            self.postMessage({ 
-                                coherence_matrix, 
-                                avg_coherence: count > 0 ? total/count : 0 
-                            });
                         };
                     \`;
                     
@@ -231,13 +307,17 @@ export const DSP_TOOLS: ToolCreatorPayload[] = [
                         worker.onmessage = (e) => {
                             URL.revokeObjectURL(workerUrl);
                             worker.terminate();
-                            resolve({
-                                success: true,
-                                avg_coherence: e.data.avg_coherence,
-                                coherence_matrix: e.data.coherence_matrix,
-                                engine: 'CPU (Worker)',
-                                debugLog
-                            });
+                            if (e.data.error) {
+                                resolve({ success: false, error: 'Worker Error: ' + e.data.error, debugLog });
+                            } else {
+                                resolve({
+                                    success: true,
+                                    avg_coherence: e.data.avg_coherence,
+                                    coherence_matrix: e.data.coherence_matrix,
+                                    engine: 'CPU (Worker)',
+                                    debugLog
+                                });
+                            }
                         };
                         
                         worker.onerror = (e) => {

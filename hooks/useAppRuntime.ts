@@ -16,6 +16,16 @@ import type { AIToolCall, EnrichedAIResponse, LLMTool, MainView, ToolCreatorPayl
 const VELOCITY_LIMIT = 15; // Max calls
 const VELOCITY_WINDOW_SECONDS = 10; // Per X seconds
 
+// Tools that run frequently (e.g., in DSP loops) and should not spam the log.
+const NOISY_TOOLS = new Set([
+    'Calculate_Coherence_Matrix_Optimized',
+    'Calculate_Coherence_Matrix_Quantum_Mock',
+    'Solve_QUBO_SimulatedAnnealing',
+    'MultiSourceEEGStreamAggregator',
+    'findHypergraphDissonanceQuantum',
+    'findGraphDissonanceQuantum'
+]);
+
 // FIX: Changed from a const arrow function to a function declaration.
 // This helps TypeScript's type inference by hoisting the function, which can
 // resolve module dependency cycles that cause the hook's return type to be
@@ -208,7 +218,11 @@ export function useAppRuntime() {
             context?: MainView
         ): Promise<EnrichedAIResponse> => {
             const tool = getTool(toolCall.name);
-            const log = (msg: string) => stateManager.logEvent(`[${agentId}] ${msg}`);
+            const isNoisy = NOISY_TOOLS.has(toolCall.name);
+            const log = (msg: string) => {
+                if (!isNoisy) stateManager.logEvent(`[${agentId}] ${msg}`);
+            };
+            
             log(`Executing tool: ${toolCall.name}`);
 
             if (!tool) {
@@ -278,7 +292,9 @@ export function useAppRuntime() {
                     console.error(`Runtime error in '${tool.name}':`, e);
                 }
                 
-                log(`[ERROR] ${detailedError}`);
+                // We always log errors, even for noisy tools.
+                stateManager.logEvent(`[${agentId}] [ERROR] ${detailedError}`);
+                
                 // Return the more descriptive error message to the swarm manager.
                 return { toolCall, tool, executionError: detailedError };
             }

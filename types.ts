@@ -25,6 +25,15 @@ export interface EEGDataRequirements {
   metrics: string[]; // e.g., ['smr_power', 'theta_beta_ratio']
 }
 
+export interface ScientificDossier {
+    title: string;
+    hypothesis: string;       // "Increasing 12-15Hz at Cz improves motor inhibition."
+    mechanism: string;        // "Operant conditioning via visual reward."
+    targetNeuralState: string; // "Relaxed Focus"
+    citations: string[];      // ["Sterman, 1996", "DOI:10.1016/j.clinph.2000..."]
+    relatedKeywords: string[]; // ["ADHD", "Sleep Spindles", "Motor Cortex"]
+}
+
 export interface LLMTool {
   id:string;
   name:string;
@@ -39,6 +48,7 @@ export interface LLMTool {
   updatedAt?: string;
   executionEnvironment: 'Client' | 'Server';
   dataRequirements?: EEGDataRequirements;
+  scientificDossier?: ScientificDossier; 
 }
 
 export type NewToolPayload = Omit<LLMTool, 'id' | 'version' | 'createdAt' | 'updatedAt'>;
@@ -53,6 +63,7 @@ export interface ToolCreatorPayload {
   processingCode?: string;
   purpose: string;
   dataRequirements?: EEGDataRequirements;
+  scientificDossier?: ScientificDossier;
 }
 
 export interface AIToolCall {

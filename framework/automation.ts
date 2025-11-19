@@ -1,3 +1,4 @@
+
 // framework/automation.ts
 import type { ToolCreatorPayload } from '../types';
 
@@ -266,7 +267,7 @@ const DEVELOP_TOOL_FROM_OBJECTIVE: ToolCreatorPayload = {
     purpose: 'To provide a robust, generic, and self-healing mechanism for the framework to expand its own capabilities. This is the core of autonomous tool development.',
     parameters: [
          { name: 'objective', type: 'string', description: 'A clear, high-level goal for the new tool (e.g., "Create a UI component to visualize alpha waves").', required: true },
-         { name: 'sourceMaterial', type: 'string', description: 'The source text (e.g., a scientific abstract, user story) providing the context and requirements for the new tool.', required: true },
+         { name: 'sourceMaterial', type: 'string', description: 'The source text (e.g., scientific abstract, user story) providing the context and requirements for the new tool.', required: true },
     ],
     implementationCode: `
         const { objective, sourceMaterial } = args;
@@ -589,6 +590,140 @@ const VIBECODE_ENVIRONMENT_OPTIMIZER: ToolCreatorPayload = {
     `
 };
 
+const REFACTOR_EXISTING_TOOL: ToolCreatorPayload = {
+    name: 'Refactor Existing Tool',
+    description: 'Takes the code of an existing tool and rewrites it to meet a new requirement, effectively creating a new version of that tool.',
+    category: 'Automation',
+    executionEnvironment: 'Client',
+    purpose: 'To enable the evolution of existing software instead of creating duplicates.',
+    parameters: [
+        { name: 'toolName', type: 'string', description: 'The name of the tool to refactor.', required: true },
+        { name: 'refactoringGoal', type: 'string', description: 'The goal of the refactor (e.g., "Add error handling", "Integrate new mechanic").', required: true },
+    ],
+    implementationCode: `
+        const { toolName, refactoringGoal } = args;
+
+        // 1. Find target
+        const targetTool = runtime.tools.list().find(t => t.name === toolName);
+        if (!targetTool) throw new Error(\`Tool '\${toolName}' not found.\`);
+
+        runtime.logEvent(\`[Refactor] Reading source of '\${toolName}'...\`);
+
+        // 2. Formulate Prompt
+        const systemPrompt = \`You are a Senior Software Engineer. Your task is to REFACTOR existing code to meet a new requirement.
+        CURRENT CODE:
+        \${targetTool.implementationCode}
+
+        NEW REQUIREMENT:
+        \${refactoringGoal}
+
+        RULES:
+        1. Return the FULLY REWRITTEN code.
+        2. Maintain existing functionality unless asked to change it.
+        3. Do not wrap in markdown blocks. Just code.
+        4. Ensure valid JavaScript syntax.\`;
+
+        // 3. Generate new code
+        const newCode = await runtime.ai.generateText("Refactor the code.", systemPrompt);
+
+        // 4. Update Tool (Create new version with same name)
+        const newTool = await runtime.tools.run('Tool Creator', {
+            name: targetTool.name,
+            description: targetTool.description + " (Refactored: " + refactoringGoal + ")",
+            category: targetTool.category,
+            executionEnvironment: targetTool.executionEnvironment,
+            parameters: targetTool.parameters,
+            purpose: targetTool.purpose,
+            implementationCode: newCode,
+            processingCode: targetTool.processingCode, 
+            dataRequirements: targetTool.dataRequirements
+        });
+
+        runtime.logEvent(\`[Refactor] ✅ Tool '\${toolName}' has been evolved.\`);
+        return { success: true, tool: newTool };
+    `
+};
+
+const EVOLVE_PROTOCOL_SAFELY: ToolCreatorPayload = {
+    name: 'Evolve Protocol Safely',
+    description: 'Safely evolves a tool by researching a user interest, forking the code, applying changes, and only keeping the new version if it compiles and runs. This implements the "Genetic Forking" strategy for game evolution.',
+    category: 'Automation',
+    executionEnvironment: 'Client',
+    purpose: 'To allow the system to grow without breaking existing functionality, incorporating scientific research into new iterations.',
+    parameters: [
+        { name: 'baseToolName', type: 'string', description: 'The tool to evolve.', required: true },
+        { name: 'observedInterest', type: 'string', description: 'What the user seems interested in (e.g., "Shadows", "High Speed").', required: true }
+    ],
+    implementationCode: `
+        const { baseToolName, observedInterest } = args;
+
+        // 1. RESEARCH PHASE
+        // The agent googles the concept to get scientific backing
+        runtime.logEvent(\`[Evolution] 🧬 Player interested in '\${observedInterest}'. Researching...\`);
+        
+        // We use the existing 'Generate Scientific Dossier' which uses search
+        const dossierResult = await runtime.tools.run('Generate Scientific Dossier', {
+            concept: observedInterest
+        });
+        const dossier = dossierResult.dossier;
+
+        // 2. FORK PHASE
+        const baseTool = runtime.tools.list().find(t => t.name === baseToolName);
+        if (!baseTool) throw new Error("Base tool not found.");
+        
+        // 3. MUTATION PHASE (The "Idea")
+        const mutationPrompt = \`
+        You are a Creative Technologist.
+        The user likes: "\${observedInterest}".
+        Scientific Context: \${JSON.stringify(dossier)}
+        
+        Current Code:
+        \${baseTool.implementationCode}
+        
+        TASK:
+        Create a NEW version of this code.
+        1. Keep the core loop working.
+        2. Add a specific mechanic based on the scientific research provided.
+        3. Name the mechanic in the comments.
+        4. Ensure valid JavaScript.
+        
+        Return ONLY the code.
+        \`;
+        
+        const newCode = await runtime.ai.generateText(mutationPrompt, "You are a React/JS expert. Output raw code only.");
+        
+        // 4. COMPILATION CHECK (The "Safety Net")
+        const nextVersionName = baseToolName + "_v" + (baseTool.version + 1);
+        
+        try {
+            // Create the new tool as a separate entity first
+            const { tool: evolvedTool } = await runtime.tools.run('Tool Creator', {
+                name: nextVersionName,
+                description: baseTool.description + " + " + observedInterest,
+                category: baseTool.category,
+                executionEnvironment: baseTool.executionEnvironment,
+                parameters: baseTool.parameters,
+                purpose: \`Evolution of \${baseToolName} adapting to \${observedInterest}\`,
+                implementationCode: newCode,
+                processingCode: baseTool.processingCode, // Usually keeps the same DSP, or we evolve this too
+                dataRequirements: baseTool.dataRequirements,
+                scientificDossier: dossier // <-- ATTACH SCIENCE
+            });
+            
+            runtime.logEvent(\`[Evolution] ✅ Success! Created '\${nextVersionName}'. Launching for testing...\`);
+            
+            // 5. HOT-SWAP (Launch the new one)
+            runtime.os.launchApp(evolvedTool.id);
+            
+            return { success: true, newToolName: nextVersionName, dossier: dossier };
+            
+        } catch (e) {
+            runtime.logEvent(\`[Evolution] ❌ Mutation failed compilation. Discarding. Original tool is safe.\`);
+            return { success: false, error: e.message };
+        }
+    `
+};
+
 export const AUTOMATION_TOOLS: ToolCreatorPayload[] = [
     ARCHITECTURAL_PRINCIPLE_RECORDER,
     WORKFLOW_CREATOR_TOOL,
@@ -600,4 +735,6 @@ export const AUTOMATION_TOOLS: ToolCreatorPayload[] = [
     RECORD_TOOL_NAME,
     GENERATE_EEG_PROCESSING_FUNCTION,
     VIBECODE_ENVIRONMENT_OPTIMIZER,
+    REFACTOR_EXISTING_TOOL,
+    EVOLVE_PROTOCOL_SAFELY
 ];

@@ -1,4 +1,62 @@
+
 import type { ToolCreatorPayload } from '../types';
+
+const GENERATE_SCIENTIFIC_DOSSIER: ToolCreatorPayload = {
+    name: 'Generate Scientific Dossier',
+    description: 'Research and generate a structured scientific validation dossier for a given neurofeedback concept. Used to attach rigorous documentation to new tools.',
+    category: 'Functional',
+    executionEnvironment: 'Client',
+    purpose: 'To ensure every tool has a scientific basis and citations, making future evolution easier.',
+    parameters: [
+        { name: 'concept', type: 'string', description: 'The core idea (e.g., "Darkness therapy via Alpha waves").', required: true }
+    ],
+    implementationCode: `
+        const { concept } = args;
+        runtime.logEvent(\`[Scientist] 🔬 Researching scientific basis for: "\${concept}"...\`);
+
+        // 1. SEARCH PHASE
+        // Try to find real articles
+        const searchResults = await runtime.tools.run('Federated Scientific Search', { 
+            query: concept + " neurofeedback mechanism EEG",
+            maxResultsPerSource: 3
+        });
+
+        // 2. SYNTHESIS PHASE
+        // Ask the LLM to synthesize a structured dossier
+        const context = searchResults.searchResults ? JSON.stringify(searchResults.searchResults.slice(0, 3)) : "[]";
+        
+        const systemPrompt = \`You are a Neuroscience Documentation Specialist. 
+        Based on the search results, create a ScientificDossier JSON object for the concept: "\${concept}".
+        
+        FORMAT:
+        {
+          "title": "Scientific Title",
+          "hypothesis": "...",
+          "mechanism": "...",
+          "targetNeuralState": "...",
+          "citations": ["Author, Year, Title", "DOI..."],
+          "relatedKeywords": ["..."]
+        }
+        
+        Return ONLY the JSON.
+        \`;
+
+        const prompt = \`Search Results: \${context}\`;
+        const dossierJson = await runtime.ai.generateText(prompt, systemPrompt);
+        
+        try {
+             // Parse JSON from response
+             const jsonMatch = dossierJson.match(/\\{[\\s\\S]*\\}/);
+             if (!jsonMatch) throw new Error("No JSON found");
+             const dossier = JSON.parse(jsonMatch[0]);
+             
+             runtime.logEvent(\`[Scientist] ✅ Documentation generated with \${dossier.citations.length} citations.\`);
+             return { success: true, dossier };
+        } catch (e) {
+             throw new Error("Failed to generate dossier: " + e.message);
+        }
+    `
+};
 
 export const RESEARCH_TOOLS: ToolCreatorPayload[] = [
     {
@@ -219,7 +277,7 @@ export const RESEARCH_TOOLS: ToolCreatorPayload[] = [
                 "RecordCritique", "RecordErrorAnalysis", "Diagnose Tool Execution Error", "InterpretVacancy",
                 "FindPersonalizedVacancies", "CreateUserAgingVector", "ProjectUserOntoMap", "Synergy Forge Main UI",
                 "AdaptFetchStrategy", "DiscoverProxyBuilders", "Find and Validate Single Source", "Export Learned Skills",
-                "Rank Search Results"
+                "Rank Search Results", "Generate Scientific Dossier"
             ]);
 
             const learnedTools = allTools.filter(tool => !bootstrapToolNames.has(tool.name));
@@ -609,4 +667,5 @@ export const RESEARCH_TOOLS: ToolCreatorPayload[] = [
         return { success: true, reference_titles: responseJson.reference_titles };
     `
     },
+    GENERATE_SCIENTIFIC_DOSSIER
 ];

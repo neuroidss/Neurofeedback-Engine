@@ -294,14 +294,29 @@ export const RENDER_FUNCTIONS_CODE = `
               })}
               {protocolLibrary.length === 0 && <div className="text-center text-slate-600 text-sm mt-10">No protocols generated yet.</div>}
           </div>
-          <div className="flex-shrink-0 pt-4 border-t border-slate-700 mt-2 space-y-2">
-               <button onClick={() => protocolRunner.stopAllProtocols()} className="w-full py-2 bg-red-900/80 hover:bg-red-800 text-white text-xs font-bold rounded">
+          <div className="flex-shrink-0 pt-4 border-t border-slate-700 mt-2 space-y-3">
+               <button onClick={() => protocolRunner.stopAllProtocols()} className="w-full py-2 bg-red-900/80 hover:bg-red-800 text-white text-xs font-bold rounded shadow-sm">
                    STOP ALL SESSIONS
                </button>
-              <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => runtime.tools.run('Export Neurofeedback Protocols', {})} className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 rounded">Export Library</button>
-                  <button onClick={() => { if(confirm("Reset all?")) runtime.tools.run('Factory Reset Protocols', {}) }} className="w-full py-2 bg-slate-800 hover:bg-red-900/50 text-xs text-red-400 rounded border border-slate-700">Reset</button>
-              </div>
+               
+               {/* Exchange Section */}
+               <div>
+                   <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Exchange Protocols</h4>
+                   <div className="flex gap-2">
+                      <button onClick={handleImportClick} className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 rounded border border-slate-700">Import JSON</button>
+                      <button onClick={handleExportLibrary} className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 rounded border border-slate-700">Export Library</button>
+                  </div>
+               </div>
+               
+               {/* System Section */}
+               <div>
+                   <button 
+                        onClick={handleFactoryReset} 
+                        className="w-full py-2 bg-transparent hover:bg-red-900/20 text-xs text-red-500 rounded border border-red-900/50 transition-colors mt-2"
+                   >
+                        Factory Reset
+                   </button>
+               </div>
           </div>
       </div>
   );
@@ -457,4 +472,4 @@ export const RENDER_FUNCTIONS_CODE = `
           )}
       </div>
   );
-`;
+`

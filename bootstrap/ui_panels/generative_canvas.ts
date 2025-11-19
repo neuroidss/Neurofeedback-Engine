@@ -1,3 +1,4 @@
+
 export const GENERATIVE_CANVAS_CODE = `
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
@@ -33,6 +34,10 @@ const [isAudioPlaying, setIsAudioPlaying] = useState(false);
 const [isDonghuaMode, setIsDonghuaMode] = useState(false);
 const [enablePrebuffering, setEnablePrebuffering] = useState(true); // New setting to control budget
 const [isRecording, setIsRecording] = useState(false);
+
+// --- Language State ---
+const [targetLanguage, setTargetLanguage] = useState('English');
+const LANGUAGES = ['English', 'Russian', 'Spanish', 'Japanese', 'Chinese', 'French', 'German'];
 
 // --- Loop Prevention Refs ---
 const preGenAttemptedRef = useRef(false); // Prevents infinite retries on the same scene
@@ -191,10 +196,11 @@ const generateScene = useCallback(async (actionTextOrAudio, audioBase64 = null) 
         lucidityLevel: lucidity, 
         userAction: typeof actionTextOrAudio === 'string' ? actionTextOrAudio : "Audio Input",
         userAudio: audioBase64, 
-        activeBiases
+        activeBiases,
+        targetLanguage
     });
     return result;
-}, [gameState.worldGraph, lucidity, activeBiases]);
+}, [gameState.worldGraph, lucidity, activeBiases, targetLanguage]);
 
 // 1. Immediate / User Triggered
 const triggerNextScene = useCallback(async (actionTextOrAudio, isAuto = false, audioBase64 = null) => {
@@ -327,7 +333,15 @@ useEffect(() => {
 
 
 // --- Voice Recognition (Transcription OR Raw Audio) ---
-const toggleRecording = useCallback(async () => {
+const toggleRecording = useCallback(async (e) => {
+    // Prevent button default to avoid form submission or weirdness
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    
+    console.log("Toggle recording clicked. Current state:", isRecording, "Mode:", audioInputMode);
+
     if (isRecording) {
         if (audioInputMode === 'transcription' && recognitionRef.current) recognitionRef.current.stop();
         else if (audioInputMode === 'raw' && mediaRecorderRef.current) mediaRecorderRef.current.stop();
@@ -337,19 +351,25 @@ const toggleRecording = useCallback(async () => {
 
     if (audioInputMode === 'transcription') {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) { alert("Transcription not supported."); return; }
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'en-US';
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
-        recognition.onstart = () => setIsRecording(true);
-        recognition.onend = () => setIsRecording(false);
-        recognition.onresult = (event) => {
-            const transcript = event.results[0][0].transcript;
-            triggerNextScene(transcript, false);
-        };
-        recognitionRef.current = recognition;
-        recognition.start();
+        if (!SpeechRecognition) { alert("Transcription not supported in this browser."); return; }
+        
+        try {
+            const recognition = new SpeechRecognition();
+            recognition.lang = targetLanguage === 'Russian' ? 'ru-RU' : 'en-US'; // Basic lang support
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+            recognition.onstart = () => setIsRecording(true);
+            recognition.onend = () => setIsRecording(false);
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                triggerNextScene(transcript, false);
+            };
+            recognitionRef.current = recognition;
+            recognition.start();
+        } catch (e) {
+            console.error("Speech API Error:", e);
+            alert("Microphone access failed.");
+        }
     } 
     else {
         try {
@@ -370,7 +390,7 @@ const toggleRecording = useCallback(async () => {
             setIsRecording(true);
         } catch (e) { alert("Mic Error: " + e.message); }
     }
-}, [isRecording, audioInputMode, triggerNextScene]);
+}, [isRecording, audioInputMode, triggerNextScene, targetLanguage]);
 
 
 // --- Render Styles ---
@@ -417,7 +437,18 @@ return (
                 )}
             </div>
             <div className="flex items-center gap-2">
+                 {/* Language Selector */}
+                 <select 
+                    value={targetLanguage} 
+                    onChange={(e) => setTargetLanguage(e.target.value)}
+                    className="bg-slate-800 border border-slate-600 text-slate-300 text-[9px] font-bold px-1 py-1 rounded outline-none"
+                    title="Select Game Language"
+                 >
+                    {LANGUAGES.map(lang => <option key={lang} value={lang}>{lang}</option>)}
+                 </select>
+
                  <button 
+                    type="button"
                     onClick={() => {
                         setMusicEnabled(!musicEnabled);
                         if (synthRef.current && !musicEnabled) synthRef.current.ctx.resume();
@@ -428,6 +459,7 @@ return (
                  </button>
 
                  <button 
+                    type="button"
                     onClick={() => setEnablePrebuffering(!enablePrebuffering)}
                     className={'px-2 py-1 rounded text-[9px] font-bold border transition-colors flex items-center gap-1 ' + (enablePrebuffering ? 'bg-green-900/30 border-green-500 text-green-300' : 'bg-slate-800 border-slate-600 text-slate-500')}
                     title="Pre-generate the next scene while current one plays (Smoother, but costs more tokens)"
@@ -436,6 +468,7 @@ return (
                  </button>
             
                  <button 
+                    type="button"
                     onClick={() => setIsDonghuaMode(!isDonghuaMode)}
                     className={'px-2 py-1 rounded text-[9px] font-bold border transition-colors flex items-center gap-1 ' + (isDonghuaMode ? 'bg-purple-900/50 border-purple-500 text-purple-300' : 'bg-slate-800 border-slate-600 text-slate-500')}
                  >
@@ -443,6 +476,7 @@ return (
                  </button>
                  
                  <button 
+                    type="button"
                     onClick={() => setShowGmScreen(!showGmScreen)}
                     className={'px-2 py-1 rounded text-[9px] font-bold border transition-colors ' + (showGmScreen ? 'bg-green-900/30 border-green-500 text-green-400' : 'bg-slate-800 border-slate-600 text-slate-400 hover:text-white')}
                 >
@@ -492,14 +526,16 @@ return (
         </div>
 
         {/* BOTTOM CONSOLE */}
-        <div className="flex-none h-1/3 min-h-[180px] max-h-[300px] bg-[#0a0a0a] border-t border-slate-800 flex flex-col">
-             <div className="p-2 border-b border-slate-800 bg-[#0f0f0f] flex gap-2 overflow-x-auto">
+        <div className="flex-none h-1/3 min-h-[180px] max-h-[300px] bg-[#0a0a0a] border-t border-slate-800 flex flex-col relative z-50" style={{ pointerEvents: 'auto' }}>
+             <div className="p-2 border-b border-slate-800 bg-[#0f0f0f] flex gap-2 overflow-x-auto relative z-50">
                  {suggestedActions.map((action, i) => (
                     <button 
+                        type="button"
                         key={i}
                         onClick={() => triggerNextScene(action)}
                         disabled={isWaitingForAI}
                         className="flex-shrink-0 px-3 py-1.5 bg-slate-800 hover:bg-cyan-900/80 border border-slate-600 hover:border-cyan-500 text-slate-200 text-xs rounded transition-all disabled:opacity-50 whitespace-nowrap"
+                        style={{ pointerEvents: 'auto' }}
                     >
                         {action}
                     </button>
@@ -514,21 +550,30 @@ return (
                 ))}
              </div>
 
-             <div className="p-2 border-t border-slate-800 bg-black flex gap-2">
-                <button onClick={toggleRecording} className={'p-2 rounded-full border transition-colors ' + (isRecording ? 'bg-red-900 border-red-500 text-white animate-pulse' : 'bg-slate-800 border-slate-600 text-slate-400 hover:text-white')}>
+             <div className="p-2 border-t border-slate-800 bg-black flex gap-2 relative z-50">
+                <button 
+                    type="button"
+                    onClick={toggleRecording} 
+                    className={'p-2 rounded-full border transition-colors cursor-pointer relative z-50 ' + (isRecording ? 'bg-red-900 border-red-500 text-white animate-pulse' : 'bg-slate-800 border-slate-600 text-slate-400 hover:text-white')}
+                    title="Microphone Input (Toggle)"
+                    style={{ pointerEvents: 'auto' }}
+                >
                     {isRecording ? <div className="w-4 h-4 bg-white rounded-sm" /> : <div className="w-4 h-4 bg-red-500 rounded-full" />}
                 </button>
                 <input 
                     type="text" 
                     placeholder={isDonghuaMode ? (isAudioPlaying ? "Listening..." : "Auto-generating...") : "Propose an action..."}
-                    className="flex-grow bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-cyan-500 outline-none font-mono"
+                    className="flex-grow bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-cyan-500 outline-none font-mono relative z-50"
                     onKeyDown={(e) => { if (e.key === 'Enter' && e.currentTarget.value.trim()) { triggerNextScene(e.currentTarget.value.trim()); e.currentTarget.value = ''; }}}
                     disabled={isWaitingForAI}
+                    style={{ pointerEvents: 'auto' }}
                 />
                 <button 
+                    type="button"
                     onClick={(e) => { const input = e.currentTarget.previousSibling; if (input.value.trim()) { triggerNextScene(input.value.trim()); input.value = ''; }}}
-                    className="px-4 bg-slate-800 hover:bg-cyan-700 text-white text-xs font-bold rounded border border-slate-700 hover:border-cyan-500 disabled:opacity-50"
+                    className="px-4 bg-slate-800 hover:bg-cyan-700 text-white text-xs font-bold rounded border border-slate-700 hover:border-cyan-500 disabled:opacity-50 relative z-50"
                     disabled={isWaitingForAI}
+                    style={{ pointerEvents: 'auto' }}
                 >
                     Act
                 </button>

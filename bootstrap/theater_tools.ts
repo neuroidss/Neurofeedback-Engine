@@ -135,10 +135,11 @@ const GENERATE_SCENE_QUANTUM_V2: ToolCreatorPayload = {
         { name: 'lucidityLevel', type: 'number', description: '0.0 to 1.0. User neural stability.', required: true },
         { name: 'userAction', type: 'string', description: 'The action proposed by the player (optional).', required: false },
         { name: 'userAudio', type: 'string', description: 'Base64 encoded audio input from the player (optional). If provided, the model should analyze the emotional tone.', required: false },
-        { name: 'activeBiases', type: 'array', description: 'List of active cognitive distortions.', required: true }
+        { name: 'activeBiases', type: 'array', description: 'List of active cognitive distortions.', required: true },
+        { name: 'targetLanguage', type: 'string', description: 'The language for the narrative output (e.g., "Russian", "English").', required: false, defaultValue: 'English' }
     ],
     implementationCode: `
-        const { worldGraph, lucidityLevel, userAction, userAudio, activeBiases } = args;
+        const { worldGraph, lucidityLevel, userAction, userAudio, activeBiases, targetLanguage = 'English' } = args;
         
         const systemInstruction = \`You are the Quantum Game Master (QGM). You control a consistent, persistent world.
         The Player is a visitor. The Player proposes actions, but YOU (the GM) are the final authority. You must check the World Graph (Physics/Lore) to decide if an action is possible.
@@ -148,6 +149,10 @@ const GENERATE_SCENE_QUANTUM_V2: ToolCreatorPayload = {
         - User Proposal: "\${userAction || "None (Initial State)"}"
         - Neural Lucidity: \${lucidityLevel.toFixed(2)} (1.0=Rational, 0.0=Delirious)
         - Active Biases: \${activeBiases.join(', ')}
+        
+        **LANGUAGE REQUIREMENT:**
+        - You MUST generate the 'narrative' and 'suggestedActions' in: **\${targetLanguage}**.
+        - The JSON keys (like 'narrative', 'gmRuling') MUST remain in English.
         
         **AUDIO INPUT:**
         If audio is provided, listen closely to the EMOTIONAL TONE.
@@ -171,14 +176,14 @@ const GENERATE_SCENE_QUANTUM_V2: ToolCreatorPayload = {
            Select the branch that best fits the current Lucidity.
         
         4. **NEXT ACTION GENERATION (CRITICAL):**
-           - You MUST generate 3-4 *Suggested Actions* for the player.
+           - You MUST generate 3-4 *Suggested Actions* for the player in **\${targetLanguage}**.
            - These actions must be influenced by the Active Biases. 
              - E.g., If 'Paranoia' -> Suggest "Check the shadows", "Lock the door".
              - If 'Lucid' -> Suggest "Examine the object", "Walk forward".
         
         **OUTPUT FORMAT (JSON ONLY):**
         {
-            "narrative": "Description of what happened...",
+            "narrative": "Description of what happened (in \${targetLanguage})...",
             "gmRuling": "Accepted" | "Rejected" | "Distorted",
             "suggestedActions": [ "Action 1", "Action 2", "Action 3" ],
             "updatedGraphUpdates": {

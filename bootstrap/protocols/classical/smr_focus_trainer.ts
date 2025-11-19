@@ -1,3 +1,4 @@
+
 // bootstrap/protocols/classical/smr_focus_trainer.ts
 import type { ToolCreatorPayload } from '../../../types';
 
@@ -14,6 +15,17 @@ export const SMR_FOCUS_TRAINER: ToolCreatorPayload = {
         type: 'eeg',
         channels: ['Cz'],
         metrics: ['smr_theta_ratio']
+    },
+    scientificDossier: {
+        title: "Sensorimotor Rhythm Training",
+        hypothesis: "Enhancing 12-15Hz activity over the sensorimotor cortex (Cz/C3/C4) increases the threshold for seizure activity and improves motor inhibition/focus.",
+        mechanism: "Operant conditioning: The user receives positive feedback (visual growth) when the SMR amplitude exceeds a threshold while Theta (4-8Hz) remains low.",
+        targetNeuralState: "Physical stillness with mental alertness.",
+        citations: [
+            "Sterman, M. B. (1996). Physiological origins and functional correlates of EEG rhythmic activities.",
+            "Lubar, J. F. (1991). Discourse on the development of EEG diagnostics and biofeedback for attention-deficit/hyperactivity disorders."
+        ],
+        relatedKeywords: ["ADHD", "Epilepsy", "Sleep Spindles", "Thalamocortical Loop"]
     },
     processingCode: `
 (eegData, sampleRate) => {

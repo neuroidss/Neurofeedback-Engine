@@ -122,8 +122,11 @@ const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, set
               processingLockRef.current = true;
               const eegDataSnapshot = {};
               keys.forEach(key => { 
-                  // Take the snapshot
-                  eegDataSnapshot[key] = [...eegBufferRef.current[key]]; 
+                  // Take the snapshot.
+                  // CRITICAL FIX: Slice exactly the last 'bufferSize' elements.
+                  // This forces the resulting matrix to be perfectly rectangular (e.g. 32 x 256),
+                  // preventing "ragged array" errors when uploading to GPU.
+                  eegDataSnapshot[key] = eegBufferRef.current[key].slice(-bufferSize); 
                   
                   // ALIASING for simpler protocol access
                   if (key.includes(':')) {
