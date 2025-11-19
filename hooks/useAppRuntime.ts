@@ -1,3 +1,4 @@
+
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
 import React, { useCallback, useRef, useMemo, useState, useEffect } from 'react';
@@ -102,6 +103,7 @@ export function useAppRuntime() {
             setValidatedSources: stateManager.setValidatedSources,
             liveFeed: stateManager.liveFeed,
             eventLog: stateManager.eventLog,
+            apiCallCount: stateManager.apiCallCount, // Expose for UI counters
             ModelProvider, // Expose the enum
             isSwarmRunning: isSwarmRunningRef.current, // Use the ref to get the live value
             globalEegData: stateManager.globalEegData, // Expose raw EEG data
@@ -172,6 +174,22 @@ export function useAppRuntime() {
                 stateManager.setApiCallCount(prev => ({ ...prev, [modelToUse.id]: (prev[modelToUse.id] || 0) + 1 }));
                 return aiService.processRequest({ text, files }, systemInstruction, 'tool-runtime', tools, modelToUse, stateManager.apiConfig);
             },
+            // --- NEW: Multimedia Methods ---
+            generateImage: (prompt: string) => {
+                checkApiCallVelocity();
+                stateManager.setApiCallCount(prev => ({ ...prev, [stateManager.selectedModel.id]: (prev[stateManager.selectedModel.id] || 0) + 1 }));
+                return aiService.generateImage(prompt, stateManager.selectedModel, stateManager.apiConfig);
+            },
+            generateSpeech: (text: string, voiceName: string = 'Puck') => {
+                 checkApiCallVelocity();
+                 stateManager.setApiCallCount(prev => ({ ...prev, [stateManager.selectedModel.id]: (prev[stateManager.selectedModel.id] || 0) + 1 }));
+                 return aiService.generateSpeech(text, voiceName, stateManager.selectedModel, stateManager.apiConfig);
+            },
+            createMusicSession: (callbacks: { onAudioData: (base64: string) => void; onError?: (err: any) => void }) => {
+                 // Do NOT check velocity here as it is a persistent session, not a one-off call.
+                 return aiService.createMusicSession(callbacks, stateManager.apiConfig);
+            },
+            // --- End Multimedia ---
             search: (text: string) => {
                  checkApiCallVelocity(); // Guardian check
                  stateManager.setApiCallCount(prev => ({ ...prev, [stateManager.selectedModel.id]: (prev[stateManager.selectedModel.id] || 0) + 1 }));
@@ -283,4 +301,4 @@ export function useAppRuntime() {
         activeAppId,
         setActiveAppId,
     };
-};
+}

@@ -1,4 +1,5 @@
 
+
 // bootstrap/protocols/classical/neural_synchrony.ts
 import type { ToolCreatorPayload } from '../../../types';
 
@@ -91,8 +92,16 @@ export const NEURAL_SYNCHRONY_PROTOCOL: ToolCreatorPayload = {
         const allChannels = useMemo(() => {
             const channelSet = new Set();
             Object.keys(matrix).forEach(key => {
-                // Split by double underscore to support robust pair parsing
-                const [ch1, ch2] = key.split('__');
+                // Robust parsing: Supports 'ch1__ch2' (standard) and 'ch1-ch2' (legacy/mock)
+                let parts = key.split('__');
+                if (parts.length < 2 && key.includes('-')) {
+                     // Basic fallback for dash, but ignore if it looks like a UUID or Simulator ID
+                     const dashParts = key.split('-');
+                     // Heuristic: If exactly 2 parts, treat as pair. 
+                     if (dashParts.length === 2) parts = dashParts;
+                }
+                
+                const [ch1, ch2] = parts;
                 if (ch1) channelSet.add(ch1);
                 if (ch2) channelSet.add(ch2);
             });
@@ -114,8 +123,16 @@ export const NEURAL_SYNCHRONY_PROTOCOL: ToolCreatorPayload = {
         const connections = useMemo(() => {
             return Object.entries(matrix)
                 .map(([key, value]) => {
-                    if (value < 0.1) return null; // LOWERED THRESHOLD from 0.3 to 0.1
-                    const [ch1, ch2] = key.split('__');
+                    if (value < 0.1) return null; // Threshold
+                    
+                    // Re-apply robust parsing to match the channel extraction logic
+                    let parts = key.split('__');
+                    if (parts.length < 2 && key.includes('-')) {
+                         const dashParts = key.split('-');
+                         if (dashParts.length === 2) parts = dashParts;
+                    }
+                    const [ch1, ch2] = parts;
+
                     if (!channelPositions[ch1] || !channelPositions[ch2]) return null;
                     return {
                         p1: channelPositions[ch1],

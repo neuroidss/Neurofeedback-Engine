@@ -1,3 +1,4 @@
+
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
 import type { APIConfig, AIToolCall, LLMTool, MainView, ScoredTool, AIModel, AIResponse } from '../types';
@@ -80,6 +81,54 @@ export const generateTextFromModel = async (
         throw new Error(`[${model.provider} Error] ${e.message}`);
     }
 };
+
+// --- NEW: Multimedia Generation Methods ---
+export const generateImage = async (
+    prompt: string,
+    model: AIModel,
+    apiConfig: APIConfig
+): Promise<string | null> => {
+    // Currently only Google models support native image generation via this path
+    if (model.provider === ModelProvider.GoogleAI) {
+        const imageModelId = apiConfig.imageModel || 'imagen-4.0-generate-001';
+        return await geminiService.generateImage(prompt, apiConfig.googleAIAPIKey || '', imageModelId);
+    }
+    // Fallback/Placeholder for other providers
+    console.warn("Image generation is currently only supported on GoogleAI models (Imagen/Nano).");
+    return null;
+};
+
+export const generateSpeech = async (
+    text: string,
+    voiceName: string,
+    model: AIModel,
+    apiConfig: APIConfig
+): Promise<string | null> => {
+    // If browser TTS is selected, we handle it here (or caller handles it). 
+    // But if we are here, the caller likely wants server-side TTS if available.
+    if (apiConfig.ttsModel === 'browser') {
+        // Returning null signals the UI to use window.speechSynthesis
+        return null;
+    }
+
+    if (model.provider === ModelProvider.GoogleAI) {
+        return await geminiService.generateSpeech(text, voiceName, apiConfig.googleAIAPIKey || '');
+    }
+    console.warn("Server-side TTS is currently only supported on GoogleAI models.");
+    return null;
+};
+
+export const createMusicSession = async (
+    callbacks: { onAudioData: (base64: string) => void; onError?: (err: any) => void },
+    apiConfig: APIConfig
+) => {
+     if (apiConfig.googleAIAPIKey) {
+         return await geminiService.createMusicSession(apiConfig.googleAIAPIKey, callbacks);
+     }
+     throw new Error("Google AI API Key required for music generation.");
+};
+
+// --- End Multimedia ---
 
 
 export const contextualizeWithSearch = async (

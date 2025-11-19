@@ -1,6 +1,7 @@
+
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
-import { GoogleGenAI, FunctionDeclaration, GenerateContentResponse, Type, Part } from "@google/genai";
+import { GoogleGenAI, FunctionDeclaration, GenerateContentResponse, Type, Part, Modality } from "@google/genai";
 import type { APIConfig, LLMTool, AIResponse, AIToolCall, ScoredTool } from "../types";
 
 const geminiInstances: Map<string, GoogleGenAI> = new Map();
@@ -13,6 +14,13 @@ const getGeminiInstance = (apiKey: string): GoogleGenAI => {
         geminiInstances.set(apiKey, new GoogleGenAI({ apiKey }));
     }
     return geminiInstances.get(apiKey)!;
+};
+
+// Specific instance for experimental features like Lyria
+const getExperimentalGeminiInstance = (apiKey: string): GoogleGenAI => {
+    if (!apiKey) throw new Error("Google Gemini API key is missing.");
+    // Lyria often requires v1alpha
+    return new GoogleGenAI({ apiKey, apiVersion: 'v1alpha' });
 };
 
 // Helper function to strip <think> blocks from model output
@@ -249,6 +257,131 @@ export const generateText = async (
     });
 
     return stripThinking(response.text);
+};
+
+export const generateImage = async (
+    prompt: string,
+    apiKey: string,
+    modelId: string = 'imagen-4.0-generate-001'
+): Promise<string | null> => {
+    const ai = getGeminiInstance(apiKey);
+    try {
+        // Strategy 1: High-Quality Imagen (Default)
+        if (modelId.includes('imagen')) {
+            const response = await ai.models.generateImages({
+                model: modelId,
+                prompt: prompt,
+                config: {
+                    numberOfImages: 1,
+                    outputMimeType: 'image/jpeg',
+                    aspectRatio: '16:9',
+                },
+            });
+            const base64Image = response.generatedImages?.[0]?.image?.imageBytes;
+            if (base64Image) {
+                return `data:image/jpeg;base64,${base64Image}`;
+            }
+        } 
+        // Strategy 2: Fast "Flash Image" (Nano Banana) - treats generation as multimodal text response with image modality
+        else {
+             const response = await ai.models.generateContent({
+                model: modelId, // e.g., 'gemini-2.5-flash-image'
+                contents: { parts: [{ text: prompt }] },
+                config: {
+                    responseModalities: [Modality.IMAGE],
+                },
+            });
+            
+            // Iterate through parts to find the inline image data
+            for (const part of response.candidates?.[0]?.content?.parts || []) {
+                if (part.inlineData && part.inlineData.data) {
+                    return `data:image/png;base64,${part.inlineData.data}`;
+                }
+            }
+        }
+        
+        return null;
+    } catch (e) {
+        console.error("Gemini/Imagen Generation Error:", e);
+        return null;
+    }
+};
+
+export const generateSpeech = async (
+    text: string,
+    voiceName: string,
+    apiKey: string
+): Promise<string | null> => {
+    const ai = getGeminiInstance(apiKey);
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash-preview-tts",
+            contents: [{ parts: [{ text }] }],
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: voiceName },
+                    },
+                },
+            },
+        });
+        
+        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (base64Audio) {
+            // Returns raw PCM base64 data. Must be decoded on client.
+            return base64Audio;
+        }
+        return null;
+    } catch (e) {
+        console.error("TTS Generation Error:", e);
+        return null;
+    }
+};
+
+// --- NEW: Music Generation (Lyria) ---
+export const createMusicSession = async (
+    apiKey: string,
+    callbacks: { onAudioData: (base64: string) => void; onError?: (err: any) => void }
+) => {
+    try {
+        const ai = getExperimentalGeminiInstance(apiKey);
+        
+        const session = await ai.live.music.connect({
+            model: "models/lyria-realtime-exp",
+            callbacks: {
+                onmessage: (message: any) => {
+                    if (message.serverContent?.audioChunks) {
+                        for (const chunk of message.serverContent.audioChunks) {
+                            if (chunk.data) {
+                                callbacks.onAudioData(chunk.data);
+                            }
+                        }
+                    }
+                },
+                onerror: (error: any) => {
+                    console.error("Lyria session error:", error);
+                    if (callbacks.onError) callbacks.onError(error);
+                },
+                onclose: () => console.log("Lyria stream closed."),
+            },
+        });
+
+        // Configure audio format
+        await session.setMusicGenerationConfig({
+            musicGenerationConfig: {
+                bpm: 90,
+                temperature: 1.0,
+            },
+        });
+        
+        await session.play();
+
+        return session;
+    } catch (e) {
+        console.error("Failed to connect to Lyria:", e);
+        throw e;
+    }
 };
 
 export const contextualizeWithSearch = async (

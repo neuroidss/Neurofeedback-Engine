@@ -105,6 +105,11 @@ export interface APIConfig {
   defaultWifiSSID?: string;
   defaultWifiPassword?: string;
   autoRestoreSession?: boolean; // Automatically reconnect devices and restart protocol on reload
+  
+  // --- NEW: Granular Model Selection ---
+  imageModel?: string; // 'imagen-4.0-generate-001' | 'gemini-2.5-flash-image'
+  audioInputMode?: 'transcription' | 'raw'; // 'transcription' (Browser STT) | 'raw' (Send Audio to Model)
+  ttsModel?: string; // 'browser' | 'gemini-tts'
 }
 
 export type UIToolRunnerProps = Record<string, any>;

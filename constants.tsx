@@ -1,3 +1,4 @@
+
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
 import React from 'react';
@@ -13,6 +14,7 @@ export const AI_MODELS: AIModel[] = [
     { id: 'gemini-robotics-er-1.5-preview', name: 'Gemini Robotics-ER 1.5 Preview', provider: ModelProvider.GoogleAI },
     { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', provider: ModelProvider.GoogleAI },
     { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash-Lite', provider: ModelProvider.GoogleAI },
+    { id: 'gemini-2.5-flash-native-audio-preview-09-2025', name: 'Gemini 2.5 Flash Native Audio', provider: ModelProvider.GoogleAI },
     { id: 'gemma-3n-e2b-it', name: 'Gemma 3n E2B', provider: ModelProvider.GoogleAI },
     { id: 'gemma-3n-e4b-it', name: 'Gemma 3n E4B', provider: ModelProvider.GoogleAI },
     { id: 'gemma-3-1b-it', name: 'Gemma 3 1B', provider: ModelProvider.GoogleAI },
@@ -40,12 +42,18 @@ export const SWARM_AGENT_SYSTEM_PROMPT = `You are an expert neuroscientist and b
 
 // --- Generative Service Models ---
 export const IMAGE_MODELS = [
-    { id: 'gemini-2.5-flash-image', name: 'Gemini 2.5 Flash Image' },
-    { id: 'imagen-4.0-generate-001', name: 'Imagen 4' },
+    { id: 'imagen-4.0-generate-001', name: 'Imagen 4.0 (High Quality)' },
+    { id: 'gemini-2.5-flash-image', name: 'Gemini 2.5 Flash Image (Fast/Nano Banana)' },
 ];
 export const TTS_MODELS = [
-    { id: 'gemini', name: 'Gemini TTS' }
+    { id: 'gemini-tts', name: 'Gemini TTS (Natural)' },
+    { id: 'browser', name: 'Browser Native (Offline)' }
 ];
+export const AUDIO_INPUT_MODES = [
+    { id: 'transcription', name: 'Text Transcription (Standard)' },
+    { id: 'raw', name: 'Raw Audio (Emotions)' }
+];
+
 export const MUSIC_MODELS = [
     { id: 'lyria', name: 'Lyria (Google)' },
 ];

@@ -3,6 +3,7 @@
 
 
 
+
 // bootstrap/protocols/quantum_protocols.ts
 import type { ToolCreatorPayload } from '../../types';
 
@@ -380,18 +381,18 @@ const ARCH_PRINCIPLE_HYBRID: ToolCreatorPayload = {
 };
 
 const CI_PLV_CALCULATOR: ToolCreatorPayload = {
-    name: 'Calculate_Coherence_Matrix_Optimized',
-    description: "High-performance calculation of the coherence matrix (ciPLV) for multiple EEG channels. The algorithm is optimized for classical CPU/GPU and uses matrix operations for maximum speed. It is a fundamental step for analyzing brain network activity.",
+    name: 'Calculate_Coherence_Matrix_Quantum_Mock',
+    description: "A simple mock implementation of coherence matrix calculation for demonstration purposes in quantum protocols. NOTE: Use the real 'Calculate_Coherence_Matrix_Optimized' for production protocols.",
     category: 'Functional',
     executionEnvironment: 'Client',
     parameters: [
-        { name: 'eegData', type: 'object', description: 'An object with EEG data, where keys are channel names and values are arrays of signal data.', required: true },
-        { name: 'sampleRate', type: 'number', description: 'The sample rate of the EEG data in Hz.', required: true }
+        { name: 'eegData', type: 'object', description: 'An object with EEG data.', required: true },
+        { name: 'sampleRate', type: 'number', description: 'The sample rate.', required: true }
     ],
     purpose: 'To perform high-speed classical computation of the coherence matrix as a preliminary step for deeper analysis.',
     implementationCode: `
     const { eegData, sampleRate } = args;
-    runtime.logEvent(\`[ciPLV] Calculating coherence matrix for \${Object.keys(eegData).length} channels...\`);
+    runtime.logEvent(\`[ciPLV Mock] Calculating coherence matrix for \${Object.keys(eegData).length} channels...\`);
     const channels = Object.keys(eegData);
     const coherence_matrix = {};
     
@@ -407,7 +408,7 @@ const CI_PLV_CALCULATOR: ToolCreatorPayload = {
     // Simulate a short delay as if it were a real computation
     await new Promise(resolve => setTimeout(resolve, 50)); 
     
-    runtime.logEvent(\`[ciPLV] ✅ Matrix calculated in 50ms (Simulated).\`);
+    runtime.logEvent(\`[ciPLV Mock] ✅ Matrix calculated in 50ms (Simulated).\`);
     return { success: true, coherence_matrix };
     `
 };
@@ -465,7 +466,8 @@ const WM_OPTIMIZER_PROTOCOL: ToolCreatorPayload = {
         update: async (eegData, sampleRate) => {
             if (!runtime) throw new Error("runtime is not defined");
             // --- Step A: Classical GPU/CPU Acceleration ---
-            const { coherence_matrix: current_graph } = await runtime.tools.run('Calculate_ciPLV_Coherence_Matrix', { eegData, sampleRate });
+            // Use the REAL optimized tool, not the mock.
+            const { coherence_matrix: current_graph } = await runtime.tools.run('Calculate_Coherence_Matrix_Optimized', { eegData, sampleRate, freqRange: [8, 12] });
 
             const useQuantum = runtime.getState().apiConfig.useQuantumSDR;
 

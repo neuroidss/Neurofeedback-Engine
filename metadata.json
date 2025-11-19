@@ -1,5 +1,5 @@
 {
-  "name": "Neurofeedback Engine mvp2.0",
+  "name": "Neurofeedback Engine mvp2.2.7",
   "description": "An AI-powered engine that mines scientific literature for novel neurofeedback protocols and instantly generates executable neurofeedback applications for the FreeEEG8 neurointerface.",
   "requestFramePermissions": [
     "bluetooth"
