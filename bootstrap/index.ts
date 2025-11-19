@@ -1,4 +1,6 @@
 
+
+
 import type { ToolCreatorPayload } from '../types';
 
 import { SERVER_MANAGEMENT_TOOLS } from '../framework/mcp';
@@ -11,6 +13,7 @@ import { PROTOCOL_TOOLS } from './protocol_tools';
 import { FIRMWARE_TOOLS } from './firmware_tools';
 import { SYNERGY_FORGE_UI_CODE } from './ui_components';
 import { DSP_TOOLS } from './dsp_tools';
+import { THEATER_TOOLS } from './theater_tools';
 
 const SYNERGY_FORGE_TOOLS: ToolCreatorPayload[] = [{
     name: 'Neurofeedback Engine Main UI',
@@ -61,4 +64,5 @@ export const BOOTSTRAP_TOOL_PAYLOADS: ToolCreatorPayload[] = [
     ...PROTOCOL_TOOLS,
     ...FIRMWARE_TOOLS,
     ...DSP_TOOLS,
+    ...THEATER_TOOLS,
 ];

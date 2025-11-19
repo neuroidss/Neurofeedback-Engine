@@ -1,5 +1,6 @@
 
 
+
 import type { ToolCreatorPayload } from '../types';
 
 const SMART_HYBRID_FIRMWARE_CODE = `/**
@@ -101,7 +102,6 @@ EwQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAF/G7h8i9j0k1l2m3n4o5p6q7r8s
 -----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDD8LyH5epnNPZf
 D4rVv/mljST5DZero9nhnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnl
-nlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnl
 nlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnl
 nlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnl
 nlnlnlnlnlnlnlnlnlnlnUMCAwEAAoIBAG+A1b2c3d4e5f6g7h8i9j0k1l2m3n4o
@@ -551,7 +551,7 @@ export const FIRMWARE_TOOLS: ToolCreatorPayload[] = [
                 const ipAddress = await ipPromise;
                 runtime.logEvent('✅ [BLE Provision] Success! IP: ' + ipAddress);
                 
-                // In v3.0 Dual Stack, we can disconnect BLE now, or keep it open.
+                // In v3.1 Dual Stack, we can disconnect BLE now, or keep it open.
                 // We disconnect to be clean.
                 device.gatt.disconnect();
 

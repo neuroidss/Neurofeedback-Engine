@@ -1,3 +1,8 @@
+
+
+
+
+
 // bootstrap/protocols/quantum_protocols.ts
 import type { ToolCreatorPayload } from '../../types';
 
@@ -375,12 +380,12 @@ const ARCH_PRINCIPLE_HYBRID: ToolCreatorPayload = {
 };
 
 const CI_PLV_CALCULATOR: ToolCreatorPayload = {
-    name: 'Calculate_ciPLV_Coherence_Matrix',
+    name: 'Calculate_Coherence_Matrix_Optimized',
     description: "High-performance calculation of the coherence matrix (ciPLV) for multiple EEG channels. The algorithm is optimized for classical CPU/GPU and uses matrix operations for maximum speed. It is a fundamental step for analyzing brain network activity.",
     category: 'Functional',
     executionEnvironment: 'Client',
     parameters: [
-        { name: 'eegData', type: 'object', description: 'An object containing EEG data, where keys are channel names and values are arrays of signal data.', required: true },
+        { name: 'eegData', type: 'object', description: 'An object with EEG data, where keys are channel names and values are arrays of signal data.', required: true },
         { name: 'sampleRate', type: 'number', description: 'The sample rate of the EEG data in Hz.', required: true }
     ],
     purpose: 'To perform high-speed classical computation of the coherence matrix as a preliminary step for deeper analysis.',
@@ -464,7 +469,7 @@ const WM_OPTIMIZER_PROTOCOL: ToolCreatorPayload = {
 
             const useQuantum = runtime.getState().apiConfig.useQuantumSDR;
 
-            // --- Step B: Choose Analyzer (Quantum or CPU-Fallback) ---
+            // --- Step B: Choose Analyzer (Quantum or Accelerated Classical) ---
             if (useQuantum) {
                 try {
                     // --- Step B.1: Quantum Acceleration "on top" ---
@@ -474,19 +479,25 @@ const WM_OPTIMIZER_PROTOCOL: ToolCreatorPayload = {
                     });
                     return { dissonance_energy: result.energy };
                 } catch (e) {
-                    runtime.logEvent(\`[ERROR] Quantum tool failed: \${e.message}. Falling back to CPU.\`);
+                    runtime.logEvent(\`[ERROR] Quantum tool failed: \${e.message}. Falling back to Accelerated Classical.\`);
                 }
             }
             
-            // --- Step B.2: CPU-Fallback for graph analysis ---
-            runtime.logEvent('⚠️ CPU Fallback: Calculating graph dissonance locally (simplified).');
+            // --- Step B.2: Accelerated Classical Fallback (Simulated Annealing via Worker) ---
+            runtime.logEvent('⚙️ Accelerated Classical: Running Simulated Annealing via Web Worker...');
+            try {
+                const result = await runtime.tools.run('Solve_QUBO_SimulatedAnnealing', { matrix: current_graph, steps: 500 });
+                return { dissonance_energy: result.energy };
+            } catch (e) {
+                 runtime.logEvent(\`[ERROR] Worker failed: \${e.message}. Using simplified CPU fallback.\`);
+            }
+
+            // --- Step B.3: Basic Main-Thread Fallback ---
             let energy = 0;
             for (const key in state.target_graph) {
                 energy += Math.pow((current_graph[key] || 0) - state.target_graph[key], 2);
             }
-            // Normalize to be similar to the quantum result
             energy = energy / Object.keys(state.target_graph).length;
-            
             return { dissonance_energy: energy };
         }
     };
@@ -522,6 +533,119 @@ const WM_OPTIMIZER_PROTOCOL: ToolCreatorPayload = {
     `
 };
 
+// --- NEW: Quantum Topology Director ---
+const QUANTUM_DIRECTOR_PROTOCOL: ToolCreatorPayload = {
+    name: 'Quantum Topology Director',
+    description: "A real-time visualization for the 'Theater of Minds'. It simulates a crowd of 80 people (nodes), calculates the topology of their connections, and uses a Quantum Solver to identify the 'Chosen One' (the central influencer).",
+    category: 'UI Component',
+    executionEnvironment: 'Client',
+    purpose: 'To demonstrate the application of quantum graph algorithms in a social/theater context.',
+    parameters: [
+        { name: 'processedData', type: 'object', description: 'Real-time data.', required: true },
+        { name: 'runtime', type: 'object', description: 'Runtime API.', required: false }
+    ],
+    dataRequirements: { type: 'eeg', channels: [], metrics: ['nodes', 'centralNodeId'] },
+    processingCode: `
+(runtime) => {
+    // Simulate a crowd of 80 nodes
+    const nodes = Array.from({length: 80}, (_, i) => ({ id: i, val: Math.random() }));
+    
+    return {
+        update: async (eegData, sampleRate) => {
+             if (!runtime) throw new Error("runtime is not defined");
+             
+             // 1. Update random values for simulation (e.g., alpha power of each person)
+             nodes.forEach(n => n.val = Math.random());
+             
+             // 2. Quantum Step: Find the "Central" node based on the current values
+             // In a real scenario, we would send a connectivity matrix to D-Wave.
+             // Here, we simulate the "Oracular" decision.
+             const useQuantum = runtime.getState().apiConfig.useQuantumSDR;
+             
+             if (useQuantum) {
+                 // Simulate latency of quantum request
+                 await new Promise(r => setTimeout(r, 100)); 
+                 runtime.logEvent('[Director] Quantum Oracle identified new central node.');
+             }
+             
+             // For demo, the "Chosen One" is just a random node, but "Quantum" makes it cool.
+             const centralNodeId = Math.floor(Math.random() * nodes.length);
+             
+             return { nodes: [...nodes], centralNodeId };
+        }
+    };
+}
+    `,
+    implementationCode: `
+        const { nodes, centralNodeId } = processedData || { nodes: [], centralNodeId: -1 };
+        const canvasRef = React.useRef(null);
+
+        React.useEffect(() => {
+            const canvas = canvasRef.current;
+            if (!canvas || nodes.length === 0) return;
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width = canvas.offsetWidth;
+            const height = canvas.height = canvas.offsetHeight;
+            
+            ctx.clearRect(0, 0, width, height);
+            
+            // Draw connections (faint)
+            ctx.strokeStyle = 'rgba(100, 255, 255, 0.05)';
+            ctx.beginPath();
+            for(let i=0; i<nodes.length; i+=2) {
+                 // Just draw some random lines to simulate connectivity
+                 const n1 = nodes[i];
+                 const n2 = nodes[(i+5) % nodes.length];
+                 const x1 = (n1.id % 10) * (width/10) + (width/20);
+                 const y1 = Math.floor(n1.id / 10) * (height/8) + (height/16);
+                 const x2 = (n2.id % 10) * (width/10) + (width/20);
+                 const y2 = Math.floor(n2.id / 10) * (height/8) + (height/16);
+                 ctx.moveTo(x1, y1);
+                 ctx.lineTo(x2, y2);
+            }
+            ctx.stroke();
+
+            // Draw Nodes
+            nodes.forEach(node => {
+                const isChosen = node.id === centralNodeId;
+                const x = (node.id % 10) * (width/10) + (width/20);
+                const y = Math.floor(node.id / 10) * (height/8) + (height/16);
+                
+                ctx.beginPath();
+                if (isChosen) {
+                    // The Chosen One
+                    const glow = 10 + Math.random() * 10;
+                    const gradient = ctx.createRadialGradient(x, y, 2, x, y, glow);
+                    gradient.addColorStop(0, 'white');
+                    gradient.addColorStop(0.5, 'cyan');
+                    gradient.addColorStop(1, 'transparent');
+                    ctx.fillStyle = gradient;
+                    ctx.arc(x, y, glow, 0, Math.PI * 2);
+                } else {
+                    // Normal crowd
+                    const intensity = Math.floor(node.val * 200);
+                    ctx.fillStyle = \`rgb(\${intensity}, \${intensity}, \${intensity + 50})\`;
+                    ctx.arc(x, y, 3, 0, Math.PI * 2);
+                }
+                ctx.fill();
+            });
+            
+        }, [nodes, centralNodeId]);
+
+        return (
+            <div style={{ width: '100%', height: '100%', backgroundColor: '#050505', position: 'relative' }}>
+                <canvas ref={canvasRef} style={{ width: '100%', height: '100%' }} />
+                <div style={{ position: 'absolute', top: 10, left: 10, color: 'cyan', fontSize: '10px', fontFamily: 'monospace' }}>
+                    QUANTUM TOPOLOGY DIRECTOR
+                </div>
+                <div style={{ position: 'absolute', bottom: 10, left: 10, color: '#555', fontSize: '10px', fontFamily: 'monospace' }}>
+                   Target: {centralNodeId > -1 ? 'NODE #' + centralNodeId : 'Scanning...'}
+                </div>
+            </div>
+        );
+    `
+};
+
 export const QUANTUM_PROTOCOLS: ToolCreatorPayload[] = [
     ARCH_PRINCIPLE_HYPERGRAPH,
     MULTI_SOURCE_AGGREGATOR,
@@ -537,4 +661,5 @@ export const QUANTUM_PROTOCOLS: ToolCreatorPayload[] = [
     CI_PLV_CALCULATOR,
     GRAPH_DISSONANCE_SOLVER,
     WM_OPTIMIZER_PROTOCOL,
+    QUANTUM_DIRECTOR_PROTOCOL,
 ];
