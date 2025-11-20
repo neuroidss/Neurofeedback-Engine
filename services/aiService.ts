@@ -1,4 +1,9 @@
 
+
+
+
+
+
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
 import type { APIConfig, AIToolCall, LLMTool, MainView, ScoredTool, AIModel, AIResponse } from '../types';
@@ -26,7 +31,9 @@ export const processRequest = async (
             case ModelProvider.GoogleAI:
                 return await geminiService.generateWithTools(userInput, systemInstruction, model.id, apiConfig.googleAIAPIKey || '', relevantTools, files);
             case ModelProvider.OpenAI_API:
-                 return await openAIService.generateWithTools(userInput, systemInstruction, model.id, apiConfig, relevantTools, files);
+                 // If using the generic 'custom-openai' slot, substitute with the user's custom model string
+                 const openAIModelId = model.id === 'custom-openai' ? (apiConfig.openAICustomModel || 'gpt-4o') : model.id;
+                 return await openAIService.generateWithTools(userInput, systemInstruction, openAIModelId, apiConfig, relevantTools, files);
             case ModelProvider.DeepSeek:
                 const deepSeekApiConfig: APIConfig = {
                     ...apiConfig,
@@ -64,7 +71,8 @@ export const generateTextFromModel = async (
             case ModelProvider.GoogleAI:
                 return await geminiService.generateText(userInput, systemInstruction, model.id, apiConfig.googleAIAPIKey || '', files);
             case ModelProvider.OpenAI_API:
-                return await openAIService.generateText(userInput, systemInstruction, model.id, apiConfig, files);
+                const openAIModelId = model.id === 'custom-openai' ? (apiConfig.openAICustomModel || 'gpt-4o') : model.id;
+                return await openAIService.generateText(userInput, systemInstruction, openAIModelId, apiConfig, files);
             case ModelProvider.DeepSeek:
                 return await deepseekService.generateText(userInput, systemInstruction, model.id, apiConfig, files);
             case ModelProvider.Ollama:

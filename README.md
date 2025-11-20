@@ -16,19 +16,23 @@ The engine is built on a **Client-First, Hybrid-Compute** architecture designed 
 *   **Objective-Driven:** Users state a high-level goal (e.g., "Enhance theta-gamma coupling for memory").
 *   **Federated Search:** Agents autonomously query PubMed, BioRxiv, and Google Patents.
 *   **Self-Healing Generation:** The system writes, compiles, and *fixes* its own JavaScript/React code to build custom UI tools and signal processing pipelines.
+*   **Genetic Forking:** Safely evolves existing protocols by researching a user interest, forking the code, applying mutations, and compiling a new version without breaking the original.
 
 ### 2. "Tri-Link" Hardware Integration
 The platform supports the custom **FreeEEG8 Firmware v3.1**, enabling robust connectivity via three simultaneous channels:
 *   **Web Bluetooth (BLE):** For seamless, zero-install provisioning and control.
 *   **WiFi (WebSocket/WSS):** For high-bandwidth, low-latency data streaming over local networks.
 *   **USB Serial:** For reliable, hardwired telemetry and debugging.
+*   **Self-Hosting:** Devices serve their own manifest, source code, and schematics via HTTP.
 *   **Simulators:** Built-in physics-based simulators for 8, 32, and 128-channel arrays.
 
-### 3. Hybrid DSP Engine
+### 3. Hybrid DSP & Quantum Proxy
 Real-time signal processing is decoupled from the main UI thread to ensure smooth 60fps rendering.
 *   **GPU Acceleration:** Uses **GPU.js (WebGL)** to offload O(N²) matrix calculations (like Phase Locking Value / ciPLV) for high-density arrays (up to 128 channels).
-*   **Web Workers:** Fallback to multi-threaded CPU processing for standard operations.
-*   **Quantum Proxy:** Connects to a backend simulation of **D-Wave Quantum Annealers** to solve NP-hard combinatorial optimization problems, such as Hypergraph Dissonance in collective coherence protocols.
+*   **Quantum Annealing:** Connects to a backend simulation of **D-Wave Quantum Annealers** to solve NP-hard combinatorial optimization problems:
+    *   **Collective Coherence:** Optimizing hypergraph dissonance in multi-person groups.
+    *   **Neural Decoding:** Solving "Pattern Completion" for noisy Sparse Distributed Representations (SDRs).
+    *   **Stimulation Planning:** Combinatorial optimization of multi-electrode stimulation patterns.
 
 ### 4. Vibecoder OS
 An experimental, autonomous optimization loop:
@@ -36,16 +40,24 @@ An experimental, autonomous optimization loop:
 2.  **Measure:** It captures real-time EEG data from the user.
 3.  **Mutate:** Using the brainwave state as a loss function, it iteratively rewrites the UI code in real-time to maximize the target metric, evolving a hyper-personalized interface.
 
+## Theater of Minds & Neuro-Alchemy
+
+The engine includes specialized tools for artistic and psychoanalytic applications:
+
+*   **Scientific Alchemist:** A translation layer that takes esoteric or mystical user goals (e.g., "Open Third Eye", "Align Chakras") and maps them to rigorous neurophysiological correlates (e.g., Prefrontal Gamma Synchrony, Alpha Asymmetry) to generate valid scientific protocols.
+*   **The Mirror Stage:** A generative "Psychoanalytic Roguelike" where the game world is an objective reality, but the user's perception of it is distorted by their real-time neural state (Lucidity).
+*   **Crowd Aggregation:** Deploys server-side Python LSL (Lab Streaming Layer) aggregators to handle data from 80+ person collective performances.
+
 ## AI Model Support
 
 The engine is agnostic to the underlying LLM provider and supports:
-*   **Google Gemini:** 3 Pro, 2.5 Flash/Pro.
+*   **Google Gemini:** 3 Pro, 2.5 Flash/Pro (Supports Image Gen, TTS, and Lyria Music).
 *   **DeepSeek (via Nebius):** DeepSeek-V3 and R1 models.
 *   **OpenAI:** GPT-4o/mini.
 *   **Local / Private:**
     *   **Ollama:** For running open-weight models (Llama 3, Mistral) locally.
     *   **Wllama:** In-browser execution of quantized models via WebAssembly.
-    *   **HuggingFace:** Direct browser-based inference.
+    *   **HuggingFace:** Direct browser-based inference via WebGPU.
 
 ## Getting Started
 

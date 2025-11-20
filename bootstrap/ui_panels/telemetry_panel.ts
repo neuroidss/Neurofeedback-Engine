@@ -1,0 +1,89 @@
+
+export const TELEMETRY_PANEL_CODE = `
+  const renderTelemetryPanel = () => (
+      <div className="flex flex-col h-full space-y-4">
+          {/* Device List */}
+          <div className="bg-slate-800/50 rounded border border-slate-700 overflow-hidden">
+              <div className="bg-slate-800 px-3 py-2 border-b border-slate-700 flex justify-between items-center">
+                  <span className="text-xs font-bold text-slate-300">DEVICES</span>
+                  <div className="flex gap-2">
+                       <button onClick={() => setShowProvisioning(!showProvisioning)} className="text-[10px] bg-slate-700 text-slate-300 px-2 py-0.5 rounded hover:bg-slate-600 transition-colors" title="Provision WiFi">Config WiFi</button>
+                       <button onClick={deviceManager.handleAddBleDevice} disabled={!!deviceManager.bluetoothAvailabilityError} className="text-[10px] bg-cyan-900/50 text-cyan-400 px-2 py-0.5 rounded hover:bg-cyan-900 transition-colors">ADD BLE</button>
+                       <button onClick={deviceManager.handleAddSerialDevice} className="text-[10px] bg-orange-900/50 text-orange-400 px-2 py-0.5 rounded hover:bg-orange-900 transition-colors" title="Connect via USB Serial">ADD USB</button>
+                  </div>
+              </div>
+              <div className="p-2 space-y-1">
+                  {showProvisioning && (
+                      <div className="p-2 bg-slate-900/90 mb-2 rounded border border-purple-500/50 animate-fade-in">
+                          <h4 className="text-[10px] font-bold text-purple-300 mb-2">Provision FreeEEG8 (WiFi via BLE)</h4>
+                          <input type="text" placeholder="SSID" value={provisioning.provSsid} onChange={(e) => provisioning.setProvSsid(e.target.value)} className="w-full mb-1 text-xs bg-black border border-slate-700 rounded p-1 focus:border-purple-500 outline-none" />
+                          <input type="password" placeholder="Password" value={provisioning.provPassword} onChange={(e) => provisioning.setProvPassword(e.target.value)} className="w-full mb-2 text-xs bg-black border border-slate-700 rounded p-1 focus:border-purple-500 outline-none" />
+                          <button onClick={provisioning.handleStartProvisioning} disabled={provisioning.isProvisioningBusy} className="w-full text-xs bg-purple-700 hover:bg-purple-600 text-white py-1 rounded transition-colors">
+                            {provisioning.isProvisioningBusy ? 'Provisioning...' : 'Connect & Config'}
+                          </button>
+                          {provisioning.provStatus && <p className="text-[10px] text-slate-400 mt-1">{provisioning.provStatus}</p>}
+                          {provisioning.provError && <p className="text-[10px] text-red-400 mt-1">{provisioning.provError}</p>}
+                      </div>
+                  )}
+                  
+                  {deviceManager.connectedDevices.map(d => (
+                      <div key={d.id} className="flex items-center justify-between text-xs p-1.5 bg-slate-700/30 rounded">
+                          <div className="flex items-center gap-2">
+                              <div className={\`w-2 h-2 rounded-full \${d.status === 'Active' ? 'bg-green-500' : (d.status === 'Connecting...' ? 'bg-yellow-500' : 'bg-red-500')}\`}></div>
+                              <span className="text-slate-300">{d.name}</span>
+                              {d.mode === 'serial' && <span className="text-[9px] text-orange-400 bg-orange-900/30 px-1 rounded">USB</span>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                             {d.mode === 'wifi' && (
+                                 <button 
+                                    onClick={() => deviceManager.handleToggleWss(d.id)} 
+                                    className={\`px-1.5 py-0.5 rounded border text-[9px] font-bold transition-colors \${d.useWss ? 'bg-purple-900/80 border-purple-500 text-purple-200' : 'bg-slate-800 border-slate-600 text-slate-500 hover:border-slate-400'}\`}
+                                    title="Toggle Secure WebSocket (WSS)."
+                                 >
+                                    {d.useWss ? 'WSS' : 'WS'}
+                                 </button>
+                             )}
+                             <input type="checkbox" checked={deviceManager.activeDataSourceIds.includes(d.id)} onChange={() => deviceManager.handleToggleDataSource(d.id)} className="accent-cyan-500 cursor-pointer"/>
+                          </div>
+                      </div>
+                  ))}
+                   <div className="flex gap-1 mt-1">
+                        <button onClick={() => deviceManager.handleAddSimulator('FreeEEG8')} className="flex-1 text-[10px] bg-slate-700/50 hover:bg-slate-600 text-slate-300 py-1 rounded transition-colors">+ Sim 8</button>
+                        <button onClick={() => deviceManager.handleAddSimulator('FreeEEG32')} className="flex-1 text-[10px] bg-slate-700/50 hover:bg-slate-600 text-slate-300 py-1 rounded transition-colors">+ Sim 32</button>
+                        <button onClick={() => deviceManager.handleAddSimulator('FreeEEG128')} className="flex-1 text-[10px] bg-slate-700/50 hover:bg-slate-600 text-slate-300 py-1 rounded transition-colors">+ Sim 128</button>
+                   </div>
+              </div>
+          </div>
+
+          {/* Raw Data Monitor */}
+          <div className="bg-slate-800/50 rounded border border-slate-700 flex-grow flex flex-col min-h-0">
+               <div className="bg-slate-800 px-3 py-2 border-b border-slate-700">
+                  <span className="text-xs font-bold text-slate-300">SIGNAL STREAM</span>
+              </div>
+              <div className="flex-grow p-2 bg-black/80 font-mono text-[10px] text-green-500 overflow-hidden relative">
+                 <div className="absolute inset-0 p-2 overflow-y-auto custom-scrollbar">
+                     {protocolRunner.connectionStatus && <div className="text-yellow-500 mb-1">STATUS: {protocolRunner.connectionStatus}</div>}
+                     {protocolRunner.rawData ? (typeof protocolRunner.rawData === 'string' ? protocolRunner.rawData : JSON.stringify(protocolRunner.rawData)) : <span className="text-gray-600">No signal...</span>}
+                 </div>
+              </div>
+          </div>
+          
+          {/* Vibecoder History (Mini) */}
+          {vibecoderHistory.length > 0 && (
+              <div className="bg-slate-800/50 rounded border border-slate-700 h-1/3 flex flex-col min-h-0">
+                <div className="bg-slate-800 px-3 py-2 border-b border-slate-700">
+                    <span className="text-xs font-bold text-purple-300">VIBECODER LOOPS</span>
+                </div>
+                <div className="flex-grow overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                    {vibecoderHistory.slice().reverse().map(item => (
+                        <div key={item.iteration} className="flex justify-between text-[10px] bg-slate-700/30 p-1 rounded">
+                            <span className="text-slate-400">Iter #{item.iteration}</span>
+                            <span className="text-purple-400 font-bold">{(item.score * 100).toFixed(1)}%</span>
+                        </div>
+                    ))}
+                </div>
+              </div>
+          )}
+      </div>
+  );
+`;

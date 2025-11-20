@@ -1,4 +1,5 @@
 
+
 export type ToolCategory = 'UI Component' | 'Functional' | 'Automation' | 'Server';
 export type AgentStatus = 'idle' | 'working' | 'error' | 'success';
 
@@ -15,7 +16,6 @@ export interface ToolParameter {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array';
   description: string;
   required: boolean;
-  // FIX: Added optional defaultValue to support default parameter values in tool definitions.
   defaultValue?: any;
 }
 
@@ -106,11 +106,19 @@ export type ComputeBackend = 'gpu' | 'worker' | 'main';
 
 export interface APIConfig {
   googleAIAPIKey?: string;
+  
+  // OpenAI / Compatible
   openAIAPIKey?: string;
   openAIBaseUrl?: string;
+  openAICustomModel?: string; // For compatible APIs or specific model versions
+  
+  // DeepSeek (Nebius/Official)
   deepSeekAPIKey?: string;
   deepSeekBaseUrl?: string;
+  
+  // Local / Self-Hosted
   ollamaHost?: string;
+  
   useQuantumSDR?: boolean;
   computeBackend?: ComputeBackend; // Replaces boolean toggle with selector
   defaultWifiSSID?: string;

@@ -1,4 +1,8 @@
 
+
+
+
+
 import { useState, useEffect, useCallback } from 'react';
 import { loadStateFromStorage, saveStateToStorage, saveMapStateToStorage, loadMapStateToStorage } from '../versioning';
 import type { AIModel, APIConfig, ValidatedSource, LLMTool } from '../types';
@@ -37,7 +41,8 @@ export function useAppStateManager() {
     const [apiConfig, setApiConfig] = useState<APIConfig>({
         googleAIAPIKey: '',
         openAIAPIKey: '',
-        openAIBaseUrl: 'http://localhost:11434/v1',
+        openAIBaseUrl: 'https://api.openai.com/v1',
+        openAICustomModel: 'gpt-4o',
         deepSeekAPIKey: '',
         deepSeekBaseUrl: 'https://api.tokenfactory.nebius.com/v1/',
         ollamaHost: 'http://localhost:11434',
@@ -119,7 +124,8 @@ export function useAppStateManager() {
             ...prevConfig,
             googleAIAPIKey: storedState?.apiConfig?.googleAIAPIKey || process.env.GEMINI_API_KEY || '',
             openAIAPIKey: storedState?.apiConfig?.openAIAPIKey || '',
-            openAIBaseUrl: storedState?.apiConfig?.openAIBaseUrl || 'http://localhost:11434/v1',
+            openAIBaseUrl: storedState?.apiConfig?.openAIBaseUrl || 'https://api.openai.com/v1',
+            openAICustomModel: storedState?.apiConfig?.openAICustomModel || 'gpt-4o',
             deepSeekAPIKey: storedState?.apiConfig?.deepSeekAPIKey || process.env.NEBIUS_API_KEY || '',
             deepSeekBaseUrl: storedState?.apiConfig?.deepSeekBaseUrl || 'https://api.tokenfactory.nebius.com/v1/',
             ollamaHost: storedState?.apiConfig?.ollamaHost || 'http://localhost:11434',
@@ -200,6 +206,7 @@ export function useAppStateManager() {
             googleAIAPIKey: apiConfig.googleAIAPIKey,
             openAIAPIKey: apiConfig.openAIAPIKey,
             openAIBaseUrl: apiConfig.openAIBaseUrl,
+            openAICustomModel: apiConfig.openAICustomModel,
             deepSeekAPIKey: apiConfig.deepSeekAPIKey,
             deepSeekBaseUrl: apiConfig.deepSeekBaseUrl,
             ollamaHost: apiConfig.ollamaHost,

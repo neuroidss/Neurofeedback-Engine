@@ -1,4 +1,7 @@
 
+
+
+
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
 import React from 'react';
@@ -21,6 +24,7 @@ export const AI_MODELS: AIModel[] = [
     { id: 'gemma-3-4b-it', name: 'Gemma 3 4B', provider: ModelProvider.GoogleAI },
     { id: 'gemma-3-12b-it', name: 'Gemma 3 12B', provider: ModelProvider.GoogleAI },
     { id: 'gemma-3-27b-it', name: 'Gemma 3 27B', provider: ModelProvider.GoogleAI },
+    { id: 'custom-openai', name: 'Custom OpenAI / Compatible', provider: ModelProvider.OpenAI_API },
     { id: 'Qwen/Qwen3-Coder-30B-A3B-Instruct', name: 'Qwen3-Coder-30B-A3B-Instruct (Nebius)', provider: ModelProvider.DeepSeek },
     { id: 'deepseek-ai/DeepSeek-R1-0528', name: 'DeepSeek-R1-0528 (Nebius)', provider: ModelProvider.DeepSeek },
     { id: 'deepseek-ai/DeepSeek-R1-0528-fast', name: 'DeepSeek-R1-0528-fast (Nebius)', provider: ModelProvider.DeepSeek },

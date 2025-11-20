@@ -123,6 +123,7 @@ const useDeviceManager = ({ runtime }) => {
 
   const handleAddBleDevice = async () => {
     if (bluetoothAvailabilityError) {
+        alert(bluetoothAvailabilityError);
         runtime.logEvent('[Device] ERROR: ' + bluetoothAvailabilityError);
         return;
     }
@@ -157,15 +158,24 @@ const useDeviceManager = ({ runtime }) => {
             runtime.logEvent('[Device] Added new BLE device: ' + newDevice.name + '.');
         } else {
             runtime.logEvent('[Device] Device ' + newDevice.name + ' is already in the list.');
+            alert('Device ' + newDevice.name + ' is already in the list.');
         }
     } catch (e) {
-        runtime.logEvent('[Device] ERROR adding BLE device: ' + e.message);
+        const msg = 'ERROR adding BLE device: ' + e.message;
+        runtime.logEvent('[Device] ' + msg);
+        if (!e.message.includes('User cancelled')) {
+            alert(msg);
+        }
     }
   };
 
   const handleAddSerialDevice = async () => {
+    console.log('Attempting to add Serial device...');
     if (!navigator.serial) {
-        runtime.logEvent('[Device] Web Serial API is not supported in this browser. Use Chrome or Edge.');
+        const msg = 'Web Serial API is not supported in this browser. Please use Chrome, Edge, or Opera.';
+        console.error(msg);
+        runtime.logEvent('[Device] ' + msg);
+        alert(msg);
         return;
     }
     try {
@@ -191,7 +201,12 @@ const useDeviceManager = ({ runtime }) => {
         runtime.logEvent('[Device] Added USB Serial device.');
         
     } catch (e) {
-        runtime.logEvent('[Device] Serial selection failed: ' + e.message);
+        console.error('Serial add error:', e);
+        const msg = 'Serial selection failed: ' + e.message;
+        runtime.logEvent('[Device] ' + msg);
+        if (!e.message.includes('No port selected') && !e.message.includes('User cancelled')) {
+            alert(msg);
+        }
     }
   };
   

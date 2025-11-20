@@ -526,7 +526,7 @@ return (
         </div>
 
         {/* BOTTOM CONSOLE */}
-        <div className="flex-none h-1/3 min-h-[180px] max-h-[300px] bg-[#0a0a0a] border-t border-slate-800 flex flex-col relative z-50" style={{ pointerEvents: 'auto' }}>
+        <div className="flex-none h-1/3 min-h-[180px] max-h-[300px] bg-[#0a0a0a] border-t border-slate-800 flex flex-col relative z-[9999]" style={{ pointerEvents: 'auto' }}>
              <div className="p-2 border-b border-slate-800 bg-[#0f0f0f] flex gap-2 overflow-x-auto relative z-50">
                  {suggestedActions.map((action, i) => (
                     <button 
@@ -550,11 +550,11 @@ return (
                 ))}
              </div>
 
-             <div className="p-2 border-t border-slate-800 bg-black flex gap-2 relative z-50">
+             <div className="p-2 border-t border-slate-800 bg-black flex gap-2 relative z-[9999]">
                 <button 
                     type="button"
                     onClick={toggleRecording} 
-                    className={'p-2 rounded-full border transition-colors cursor-pointer relative z-50 ' + (isRecording ? 'bg-red-900 border-red-500 text-white animate-pulse' : 'bg-slate-800 border-slate-600 text-slate-400 hover:text-white')}
+                    className={'p-2 rounded-full border transition-colors cursor-pointer relative z-[9999] ' + (isRecording ? 'bg-red-900 border-red-500 text-white animate-pulse' : 'bg-slate-800 border-slate-600 text-slate-400 hover:text-white')}
                     title="Microphone Input (Toggle)"
                     style={{ pointerEvents: 'auto' }}
                 >

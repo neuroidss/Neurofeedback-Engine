@@ -30,6 +30,7 @@ export const MAIN_PANEL_CODE = `
   const [activeAppIdLocal, setActiveAppIdLocal] = useState(null); // Used for library selection highlighting
   const [showProvisioning, setShowProvisioning] = useState(false); // State for provisioning modal
   const [showSettings, setShowSettings] = useState(false); // State for settings modal
+  const [showResetConfirm, setShowResetConfirm] = useState(false); // State for Factory Reset modal
   const wasVibecodingRef = useRef(false);
   
   // --- Evolution Modal State ---
@@ -250,16 +251,21 @@ export const MAIN_PANEL_CODE = `
       reader.readAsText(file);
   };
 
-  const handleFactoryReset = async () => {
-      console.log('Factory reset requested');
-      if (window.confirm("⚠️ FACTORY RESET WARNING ⚠️\\n\\nThis will delete ALL generated protocols and custom tools.\\nThe application will reload.\\n\\nAre you sure?")) {
-          try {
-              runtime.logEvent('[System] 🛑 Factory reset initiated by user.');
-              await runtime.tools.run('Factory Reset Protocols', {});
-          } catch(e) {
-              console.error(e);
-              runtime.logEvent('[System] ❌ Reset failed: ' + e.message);
-          }
+  const handleFactoryReset = () => {
+      console.log("Factory reset requested"); // Log to confirm click
+      runtime.logEvent('[System] Factory reset requested by user.');
+      setShowResetConfirm(true);
+  };
+  
+  const confirmFactoryReset = async () => {
+      setShowResetConfirm(false);
+      try {
+          runtime.logEvent('[System] 🛑 Factory reset initiated by user.');
+          await runtime.tools.run('Factory Reset Protocols', {});
+      } catch(e) {
+          console.error(e);
+          runtime.logEvent('[System] ❌ Reset failed: ' + e.message);
+          alert('Reset failed: ' + e.message);
       }
   };
   
@@ -290,7 +296,7 @@ export const MAIN_PANEL_CODE = `
                     }
                 ]
             },
-            systemPrompt: "You are an Evolutionary Architect. Execute the evolution script.",
+            systemPrompt: "Evolutionary Architect",
             allTools: runtime.tools.list()
         });
         setEvoGoalInput('');
@@ -299,7 +305,7 @@ export const MAIN_PANEL_CODE = `
   const renderEvolveModal = () => {
       if (!evoModalOpen) return null;
       return (
-          <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
+          <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
                <div className="bg-slate-900 border-2 border-purple-500 rounded-lg shadow-2xl w-full max-w-md p-6">
                    <h2 className="text-lg font-bold text-purple-300 mb-1">🧬 Protocol Evolution</h2>
                    <p className="text-xs text-slate-400 mb-4">Target: <span className="text-white font-bold">{evoTargetProtocol?.name}</span></p>
@@ -321,6 +327,31 @@ export const MAIN_PANEL_CODE = `
           </div>
       );
   };
+  
+  const renderResetConfirmModal = () => {
+      if (!showResetConfirm) return null;
+      return (
+          <div className="fixed inset-0 z-[9999] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
+               <div className="bg-red-950/80 border-2 border-red-600 rounded-lg shadow-2xl w-full max-w-md p-6 text-center">
+                   <div className="flex justify-center mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                   </div>
+                   <h2 className="text-xl font-bold text-red-200 mb-2">FACTORY RESET</h2>
+                   <p className="text-sm text-red-100/80 mb-6">
+                       This will <strong className="text-white">PERMANENTLY DELETE</strong> all custom tools, generated protocols, and research data. 
+                       <br/><br/>The application will restart in a clean state.
+                   </p>
+                   
+                   <div className="flex justify-center gap-4">
+                       <button onClick={() => setShowResetConfirm(false)} className="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-bold text-sm">Cancel</button>
+                       <button onClick={confirmFactoryReset} className="px-6 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded text-sm shadow-[0_0_15px_rgba(220,38,38,0.5)]">Confirm Reset</button>
+                   </div>
+               </div>
+          </div>
+      );
+  };
 
   // --- Render Functions (Extracted) ---
   ${RENDER_FUNCTIONS_CODE}
@@ -329,6 +360,7 @@ export const MAIN_PANEL_CODE = `
     <div className="h-full w-full bg-black text-slate-200 font-sans flex overflow-hidden relative">
         {renderSettingsModal()}
         {renderEvolveModal()}
+        {renderResetConfirmModal()}
         
         {/* Hidden Input for Import */}
         <input 
@@ -398,7 +430,7 @@ export const MAIN_PANEL_CODE = `
             </div>
         )}
 
-        <div className="w-1/4 min-w-[300px] max-w-[400px] border-r border-slate-800 flex flex-col bg-slate-900 z-10">
+        <div className="w-1/4 min-w-[300px] max-w-[400px] border-r border-slate-800 flex flex-col bg-slate-900 z-20 shadow-xl">
             <div className="h-12 border-b border-slate-800 flex items-center px-4 justify-between">
                 <div className="font-bold text-slate-100 tracking-wider flex items-center gap-2">
                     <div className="w-3 h-3 bg-cyan-500 rounded-sm rotate-45"></div>
@@ -418,40 +450,45 @@ export const MAIN_PANEL_CODE = `
             </div>
         </div>
 
-        <div className="flex-grow flex flex-col bg-black relative">
-            {protocolRunner.runningProtocols.length > 0 ? (
-                <div className={\`grid w-full h-full \${
-                    protocolRunner.runningProtocols.length === 1 ? 'grid-cols-1' :
-                    protocolRunner.runningProtocols.length === 2 ? 'grid-cols-2' :
-                    'grid-cols-2 grid-rows-2' 
-                }\`}>
-                    {protocolRunner.runningProtocols.map(app => (
-                        <div key={app.id} className="relative border border-slate-800/50 overflow-hidden bg-[#050505] p-2">
-                            {renderPlayerDisplay({
-                                selectedProtocol: app,
-                                runningProtocol: app,
-                                processedData: protocolRunner.processedDataMap[app.id],
-                                rawData: protocolRunner.rawData,
-                                connectionStatus: protocolRunner.connectionStatus,
-                                handleRunProtocol: (p) => protocolRunner.toggleProtocol(p),
-                                runtime,
-                                vibecoderHistory,
-                                startSwarmTask,
-                                onEvolve: handleEvolveRequest
-                            })}
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <div className="flex-grow flex flex-col items-center justify-center text-slate-600 opacity-50">
-                    <BeakerIcon className="h-24 w-24 mb-4 text-slate-700" />
-                    <h2 className="text-xl font-bold text-slate-500">Ready for Deployment</h2>
-                    <p className="text-sm">Select protocols from the Library to launch.</p>
-                </div>
-            )}
+        {/* Center Panel with Flexbox Layout for Status Bar */}
+        <div className="flex-grow flex flex-col bg-black relative z-0">
+            {/* Player Grid Wrapper */}
+            <div className="flex-grow relative overflow-hidden">
+                {protocolRunner.runningProtocols.length > 0 ? (
+                    <div className={\`grid w-full h-full \${
+                        protocolRunner.runningProtocols.length === 1 ? 'grid-cols-1' :
+                        protocolRunner.runningProtocols.length === 2 ? 'grid-cols-2' :
+                        'grid-cols-2 grid-rows-2' 
+                    }\`}>
+                        {protocolRunner.runningProtocols.map(app => (
+                            <div key={app.id} className="relative border border-slate-800/50 overflow-hidden bg-[#050505] p-2">
+                                {renderPlayerDisplay({
+                                    selectedProtocol: app,
+                                    runningProtocol: app,
+                                    processedData: protocolRunner.processedDataMap[app.id],
+                                    rawData: protocolRunner.rawData,
+                                    connectionStatus: protocolRunner.connectionStatus,
+                                    handleRunProtocol: (p) => protocolRunner.toggleProtocol(p),
+                                    runtime,
+                                    vibecoderHistory,
+                                    startSwarmTask,
+                                    onEvolve: handleEvolveRequest
+                                })}
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="flex h-full flex-col items-center justify-center text-slate-600 opacity-50">
+                        <BeakerIcon className="h-24 w-24 mb-4 text-slate-700" />
+                        <h2 className="text-xl font-bold text-slate-500">Ready for Deployment</h2>
+                        <p className="text-sm">Select protocols from the Library to launch.</p>
+                    </div>
+                )}
+            </div>
             
+            {/* Status Bar - Positioned via Flexbox so it never overlaps */}
             {protocolRunner.runningProtocols.length > 0 && (
-                 <div className="absolute bottom-0 left-0 right-0 h-8 bg-slate-900/80 backdrop-blur-md border-t border-slate-800 flex items-center justify-between px-6 z-30 pointer-events-none">
+                 <div className="flex-none h-8 bg-slate-900/80 backdrop-blur-md border-t border-slate-800 flex items-center justify-between px-6 z-30">
                      <div className="text-[10px] text-slate-400 flex items-center gap-2">
                          <span className="text-green-400 font-mono font-bold">{protocolRunner.connectionStatus || 'Connecting...'}</span>
                          <span>|</span>
@@ -464,7 +501,7 @@ export const MAIN_PANEL_CODE = `
             )}
         </div>
 
-        <div className="w-1/4 min-w-[250px] max-w-[350px] border-l border-slate-800 flex flex-col bg-slate-900 z-10">
+        <div className="w-1/4 min-w-[250px] max-w-[350px] border-l border-slate-800 flex flex-col bg-slate-900 z-20 shadow-xl">
             <div className="h-12 border-b border-slate-800 flex items-center px-4 justify-between bg-slate-900">
                 <span className="text-xs font-bold text-slate-500 tracking-wider uppercase">Telemetry & I/O</span>
                 <div className="flex gap-1">
@@ -475,7 +512,7 @@ export const MAIN_PANEL_CODE = `
             <div className="flex-grow p-4 min-h-0 overflow-hidden">
                 {rightTab === 'telemetry' ? renderTelemetryPanel() : (
                      <div className="h-full flex flex-col">
-                        <div className="flex-grow overflow-y-auto font-mono text-[10px] text-slate-400 space-y-1">
+                        <div className="flex-grow overflow-y-auto font-mono text-[10px] text-slate-400 space-y-1 custom-scrollbar">
                              {runtime.getState().eventLog.map((log, i) => <div key={i} className="break-words border-b border-slate-800/50 pb-0.5">{log}</div>)}
                         </div>
                      </div>

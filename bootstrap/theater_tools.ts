@@ -105,148 +105,158 @@ if __name__ == "__main__":
 
 const APPLY_COGNITIVE_FILTER: ToolCreatorPayload = {
     name: 'Apply_Cognitive_Filter',
-    description: 'Modifies a scene description by applying a specific cognitive bias filter (e.g., "Negativity Bias", "Pareidolia").',
+    description: 'Modifies a scene description by applying a specific cognitive bias filter (e.g., "Negativity Bias", "Pareidolia", "Halo Effect"). Acts as the "Imaginary" layer distorting the "Symbolic" reality.',
     category: 'Automation',
     executionEnvironment: 'Client',
-    purpose: 'To algorithmically distort the narrative based on the user\'s neural state.',
+    purpose: 'To algorithmically distort the narrative based on the user\'s neural state, creating a conflict between perception and reality.',
     parameters: [
-        { name: 'rawSceneDescription', type: 'string', description: 'The original, objective description.', required: true },
-        { name: 'activeBiases', type: 'array', description: 'List of biases to apply.', required: true }
+        { name: 'rawSceneDescription', type: 'string', description: 'The objective, factual description of the scene (The Real).', required: true },
+        { name: 'activeBiases', type: 'array', description: 'List of biases to apply based on current neural state.', required: true },
+        { name: 'distortionStrength', type: 'number', description: '0.0 to 1.0. How strong the hallucination is.', required: true }
     ],
     implementationCode: `
-        const { rawSceneDescription, activeBiases } = args;
-        if (!activeBiases || activeBiases.length === 0) return { success: true, filteredDescription: rawSceneDescription };
+        const { rawSceneDescription, activeBiases, distortionStrength } = args;
         
-        const systemInstruction = "You are a Cognitive Distortion Filter. Rewrite the input text to reflect the following biases: " + activeBiases.join(', ') + ".\\nKeep the physical facts the same, but change the emotional tone and interpretation. Return ONLY the rewritten text.";
+        if (distortionStrength < 0.1 || !activeBiases || activeBiases.length === 0) {
+            return { success: true, filteredDescription: rawSceneDescription, distortionType: 'None' };
+        }
         
-        const response = await runtime.ai.generateText(rawSceneDescription, systemInstruction);
-        return { success: true, filteredDescription: response };
+        const systemInstruction = \`You are a Cognitive Distortion Filter.
+        Rewrite the input text to reflect the following biases: \${activeBiases.join(', ')}.
+        
+        RULES:
+        1. Keep the physical facts vague but plausible.
+        2. Change the EMOTIONAL TONE and INTERPRETATION heavily.
+        3. If 'Pareidolia': Describe inanimate objects as having faces or intent.
+        4. If 'Negativity Bias': Highlight threats, shadows, and decay.
+        5. If 'Halo Effect': Describe ambiguous objects as divine, perfect, or trustworthy.
+        6. Do NOT explicitly say "This is a bias". Write it as if it is the absolute truth perceived by the observer.
+        \`;
+        
+        const prompt = \`Objective Reality: "\${rawSceneDescription}"\n\nRewrite this as perceived by a mind under heavy cognitive load.\`;
+        
+        const filteredDescription = await runtime.ai.generateText(prompt, systemInstruction);
+        
+        return { success: true, filteredDescription, distortionType: activeBiases[0] };
     `
 };
 
 const GENERATE_SCENE_QUANTUM_V2: ToolCreatorPayload = {
     name: 'Generate_Scene_Quantum_V2',
-    description: 'The Advanced AI Game Master. Manages a persistent World Graph. Generates narrative based on User Action + EEG State. Calculates Quantum Superposition of possible outcomes and collapses one based on Bias/Lucidity.',
+    description: 'The Advanced AI Game Master. Manages the World Graph (Symbolic) and user perception (Imaginary). Handles the collapse of reality when the user acts.',
     category: 'Functional',
     executionEnvironment: 'Client',
-    purpose: 'To simulate a fuzzy, responsive world where the GM enforces consistency but the user experiences their own biases.',
+    purpose: 'To simulate a psychoanalytic "Return of the Real" where the user must distinguish between their projected biases and the objective game world.',
     parameters: [
         { name: 'worldGraph', type: 'object', description: 'The current persistent state of the world (Nodes, Edges, Entropy).', required: true },
         { name: 'lucidityLevel', type: 'number', description: '0.0 to 1.0. User neural stability.', required: true },
         { name: 'userAction', type: 'string', description: 'The action proposed by the player (optional).', required: false },
-        { name: 'userAudio', type: 'string', description: 'Base64 encoded audio input from the player (optional). If provided, the model should analyze the emotional tone.', required: false },
+        { name: 'userAudio', type: 'string', description: 'Base64 encoded audio input from the player (optional).', required: false },
         { name: 'activeBiases', type: 'array', description: 'List of active cognitive distortions.', required: true },
         { name: 'targetLanguage', type: 'string', description: 'The language for the narrative output (e.g., "Russian", "English").', required: false, defaultValue: 'English' }
     ],
     implementationCode: `
         const { worldGraph, lucidityLevel, userAction, userAudio, activeBiases, targetLanguage = 'English' } = args;
         
-        const systemInstruction = \`You are the Quantum Game Master (QGM). You control a consistent, persistent world.
-        The Player is a visitor. The Player proposes actions, but YOU (the GM) are the final authority. You must check the World Graph (Physics/Lore) to decide if an action is possible.
+        // 1. GM Logic: The Reality Check
+        const systemInstruction = \`You are the Psychoanalytic Quantum Game Master (QGM). You control a consistent, persistent world (The Symbolic).
+        The Player acts based on their perception (The Imaginary), which may be distorted.
         
-        **INPUT CONTEXT:**
-        - World Graph: \${JSON.stringify(worldGraph)}
-        - User Proposal: "\${userAction || "None (Initial State)"}"
-        - Neural Lucidity: \${lucidityLevel.toFixed(2)} (1.0=Rational, 0.0=Delirious)
-        - Active Biases: \${activeBiases.join(', ')}
+        **CONTEXT:**
+        - Objective World State: \${JSON.stringify(worldGraph.currentLocation)}
+        - Player Lucidity: \${lucidityLevel.toFixed(2)} (1.0=Awake/Real, 0.0=Hallucinating)
+        - Player Biases: \${activeBiases.join(', ')}
+        - Player Action: "\${userAction || "None (Initial State)"}"
         
-        **LANGUAGE REQUIREMENT:**
-        - You MUST generate the 'narrative' and 'suggestedActions' in: **\${targetLanguage}**.
-        - The JSON keys (like 'narrative', 'gmRuling') MUST remain in English.
+        **MECHANIC: THE RETURN OF THE REAL**
+        If the player's action implies interaction with a hallucination (e.g., attacking a monster that is actually a shadow), the REALITY must resist.
+        - Describe the failure jarringly (e.g., "Your sword hits the stone wall. Sparks fly. There was no monster.").
+        - If the action is valid within the Objective World, proceed normally.
         
-        **AUDIO INPUT:**
-        If audio is provided, listen closely to the EMOTIONAL TONE.
-        - Fear/Panic: Make the outcome more chaotic or hostile.
-        - Calm/Assertive: Make the outcome more controlled.
-        - Whispering: Enhance the surreal/mysterious elements.
-        
-        **EXECUTION LOGIC:**
-        1. **GM AUTHORITY CHECK:**
-           - Is the User Proposal possible? (e.g. If they try to fly but have no wings -> REJECT. If they try to open a locked door without a key -> REJECT).
-           - If Rejected: Describe the failure. Do NOT advance the plot significantly.
-           - If Accepted: Proceed to Branching.
-        
-        2. **QUANTUM BRANCHING (If Valid):**
-           Generate 3 potential timelines (A, B, C).
-           - A: Materialist/Rational outcome.
-           - B: Distorted outcome (Apply Active Biases heavily).
-           - C: Surreal/Symbolic outcome.
-        
-        3. **COLLAPSE:**
-           Select the branch that best fits the current Lucidity.
-        
-        4. **NEXT ACTION GENERATION (CRITICAL):**
-           - You MUST generate 3-4 *Suggested Actions* for the player in **\${targetLanguage}**.
-           - These actions must be influenced by the Active Biases. 
-             - E.g., If 'Paranoia' -> Suggest "Check the shadows", "Lock the door".
-             - If 'Lucid' -> Suggest "Examine the object", "Walk forward".
+        **TASK:**
+        1. Determine the outcome based on the Objective World Graph.
+        2. Update the World Graph (moves, items taken).
+        3. Generate the **NEXT SCENE OBJECTIVE DESCRIPTION**. This must be factual and devoid of bias (e.g., "A stone corridor with a flickering torch.").
+        4. Generate 3 suggested actions (in \${targetLanguage}).
         
         **OUTPUT FORMAT (JSON ONLY):**
         {
-            "narrative": "Description of what happened (in \${targetLanguage})...",
-            "gmRuling": "Accepted" | "Rejected" | "Distorted",
+            "narrative": "Description of the outcome (in \${targetLanguage})...",
+            "gmRuling": "Accepted" | "Rejected/Real_Intervention",
+            "nextObjectiveScene": "Factual description of the new state...",
             "suggestedActions": [ "Action 1", "Action 2", "Action 3" ],
             "updatedGraphUpdates": {
                 "currentLocation": { "name": "...", "description": "..." },
-                "newNodes": [ { "id": "item_1", "description": "...", "entropy": 0.5 } ]
+                "newNodes": []
             },
-            "quantumBranches": [
-                { "id": "A", "desc": "...", "prob": 0.8 },
-                { "id": "B", "desc": "...", "prob": 0.2 }
-            ],
-            "imagePrompt": "...",
-            "audioTone": "...",
-            "suggestedDuration": 3 // Integer seconds. How long should the player linger on this scene? If the narrative is profound or the image complex, suggest 5-8s. If fast action, 2s.
+            "imagePrompt": "Basic visual description of the objective scene...",
+            "suggestedDuration": 3
         }\`;
 
-        const prompt = "Simulate the next time step based on the user proposal.";
+        const prompt = "Simulate the next time step. Resolve the conflict between Player Action and Objective Reality.";
         
         // --- MULTIMODAL HANDLING ---
         const files = [];
         if (userAudio) {
-            // Treat audio as 'audio/webm' or 'audio/wav' depending on recorder, but 'audio/wav' is safer generic for AI
             files.push({ type: 'audio/wav', data: userAudio });
         }
 
-        // Call AI with correct signature: (text, systemInstruction, tools, files, model)
         const response = await runtime.ai.processRequest(prompt, systemInstruction, [], files, runtime.getState().selectedModel);
-        const responseText = response.text;
         
-        let resultData;
-        
+        let gmData;
         try {
-             const jsonMatch = responseText.match(/\\{[\\s\\S]*\\}/);
+             const jsonMatch = response.text.match(/\\{[\\s\\S]*\\}/);
              if (!jsonMatch) throw new Error("No JSON found.");
-             resultData = JSON.parse(jsonMatch[0]);
+             gmData = JSON.parse(jsonMatch[0]);
         } catch (e) {
-             resultData = { 
-                 narrative: "The simulation destabilizes. The Game Master is silent. " + e.message, 
+             // Fallback
+             gmData = { 
+                 narrative: "The simulation destabilizes. " + e.message, 
                  gmRuling: "Error",
-                 suggestedActions: ["Wait", "Focus"],
+                 nextObjectiveScene: "A void of static.",
+                 suggestedActions: ["Wait"],
                  updatedGraphUpdates: {},
-                 quantumBranches: []
+                 imagePrompt: "Static noise"
              };
         }
 
-        // 2. MEDIA GENERATION (Parallel)
-        // Use the selected image model from config
-        const imagePrompt = resultData.imagePrompt + " . " + (lucidityLevel < 0.5 ? "Surreal, distorted, dreamlike" : "Realistic, gritty, detailed");
-        const imagePromise = runtime.ai.generateImage(imagePrompt); 
+        // 2. THE IMAGINARY LAYER (Cognitive Filter)
+        // If lucidity is low, we distort the NEXT scene before showing it to the player.
+        let finalNarrative = gmData.narrative;
+        let finalImagePrompt = gmData.imagePrompt;
         
-        // Only generate audio for the narrative
-        const audioPromise = runtime.ai.generateSpeech(resultData.narrative, lucidityLevel < 0.5 ? 'Fenrir' : 'Zephyr');
+        if (lucidityLevel < 0.85) {
+            // Recursive call to the filter tool
+            const filterResult = await runtime.tools.run('Apply_Cognitive_Filter', {
+                rawSceneDescription: gmData.nextObjectiveScene,
+                activeBiases: activeBiases,
+                distortionStrength: 1.0 - lucidityLevel
+            });
+            
+            // Append the subjective perception to the GM's objective outcome
+            finalNarrative += "\\n\\n" + filterResult.filteredDescription;
+            
+            // The image should reflect the HALLUCINATION, not the reality, so the player stays trapped in the Imaginary
+            finalImagePrompt = filterResult.filteredDescription + ". Style: Surrealist, distorted, dream-logic.";
+        } else {
+            finalImagePrompt += ". Style: Hyper-realistic, clear, objective photography.";
+        }
+
+        // 3. MEDIA GENERATION
+        const imagePromise = runtime.ai.generateImage(finalImagePrompt); 
+        const audioPromise = runtime.ai.generateSpeech(finalNarrative, lucidityLevel < 0.5 ? 'Fenrir' : 'Zephyr');
         
         const [imageUrl, audioUrl] = await Promise.all([imagePromise, audioPromise]);
         
         return { 
             success: true, 
-            narrative: resultData.narrative,
-            gmRuling: resultData.gmRuling,
-            suggestedActions: resultData.suggestedActions,
+            narrative: finalNarrative,
+            gmRuling: gmData.gmRuling,
+            suggestedActions: gmData.suggestedActions,
             debugData: {
-                branches: resultData.quantumBranches,
-                graphUpdates: resultData.updatedGraphUpdates,
-                suggestedDuration: resultData.suggestedDuration || 3
+                graphUpdates: gmData.updatedGraphUpdates,
+                suggestedDuration: gmData.suggestedDuration || 3,
+                objectiveReality: gmData.nextObjectiveScene // For debug UI
             },
             imageUrl,
             audioUrl
@@ -256,10 +266,10 @@ const GENERATE_SCENE_QUANTUM_V2: ToolCreatorPayload = {
 
 const PSYCHOANALYTIC_ROGUELIKE: ToolCreatorPayload = {
     name: 'Psychoanalytic Generative Roguelike',
-    description: 'V3: GM Authority & Cognitive Bias Integration. The player proposes actions, but the AI Game Master validates them against the world lore and the user\'s neural state.',
+    description: 'V3.1: "The Mirror Stage". A game where the environment is an objective reality, but the user\'s perception is distorted by their neural state (EEG). The goal is to achieve Lucidity (synchrony) to see the world as it is.',
     category: 'UI Component',
     executionEnvironment: 'Client',
-    purpose: 'To demonstrate the "Semantic Uncanny Valley" with full transparency into the generative process and GM authority.',
+    purpose: 'To demonstrate the psychoanalytic concept of the Imaginary vs. the Real using neurofeedback as the bridge.',
     parameters: [
          { name: 'processedData', type: 'object', description: 'Game state and Neural metrics.', required: true },
          { name: 'runtime', type: 'object', description: 'Runtime API.', required: false }
@@ -271,34 +281,46 @@ const PSYCHOANALYTIC_ROGUELIKE: ToolCreatorPayload = {
     },
     processingCode: `
 (runtime) => {
-    // --- SIMULATED QUANTUM BIAS SOLVER ---
-    const BIAS_POOL = ['Pareidolia', 'Jamais Vu', 'Hyper-vigilance', 'Apophenia', 'Loss Aversion', 'Anchoring', 'False Memory'];
+    const BIAS_POOL = ['Pareidolia', 'Negativity Bias', 'Persecutory Delusion', 'Grandiosity', 'Jamais Vu', 'Hyper-vigilance'];
 
     return {
         update: async (eegData, sampleRate) => {
-             // 1. Calculate Neural State (Lucidity)
-             let lucidity = 0.5;
-             let vetoSignal = 0;
+             // 1. Calculate Neural Lucidity
+             // Formula: (Alpha + Theta) / (Beta + Gamma + epsilon)
+             // High Alpha/Theta = Calm/Lucid/Flow. High Beta/Gamma = Stress/Fragmented.
+             let lucidity = 0.5; 
+             let betaPower = 0;
+             let alphaPower = 0;
+             
              try {
-                 const time = Date.now() / 3000;
-                 // Simulate lucidity drifting based on "Focus" (mocked)
-                 lucidity = 0.6 + Math.sin(time) * 0.3 + (Math.random() - 0.5) * 0.15;
-                 lucidity = Math.max(0.05, Math.min(0.95, lucidity));
+                 // Mock calculation (replace with real FFT if available in runtime utils)
+                 // We simulate "Stress" drifting over time
+                 const time = Date.now() / 5000;
+                 const stressWave = Math.sin(time) * 0.4 + 0.5; // 0.1 to 0.9
                  
-                 // Veto (Beta/Gamma spike simulation)
-                 if (eegData && eegData['Fz']) {
-                     vetoSignal = Math.random() * 0.8; 
-                 }
+                 // In a real scenario, we would analyze eegData['Fz'] here.
+                 // For this demo, we use the simulated stress wave inverse as lucidity.
+                 lucidity = 1.0 - stressWave; 
+                 
+                 // Random momentary clarity
+                 if (Math.random() > 0.9) lucidity += 0.2;
+                 
+                 lucidity = Math.max(0.05, Math.min(0.95, lucidity));
              } catch(e) {}
 
-             // 2. Determine Active Biases based on Lucidity
-             // Lower lucidity = More active biases filtering the world
+             // 2. Determine Active Biases
+             // The "Id" bubbles up distortions when Lucidity is low.
              const activeBiases = [];
-             const biasCount = Math.floor((1.0 - lucidity) * 3); 
-             const shuffled = [...BIAS_POOL].sort(() => 0.5 - Math.random());
-             for(let i=0; i<biasCount; i++) activeBiases.push(shuffled[i]);
+             if (lucidity < 0.8) {
+                 // Pick a bias deterministically based on time so it doesn't flicker too fast
+                 const index = Math.floor(Date.now() / 10000) % BIAS_POOL.length;
+                 activeBiases.push(BIAS_POOL[index]);
+             }
+             if (lucidity < 0.4) {
+                 activeBiases.push('Paranoia'); // Hardcode bad vibes for low state
+             }
 
-             return { lucidity, activeBiases, vetoSignal };
+             return { lucidity, activeBiases, vetoSignal: 0 };
         }
     };
 }
