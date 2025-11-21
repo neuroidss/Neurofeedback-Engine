@@ -173,6 +173,21 @@ export const SETTINGS_MODAL_CODE = `
                           </h3>
                           
                           <div className="grid gap-3">
+                               <div className="flex items-center justify-between bg-slate-900/40 p-3 rounded-lg border border-slate-800">
+                                  <div>
+                                      <div className="text-sm font-bold text-white">Protocol Generation</div>
+                                      <div className="text-xs text-slate-500">Generation Strategy</div>
+                                  </div>
+                                  <select 
+                                    value={apiConfig.protocolGenerationMode || 'script'} 
+                                    onChange={e => setApiConfig({...apiConfig, protocolGenerationMode: e.target.value})}
+                                    className="bg-black/40 border border-slate-700 text-xs text-white rounded-md px-2 py-1 focus:border-purple-500 outline-none"
+                                  >
+                                    <option value="script">Classic Script (React)</option>
+                                    <option value="graph">Stream Graph (Vibecoder)</option>
+                                  </select>
+                              </div>
+
                               <div className="flex items-center justify-between bg-slate-900/40 p-3 rounded-lg border border-slate-800">
                                   <div>
                                       <div className="text-sm font-bold text-white">Quantum Proxy</div>

@@ -1,5 +1,6 @@
 
 
+
 // bootstrap/protocols/classical/neural_synchrony.ts
 import type { ToolCreatorPayload } from '../../../types';
 
@@ -23,7 +24,22 @@ export const NEURAL_SYNCHRONY_PROTOCOL: ToolCreatorPayload = {
     // This is an async factory, so we return an object with an async update method.
     return {
         update: async (eegData, sampleRate) => {
-            const channelNames = Object.keys(eegData);
+            // --- ALIAS FILTERING ---
+            // The runtime provides both specific keys ("Device:Channel") and aliased keys ("Channel") 
+            // for compatibility. We must filter out the aliases to avoid double-counting.
+            let channelNames = Object.keys(eegData);
+            const hasPrefixes = channelNames.some(ch => ch.includes(':'));
+            
+            let activeData = eegData;
+            if (hasPrefixes) {
+                activeData = {};
+                channelNames.forEach(key => {
+                    // If specific keys exist, only use them. Ignore simple aliases.
+                    if (key.includes(':')) activeData[key] = eegData[key];
+                });
+                channelNames = Object.keys(activeData);
+            }
+
             if (channelNames.length < 2) {
                 return { 
                     value: 0, 
@@ -35,14 +51,13 @@ export const NEURAL_SYNCHRONY_PROTOCOL: ToolCreatorPayload = {
             }
             
             // Infer number of devices from channel name prefixes (e.g., 'simulator-1:Cz')
-            const hasPrefixes = channelNames.some(ch => ch.includes(':'));
             const numDevices = hasPrefixes
                 ? new Set(channelNames.map(ch => ch.split(':')[0])).size
                 : 1;
 
             try {
                 const result = await runtime.tools.run('Calculate_Coherence_Matrix_Optimized', {
-                    eegData: eegData,
+                    eegData: activeData,
                     sampleRate: sampleRate,
                     freqRange: [8, 12] // Alpha band
                 });
@@ -150,21 +165,14 @@ export const NEURAL_SYNCHRONY_PROTOCOL: ToolCreatorPayload = {
         };
         
         const getLabel = (channel) => {
-             // Parse format "DeviceID:ChannelName" or simple "ChannelName"
+             // Simple, direct display of the channel ID as provided by the system.
+             // No artificial renaming.
              const parts = channel.split(':');
-             if (parts.length < 2) return channel; // Local single device case
+             if (parts.length < 2) return channel; 
              
              const devId = parts[0];
              const chName = parts[1];
-             
-             // Shorten ID for display: "simulator-free8-1" -> "Sim1"
-             let shortId = devId;
-             const simMatch = devId.match(/simulator.*-(\d+)$/);
-             if (simMatch) shortId = 'S' + simMatch[1];
-             else if (devId.toLowerCase().includes('freeeeg')) shortId = 'H' + devId.slice(-1);
-             else shortId = devId.substring(0,3);
-             
-             return shortId + ':' + chName;
+             return devId + ':' + chName;
         };
 
         return (

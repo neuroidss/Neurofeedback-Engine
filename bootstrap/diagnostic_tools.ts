@@ -1,3 +1,4 @@
+
 import type { ToolCreatorPayload } from '../types';
 
 export const DIAGNOSTIC_TOOLS: ToolCreatorPayload[] = [
@@ -19,7 +20,27 @@ export const DIAGNOSTIC_TOOLS: ToolCreatorPayload[] = [
         implementationCode: `
             const { researchObjective, executionHistory, failedAction, errorMessage, availableTools, failedToolSourceCode, modelUsed } = args;
 
-            const systemInstruction = "You are an expert AI Swarm Debugger and Senior Software Engineer. Your task is to perform a root cause analysis of a runtime error in an autonomous agent swarm and propose a concrete recovery plan.\\n\\n**DIAGNOSTIC PROTOCOL:**\\n\\n1.  **Analyze and Classify the Error Category:** First, determine the single most likely root cause and classify it into one of these categories:\\n    *   'MODEL_INCAPABLE': The task was too complex for the AI model being used (e.g., a 'flash' model was asked to do complex reasoning or code generation). The prompt and tools were likely correct, but the model lacked the capability.\\n    *   'TOOL_BUG': The code within the \\\`failedToolSourceCode\\\` has a logical error, typo, or bug that caused the exception.\\n    *   'PROMPT_AMBIGUITY': The instructions given to the agent (in the objective or prior steps) were unclear, contradictory, or insufficient, leading the AI to make a mistake.\\n    *   'AGENT_LOGIC_ERROR': The AI chose the wrong tool for the job, provided incorrect arguments to a correct tool, or got stuck in a loop. This represents a flaw in the agent's reasoning, not the tool's code.\\n\\n2.  **Propose a Recovery Action:** Based on your classification, propose a single, specific recovery action from this list:\\n    *   'RETRY_WITH_STRONGER_MODEL': If the category was 'MODEL_INCAPABLE', recommend a more powerful model.\\n    *   'MODIFY_TOOL_CODE': If the category was 'TOOL_BUG', provide the corrected code.\\n    *   'SIMPLIFY_TASK': If the task is too complex, propose a simplified research objective or a new sequence of smaller tool calls.\\n    *   'REWRITE_PROMPT': If the prompt was ambiguous, provide a clearer version.\\n\\n3.  **Provide Parameters for the Action:** Supply the necessary data for your proposed action in the \\\`actionParameters\\\` object.\\n    *   For 'RETRY_WITH_STRONGER_MODEL': \\\`{\\"suggestedModelId\\": \\"gemini-2.5-pro\\"}\\\`\\n    *   For 'SIMPLIFY_TASK': \\\`{\\"simplifiedObjective\\": \\"New, simpler objective text.\\"}\\\`\\n\\n4.  **Final Output:** You MUST call the 'RecordErrorAnalysis' tool with your complete, structured analysis. Your entire response must be ONLY this single tool call.";
+            const systemInstruction = \`You are an expert AI Swarm Debugger and Senior Software Engineer. Your task is to perform a root cause analysis of a runtime error in an autonomous agent swarm and propose a concrete recovery plan.
+
+**DIAGNOSTIC PROTOCOL:**
+
+1.  **Analyze and Classify the Error Category:** First, determine the single most likely root cause and classify it into one of these categories:
+    *   'MODEL_INCAPABLE': The task was too complex for the AI model being used (e.g., a 'flash' model was asked to do complex reasoning or code generation). The prompt and tools were likely correct, but the model lacked the capability.
+    *   'TOOL_BUG': The code within the \\\`failedToolSourceCode\\\` has a logical error, typo, or bug that caused the exception.
+    *   'PROMPT_AMBIGUITY': The instructions given to the agent (in the objective or prior steps) were unclear, contradictory, or insufficient, leading the AI to make a mistake.
+    *   'AGENT_LOGIC_ERROR': The AI chose the wrong tool for the job, provided incorrect arguments to a correct tool, or got stuck in a loop. This represents a flaw in the agent's reasoning, not the tool's code.
+
+2.  **Propose a Recovery Action:** Based on your classification, propose a single, specific recovery action from this list:
+    *   'RETRY_WITH_STRONGER_MODEL': If the category was 'MODEL_INCAPABLE', recommend a more powerful model.
+    *   'MODIFY_TOOL_CODE': If the category was 'TOOL_BUG', provide the corrected code.
+    *   'SIMPLIFY_TASK': If the task is too complex, propose a simplified research objective or a new sequence of smaller tool calls.
+    *   'REWRITE_PROMPT': If the prompt was ambiguous, provide a clearer version.
+
+3.  **Provide Parameters for the Action:** Supply the necessary data for your proposed action in the \\\`actionParameters\\\` object.
+    *   For 'RETRY_WITH_STRONGER_MODEL': \\\`{\\"suggestedModelId\\": \\"gemini-2.5-pro\\"}\\\`
+    *   For 'SIMPLIFY_TASK': \\\`{\\"simplifiedObjective\\": \\"New, simpler objective text.\\"}\\\`
+
+4.  **Final Output:** You MUST call the 'RecordErrorAnalysis' tool with your complete, structured analysis. Your entire response must be ONLY this single tool call.\`;
 
             const prompt = '## FAILURE CONTEXT ##\\n\\n' +
                 '**High-Level Objective:**\\n' + researchObjective + '\\n\\n' +

@@ -1,6 +1,4 @@
-
-// VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
-// Escaping is only for 'implementationCode' strings in tool definitions.
+// hooks/useAppRuntime.ts
 import React, { useCallback, useRef, useMemo, useState, useEffect } from 'react';
 import { useAppStateManager } from './useAppStateManager';
 import { useToolManager } from './useToolManager';
@@ -9,12 +7,11 @@ import { useSwarmManager } from './useSwarmManager';
 import * as aiService from '../services/aiService';
 import * as searchService from '../services/searchService';
 import * as embeddingService from '../services/embeddingService';
+import { neuroBus } from '../services/neuroBus';
+import { streamEngine } from '../services/streamEngine';
 import { ModelProvider } from '../types';
 import type { AIToolCall, EnrichedAIResponse, LLMTool, MainView, ToolCreatorPayload, ExecuteActionFunction, SearchResult, AIModel, SubStepProgress } from '../types';
 
-// --- NEW: Budgetary Guardian Configuration ---
-const VELOCITY_LIMIT = 15; // Max calls
-const VELOCITY_WINDOW_SECONDS = 10; // Per X seconds
 
 // Tools that run frequently (e.g., in DSP loops) and should not spam the log.
 const NOISY_TOOLS = new Set([
@@ -23,13 +20,10 @@ const NOISY_TOOLS = new Set([
     'Solve_QUBO_SimulatedAnnealing',
     'MultiSourceEEGStreamAggregator',
     'findHypergraphDissonanceQuantum',
-    'findGraphDissonanceQuantum'
+    'findGraphDissonanceQuantum',
+    'Create_Vision_Source' // Vision source runs frequently
 ]);
 
-// FIX: Changed from a const arrow function to a function declaration.
-// This helps TypeScript's type inference by hoisting the function, which can
-// resolve module dependency cycles that cause the hook's return type to be
-// incorrectly inferred as `void`.
 export function useAppRuntime() {
     const stateManager = useAppStateManager();
     const toolManager = useToolManager({ logEvent: stateManager.logEvent });
@@ -37,7 +31,7 @@ export function useAppRuntime() {
 
     const executeActionRef = useRef<ExecuteActionFunction | null>(null);
 
-    // --- NEW: Sub-step progress state ---
+    // --- Sub-step progress state ---
     const [subStepProgress, setSubStepProgress] = useState<SubStepProgress>(null);
     const [activeAppId, setActiveAppId] = useState<string | null>(null);
 
@@ -61,27 +55,30 @@ export function useAppRuntime() {
         apiConfig: stateManager.apiConfig,
     });
 
-    // Create a ref to hold the latest isSwarmRunning value. This solves stale closure
-    // issues where a long-running tool holds a reference to an old runtimeApi object.
-    // The ref ensures that getState() always returns the current running status.
     const isSwarmRunningRef = useRef(swarmManager.isSwarmRunning);
     useEffect(() => {
         isSwarmRunningRef.current = swarmManager.isSwarmRunning;
     }, [swarmManager.isSwarmRunning]);
     
-    // --- NEW: Budgetary Guardian Velocity Check ---
+    // --- Budgetary Guardian Velocity Check ---
     const checkApiCallVelocity = () => {
         if (stateManager.isBudgetGuardTripped) {
             throw new Error("Budgetary Guardian is active. All API calls are blocked.");
         }
+        
+        // READ FROM CONFIG
+        const limit = stateManager.apiConfig.velocityLimit || 15;
+        const windowSeconds = stateManager.apiConfig.velocityWindow || 10;
+        
         const now = Date.now();
-        const windowStart = now - (VELOCITY_WINDOW_SECONDS * 1000);
+        const windowStart = now - (windowSeconds * 1000);
         
         const recentTimestamps = [...stateManager.apiCallTimestamps, now].filter(ts => ts > windowStart);
         stateManager.setApiCallTimestamps(recentTimestamps);
 
-        if (recentTimestamps.length > VELOCITY_LIMIT) {
-            stateManager.logEvent(`[!!! BUDGET GUARDIAN !!!] 🛡️ High velocity detected: ${recentTimestamps.length} API calls in the last ${VELOCITY_WINDOW_SECONDS} seconds. Halting task to prevent runaway spending.`);
+        if (recentTimestamps.length > limit) {
+            const msg = `[!!! BUDGET GUARDIAN !!!] 🛡️ High velocity detected: ${recentTimestamps.length} API calls in the last ${windowSeconds} seconds. Halting task to prevent runaway spending. Increase the limit in Settings if this is intentional.`;
+            stateManager.logEvent(msg);
             stateManager.setIsBudgetGuardTripped(true);
             swarmManager.handleStopSwarm("Budgetary Guardian triggered by high API call velocity.", false);
             throw new Error(`Budgetary Guardian triggered: High API call velocity detected.`);
@@ -103,6 +100,9 @@ export function useAppRuntime() {
         os: {
           launchApp: (appId: string) => setActiveAppId(appId),
         },
+        // Services exposed for tools (specifically stream tools)
+        neuroBus,
+        streamEngine,
         // This is a new addition to expose read-only state to tools that need it.
         // It's a function to prevent stale closures.
         getState: () => ({
@@ -140,7 +140,6 @@ export function useAppRuntime() {
                 const result = await executeActionRef.current(toolCall, 'user-manual');
                 
                 // Add the result of this manual run to the main swarm history.
-                // This ensures that tools called by other tools (e.g., in a workflow) are recorded.
                 swarmManager.appendToSwarmHistory(result);
 
                 if (result.executionError) {
@@ -273,29 +272,18 @@ export function useAppRuntime() {
                 log(`Tool '${tool.name}' executed successfully.`);
                 return { toolCall, tool, executionResult: result };
             } catch (e: any) {
-                // This `catch` block handles two types of errors:
-                // 1. SyntaxError: If the tool's `implementationCode` is invalid JavaScript. This happens during `new Function()`.
-                // 2. RuntimeError: If the code compiles but throws an error during execution (inside `func()`).
-                
                 let detailedError;
                 if (e instanceof SyntaxError) {
-                    // This is a compilation error.
                     detailedError = `[COMPILATION ERROR] in tool '${tool.name}'. The tool's code could not be parsed. This is likely due to a syntax error, such as an unescaped character in the 'implementationCode' string. Original error: ${e.message}. See developer console for the full code.`;
-                    // For developers, log the exact code that failed to compile.
                     console.error(`--- Offending Code for tool '${tool.name}' ---`);
                     console.error(tool.implementationCode);
                     console.error(`--- End of Offending Code ---`);
                 } else {
-                    // This is a runtime error.
                     detailedError = `[RUNTIME ERROR] in tool '${tool.name}'. The tool's code executed but threw an exception. Original error: ${e.message}. See developer console for stack trace.`;
-                    // For developers, log the full error with stack trace.
                     console.error(`Runtime error in '${tool.name}':`, e);
                 }
                 
-                // We always log errors, even for noisy tools.
                 stateManager.logEvent(`[${agentId}] [ERROR] ${detailedError}`);
-                
-                // Return the more descriptive error message to the swarm manager.
                 return { toolCall, tool, executionError: detailedError };
             }
         };

@@ -3,7 +3,6 @@ export const GENERATIVE_CANVAS_CODE = `
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 // --- Configuration Access ---
-// Access global settings for input mode (Transcription vs Raw Audio)
 const audioInputMode = runtime.getState().apiConfig.audioInputMode || 'transcription';
 
 // --- Neural Metrics ---
@@ -21,33 +20,26 @@ const [gameState, setGameState] = useState({
     worldGraph: { currentLocation: { name: "Void", description: "Empty space" }, nodes: [] }
 });
 
-// Shadow buffer for pre-generated next scene (Zero-Latency Donghua)
 const [nextSceneBuffer, setNextSceneBuffer] = useState(null);
-
 const [suggestedActions, setSuggestedActions] = useState(["Observe surroundings", "Focus inward"]);
-const [debugInfo, setDebugInfo] = useState(null); // { branches, graphUpdates, suggestedDuration }
+const [debugInfo, setDebugInfo] = useState(null); 
 const [showGmScreen, setShowGmScreen] = useState(false);
 const [isWaitingForAI, setIsWaitingForAI] = useState(false);
 const [isAudioPlaying, setIsAudioPlaying] = useState(false);
 
-// --- Voice & Donghua State ---
 const [isDonghuaMode, setIsDonghuaMode] = useState(false);
-const [enablePrebuffering, setEnablePrebuffering] = useState(true); // New setting to control budget
+const [enablePrebuffering, setEnablePrebuffering] = useState(true);
 const [isRecording, setIsRecording] = useState(false);
 
-// --- Language State ---
 const [targetLanguage, setTargetLanguage] = useState('English');
 const LANGUAGES = ['English', 'Russian', 'Spanish', 'Japanese', 'Chinese', 'French', 'German'];
 
-// --- Loop Prevention Refs ---
-const preGenAttemptedRef = useRef(false); // Prevents infinite retries on the same scene
-const currentAudioIdRef = useRef(null);   // Tracks when the scene changes
+const preGenAttemptedRef = useRef(false);
+const currentAudioIdRef = useRef(null); 
 
-// --- Music State ---
 const [musicEnabled, setMusicEnabled] = useState(false);
 const synthRef = useRef(null);
 
-// --- Audio Refs ---
 const audioCtxRef = useRef(null);
 const recognitionRef = useRef(null);
 const mediaRecorderRef = useRef(null);
@@ -58,7 +50,6 @@ const blobToBase64 = (blob) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => {
-        // remove 'data:audio/webm;base64,' prefix
         const base64 = reader.result.split(',')[1];
         resolve(base64);
     };
@@ -66,7 +57,6 @@ const blobToBase64 = (blob) => {
     reader.readAsDataURL(blob);
   });
 };
-
 
 // --- Playback Logic ---
 const playPcmAudio = useCallback(async (base64String) => {
@@ -101,39 +91,34 @@ const playPcmAudio = useCallback(async (base64String) => {
 
 useEffect(() => { if (gameState.audioUrl) playPcmAudio(gameState.audioUrl); }, [gameState.audioUrl]);
 
-
 // --- Generative Ambient Music Engine ---
-// Modified to remove ducking and ensuring start
 useEffect(() => {
     if (musicEnabled && !synthRef.current) {
         try {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             const ctx = new AudioContext();
             const masterGain = ctx.createGain();
-            masterGain.gain.value = 0.2; // Base volume
+            masterGain.gain.value = 0.2;
             masterGain.connect(ctx.destination);
             
-            // Basic Drone: A2 (110Hz) Cluster
-            const frequencies = [110, 164.81, 196.00, 220]; // A2, E3, G3, A3 (Am7ish)
+            const frequencies = [110, 164.81, 196.00, 220]; 
             const oscs = [];
 
             frequencies.forEach((freq, i) => {
                 const osc = ctx.createOscillator();
-                osc.type = i === 0 ? 'triangle' : 'sine'; // Bass is triangle
+                osc.type = i === 0 ? 'triangle' : 'sine';
                 osc.frequency.value = freq;
                 
                 const gain = ctx.createGain();
                 gain.gain.value = 0.1;
                 
-                // LFO for amplitude modulation (breathing effect)
                 const lfo = ctx.createOscillator();
-                lfo.frequency.value = 0.05 + Math.random() * 0.1; // Slow breath
+                lfo.frequency.value = 0.05 + Math.random() * 0.1; 
                 const lfoGain = ctx.createGain();
-                lfoGain.gain.value = 0.05; // Depth of modulation
+                lfoGain.gain.value = 0.05; 
                 lfo.connect(lfoGain);
                 lfoGain.connect(gain.gain);
                 
-                // Pan (Stereo width)
                 const panner = ctx.createStereoPanner();
                 panner.pan.value = (Math.random() * 2) - 1;
                 
@@ -152,7 +137,6 @@ useEffect(() => {
             console.error("Synth Init Failed:", e);
         }
     } else if (!musicEnabled && synthRef.current) {
-        // Cleanup
         synthRef.current.oscs.forEach(o => {
             try { o.osc.stop(); o.lfo.stop(); } catch(e){}
         });
@@ -170,17 +154,12 @@ useEffect(() => {
     };
 }, [musicEnabled]);
 
-// --- Modulate Music with State (No Ducking) ---
 useEffect(() => {
     if (synthRef.current) {
         const { ctx, oscs } = synthRef.current;
         const now = ctx.currentTime;
-
-        // Lucidity Mapping: Detune based on instability
-        // High lucidity (1.0) = 0 detune. Low lucidity (0.0) = High detune (nightmare vibe)
         const instability = Math.max(0, 1 - lucidity);
-        const detuneAmount = instability * 200; // Up to 200 cents detune
-        
+        const detuneAmount = instability * 200; 
         oscs.forEach((o, i) => {
             const flutter = Math.sin(now + i) * 10; 
             o.osc.detune.setTargetAtTime((detuneAmount * (i%2===0 ? 1 : -1)) + flutter, now, 0.1);
@@ -188,8 +167,6 @@ useEffect(() => {
     }
 }, [lucidity, musicEnabled]);
 
-
-// --- Core AI Interaction Logic ---
 const generateScene = useCallback(async (actionTextOrAudio, audioBase64 = null) => {
     const result = await runtime.tools.run('Generate_Scene_Quantum_V2', {
         worldGraph: gameState.worldGraph,
@@ -202,11 +179,9 @@ const generateScene = useCallback(async (actionTextOrAudio, audioBase64 = null) 
     return result;
 }, [gameState.worldGraph, lucidity, activeBiases, targetLanguage]);
 
-// 1. Immediate / User Triggered
 const triggerNextScene = useCallback(async (actionTextOrAudio, isAuto = false, audioBase64 = null) => {
     if (isWaitingForAI) return;
     
-    // Stop timers/recording
     setIsRecording(false);
     if (recognitionRef.current) recognitionRef.current.stop();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') mediaRecorderRef.current.stop();
@@ -214,18 +189,13 @@ const triggerNextScene = useCallback(async (actionTextOrAudio, isAuto = false, a
     setIsWaitingForAI(true);
     setSuggestedActions([]); 
     
-    // Update UI History immediately
     let displayText = "";
     if (audioBase64) displayText = "[Audio Transmission] 🎤";
     else if (typeof actionTextOrAudio === 'string') displayText = actionTextOrAudio;
     
     setGameState(prev => ({
         ...prev,
-        history: [...prev.history, { 
-            source: 'Player', 
-            text: displayText, 
-            type: 'proposal' 
-        }]
+        history: [...prev.history, { source: 'Player', text: displayText, type: 'proposal' }]
     }));
 
     try {
@@ -240,7 +210,6 @@ const triggerNextScene = useCallback(async (actionTextOrAudio, isAuto = false, a
                 audioUrl: result.audioUrl,
                 worldGraph: { ...prev.worldGraph, ...result.debugData.graphUpdates }
             }));
-            
             setSuggestedActions(result.suggestedActions || []);
             setDebugInfo(result.debugData);
         }
@@ -255,12 +224,9 @@ const triggerNextScene = useCallback(async (actionTextOrAudio, isAuto = false, a
     }
 }, [generateScene, isWaitingForAI]);
 
-
-// 2. Silent Background Generation (For Zero-Latency Donghua)
 const generateNextSceneSilent = useCallback(async () => {
-    if (nextSceneBuffer) return; // Already buffered
+    if (nextSceneBuffer) return;
     console.log("[Donghua] Starting background generation...");
-    
     try {
         const result = await generateScene("(Auto-Continue)");
         if (result.success) {
@@ -269,44 +235,26 @@ const generateNextSceneSilent = useCallback(async () => {
         }
     } catch (e) {
         console.error("[Donghua] Silent gen failed", e);
-        // Note: We do NOT reset preGenAttemptedRef here. We accept the failure for this round to save budget.
     }
 }, [generateScene, nextSceneBuffer]);
 
-
-// --- DONGHUA / AUTO-PLAY LOGIC ---
-
-// RESET LOCK: When the audio URL changes, it means a new scene has started.
-// We can now safely allow a new pre-generation attempt.
 if (currentAudioIdRef.current !== gameState.audioUrl) {
     currentAudioIdRef.current = gameState.audioUrl;
     preGenAttemptedRef.current = false;
 }
 
-// A. Trigger background gen when audio starts in Donghua mode
 useEffect(() => {
-    // STRICT CONDITION: 
-    // 1. Donghua Enabled 
-    // 2. Buffer Enabled
-    // 3. Audio Playing (Narrative active)
-    // 4. No buffer exists yet
-    // 5. Not currently busy
-    // 6. HAVEN'T TRIED YET FOR THIS SCENE (The Loop Fix)
     if (isDonghuaMode && enablePrebuffering && isAudioPlaying && !nextSceneBuffer && !isWaitingForAI && !preGenAttemptedRef.current) {
-        preGenAttemptedRef.current = true; // LOCK immediately
+        preGenAttemptedRef.current = true;
         generateNextSceneSilent();
     }
 }, [isDonghuaMode, enablePrebuffering, isAudioPlaying, nextSceneBuffer, isWaitingForAI, generateNextSceneSilent]);
 
-// B. Handle Transition when Audio Ends
 const triggerNextSceneRef = useRef(triggerNextScene);
 useEffect(() => { triggerNextSceneRef.current = triggerNextScene; }, [triggerNextScene]);
 
 useEffect(() => {
-    // We only care when isAudioPlaying goes from true -> false while in Donghua Mode
     if (isDonghuaMode && !isAudioPlaying && !isWaitingForAI && !isRecording) {
-        
-        // 1. If we have a buffered scene, apply it immediately (Zero Latency)
         if (nextSceneBuffer) {
             setGameState(prev => ({
                 ...prev,
@@ -318,12 +266,9 @@ useEffect(() => {
             }));
             setSuggestedActions(nextSceneBuffer.suggestedActions || []);
             setDebugInfo(nextSceneBuffer.debugData);
-            setNextSceneBuffer(null); // Clear buffer
+            setNextSceneBuffer(null);
             return;
         }
-
-        // 2. If no buffer (audio ended before gen finished, or buffering disabled), trigger normal flow
-        // We use a short timeout to allow the "Silent Gen" to potentially finish if it's racing
         const timer = setTimeout(() => {
             triggerNextSceneRef.current("(Auto-Continue)", true);
         }, 100);
@@ -331,17 +276,9 @@ useEffect(() => {
     }
 }, [isDonghuaMode, isAudioPlaying, nextSceneBuffer, isWaitingForAI, isRecording]);
 
-
-// --- Voice Recognition (Transcription OR Raw Audio) ---
 const toggleRecording = useCallback(async (e) => {
-    // Prevent button default to avoid form submission or weirdness
-    if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
+    if (e) { e.preventDefault(); e.stopPropagation(); }
     
-    console.log("Toggle recording clicked. Current state:", isRecording, "Mode:", audioInputMode);
-
     if (isRecording) {
         if (audioInputMode === 'transcription' && recognitionRef.current) recognitionRef.current.stop();
         else if (audioInputMode === 'raw' && mediaRecorderRef.current) mediaRecorderRef.current.stop();
@@ -352,10 +289,9 @@ const toggleRecording = useCallback(async (e) => {
     if (audioInputMode === 'transcription') {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) { alert("Transcription not supported in this browser."); return; }
-        
         try {
             const recognition = new SpeechRecognition();
-            recognition.lang = targetLanguage === 'Russian' ? 'ru-RU' : 'en-US'; // Basic lang support
+            recognition.lang = targetLanguage === 'Russian' ? 'ru-RU' : 'en-US';
             recognition.interimResults = false;
             recognition.maxAlternatives = 1;
             recognition.onstart = () => setIsRecording(true);
@@ -370,8 +306,7 @@ const toggleRecording = useCallback(async (e) => {
             console.error("Speech API Error:", e);
             alert("Microphone access failed.");
         }
-    } 
-    else {
+    } else {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const mediaRecorder = new MediaRecorder(stream);
@@ -392,8 +327,6 @@ const toggleRecording = useCallback(async (e) => {
     }
 }, [isRecording, audioInputMode, triggerNextScene, targetLanguage]);
 
-
-// --- Render Styles ---
 const bgLayerBlur = useMemo(() => ({
     backgroundImage: gameState.imageUrl ? 'url(' + gameState.imageUrl + ')' : 'none',
     backgroundSize: 'cover',
@@ -413,13 +346,10 @@ const bgLayerSharp = useMemo(() => ({
     zIndex: 1
 }), [gameState.imageUrl, distortionLevel]);
 
-
 if (!processedData) return <div className="bg-black text-white p-4 flex items-center justify-center h-full">Initializing Neural Link...</div>;
 
 return (
     <div className="flex flex-col h-full w-full bg-black font-mono text-sm text-slate-300 select-none">
-        
-        {/* TOP HUD */}
         <div className="flex-none h-14 flex justify-between items-center p-2 bg-slate-900 border-b border-slate-700 z-20 overflow-hidden">
             <div className="flex items-center gap-4 h-full">
                 <div className="flex flex-col justify-center">
@@ -428,7 +358,6 @@ return (
                         <div className="h-full bg-cyan-500 transition-all duration-500 shadow-[0_0_10px_cyan]" style={{ width: (lucidity * 100) + '%' }}></div>
                     </div>
                 </div>
-                {/* Pre-gen Status Indicator */}
                 {nextSceneBuffer && isDonghuaMode && (
                     <div className="flex items-center gap-1 px-2 py-1 bg-purple-900/30 border border-purple-500/30 rounded">
                         <div className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-pulse"></div>
@@ -437,16 +366,13 @@ return (
                 )}
             </div>
             <div className="flex items-center gap-2">
-                 {/* Language Selector */}
                  <select 
                     value={targetLanguage} 
                     onChange={(e) => setTargetLanguage(e.target.value)}
                     className="bg-slate-800 border border-slate-600 text-slate-300 text-[9px] font-bold px-1 py-1 rounded outline-none"
-                    title="Select Game Language"
                  >
                     {LANGUAGES.map(lang => <option key={lang} value={lang}>{lang}</option>)}
                  </select>
-
                  <button 
                     type="button"
                     onClick={() => {
@@ -457,16 +383,13 @@ return (
                  >
                     {musicEnabled ? 'MUSIC: ON' : 'MUSIC: OFF'}
                  </button>
-
                  <button 
                     type="button"
                     onClick={() => setEnablePrebuffering(!enablePrebuffering)}
                     className={'px-2 py-1 rounded text-[9px] font-bold border transition-colors flex items-center gap-1 ' + (enablePrebuffering ? 'bg-green-900/30 border-green-500 text-green-300' : 'bg-slate-800 border-slate-600 text-slate-500')}
-                    title="Pre-generate the next scene while current one plays (Smoother, but costs more tokens)"
                  >
                     {enablePrebuffering ? 'PRE-BUF: ON' : 'PRE-BUF: OFF'}
                  </button>
-            
                  <button 
                     type="button"
                     onClick={() => setIsDonghuaMode(!isDonghuaMode)}
@@ -474,7 +397,6 @@ return (
                  >
                     {isDonghuaMode ? 'DONGHUA: ON' : 'DONGHUA: OFF'}
                  </button>
-                 
                  <button 
                     type="button"
                     onClick={() => setShowGmScreen(!showGmScreen)}
@@ -485,7 +407,6 @@ return (
             </div>
         </div>
 
-        {/* MAIN STAGE */}
         <div className="flex-grow relative overflow-hidden bg-[#050505] flex items-center justify-center">
              <div style={bgLayerBlur} className="transition-all duration-1000" />
              <div style={bgLayerSharp} className="transition-all duration-1000" />
@@ -525,7 +446,6 @@ return (
              )}
         </div>
 
-        {/* BOTTOM CONSOLE */}
         <div className="flex-none h-1/3 min-h-[180px] max-h-[300px] bg-[#0a0a0a] border-t border-slate-800 flex flex-col relative z-[9999]" style={{ pointerEvents: 'auto' }}>
              <div className="p-2 border-b border-slate-800 bg-[#0f0f0f] flex gap-2 overflow-x-auto relative z-50">
                  {suggestedActions.map((action, i) => (
@@ -572,7 +492,6 @@ return (
                     type="button"
                     onClick={(e) => { const input = e.currentTarget.previousSibling; if (input.value.trim()) { triggerNextScene(input.value.trim()); input.value = ''; }}}
                     className="px-4 bg-slate-800 hover:bg-cyan-700 text-white text-xs font-bold rounded border border-slate-700 hover:border-cyan-500 disabled:opacity-50 relative z-50"
-                    disabled={isWaitingForAI}
                     style={{ pointerEvents: 'auto' }}
                 >
                     Act

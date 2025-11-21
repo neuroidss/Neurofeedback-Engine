@@ -1,66 +1,84 @@
 
-// This file defines the React component code for the main UI of the Neurofeedback Engine.
-// It is stored as a template literal string to be loaded dynamically as a UI tool.
 import { USE_DEVICE_MANAGER_CODE } from './ui_panels/hooks/useDeviceManager';
 import { USE_PROTOCOL_RUNNER_CODE } from './ui_panels/hooks/useProtocolRunner';
 import { USE_PROVISIONING_CODE } from './ui_panels/hooks/useProvisioning';
 import { USE_FIRMWARE_MANAGER_CODE } from './ui_panels/hooks/useFirmwareManager';
 import { RENDER_FUNCTIONS_CODE } from './ui_panels/render_functions';
 import { PLAYER_DISPLAY_CODE } from './ui_panels/player/PlayerDisplay';
+import { UNIVERSAL_CANVAS_CODE } from './ui_panels/UniversalCanvas';
+import { USE_STREAM_ENGINE_CODE } from './ui_panels/hooks/useStreamEngine';
+import { GENESIS_PROMPT } from '../constants';
 
 export const MAIN_PANEL_CODE = `
   const { useState, useEffect, useMemo, useRef } = React;
 
-  // --- Injected Hooks ---
   ${USE_DEVICE_MANAGER_CODE}
   
-  // Override useProtocolRunner to add alerts on error
   ${USE_PROTOCOL_RUNNER_CODE}
 
   ${USE_PROVISIONING_CODE}
   
   ${USE_FIRMWARE_MANAGER_CODE}
+
+  ${USE_STREAM_ENGINE_CODE}
   
-  // --- Injected Player Display ---
+  ${UNIVERSAL_CANVAS_CODE}
   ${PLAYER_DISPLAY_CODE}
 
-  // --- Main UI State ---
-  const [leftTab, setLeftTab] = useState('research'); // 'research' | 'library' | 'firmware'
-  const [rightTab, setRightTab] = useState('telemetry'); // 'telemetry' | 'logs'
-  const [activeAppIdLocal, setActiveAppIdLocal] = useState(null); // Used for library selection highlighting
-  const [showProvisioning, setShowProvisioning] = useState(false); // State for provisioning modal
-  const [showSettings, setShowSettings] = useState(false); // State for settings modal
-  const [showResetConfirm, setShowResetConfirm] = useState(false); // State for Factory Reset modal
+  const [leftTab, setLeftTab] = useState('research');
+  const [rightTab, setRightTab] = useState('telemetry');
+  const [activeAppIdLocal, setActiveAppIdLocal] = useState(null);
+  const [showProvisioning, setShowProvisioning] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [genesisMode, setGenesisMode] = useState(false);
   const wasVibecodingRef = useRef(false);
   
-  // --- Evolution Modal State ---
   const [evoModalOpen, setEvoModalOpen] = useState(false);
   const [evoTargetProtocol, setEvoTargetProtocol] = useState(null);
   const [evoGoalInput, setEvoGoalInput] = useState('');
   
-  // --- Research Panel State (Lifted Up) ---
   const [researchInput, setResearchInput] = useState('Enhance focus and attention eeg');
   const [autonomyEnabled, setAutonomyEnabled] = useState(false);
   const [generatingIds, setGeneratingIds] = useState(new Set());
   
-  // --- Import/Export Refs ---
   const fileInputRef = useRef(null);
   
-  // --- API Counter ---
+  const [visionState, setVisionState] = useState({ active: false, lastUpdate: 0, data: null });
+
+  useEffect(() => {
+      if (!runtime.neuroBus) return;
+      const handleFrame = (frame) => {
+          if (frame.type === 'Vision') {
+              setVisionState({ active: true, lastUpdate: Date.now(), data: frame.payload });
+          }
+      };
+      const unsub = runtime.neuroBus.subscribe(handleFrame);
+      
+      const interval = setInterval(() => {
+          setVisionState(prev => {
+              if (prev.active && (Date.now() - prev.lastUpdate > 2000)) {
+                  return { active: false, lastUpdate: prev.lastUpdate, data: null };
+              }
+              return prev;
+          });
+      }, 1000);
+      
+      return () => { unsub(); clearInterval(interval); };
+  }, []);
+
   const { apiCallCount } = runtime.getState();
   const totalApiCalls = Object.values(apiCallCount || {}).reduce((a, b) => a + b, 0);
 
-  // --- Memoized Data ---
   const protocolLibrary = useMemo(() => {
     return runtime.tools.list().filter(tool => 
       tool.category === 'UI Component' && tool.name !== 'Neurofeedback Engine Main UI' && tool.name !== 'Debug Log View'
     );
   }, [runtime.tools.list()]);
   
-  // --- Custom Hooks for Player & Device Logic ---
   const deviceManager = useDeviceManager({ runtime });
+  const streamEngineManager = useStreamEngine({ runtime });
   
-  // Filter connected devices based on selection to pass to firmware manager
   const selectedDevicesForFirmware = useMemo(() => {
       return deviceManager.connectedDevices.filter(d => deviceManager.activeDataSourceIds.includes(d.id));
   }, [deviceManager.connectedDevices, deviceManager.activeDataSourceIds]);
@@ -71,13 +89,11 @@ export const MAIN_PANEL_CODE = `
     activeDataSourceIds: deviceManager.activeDataSourceIds, 
     connectedDevices: deviceManager.connectedDevices,
     setConnectedDevices: deviceManager.setConnectedDevices,
-    setGlobalEegData
+    setGlobalEegData,
+    startSwarmTask
   });
   const firmwareManager = useFirmwareManager({ runtime, selectedDevices: selectedDevicesForFirmware });
 
-  // --- Effects ---
-  
-  // Auto-Restore Session Effect
   const hasRestoredRef = useRef(false);
   useEffect(() => {
       if (hasRestoredRef.current) return;
@@ -92,16 +108,13 @@ export const MAIN_PANEL_CODE = `
                   runtime.logEvent('[Session] 🔄 Auto-restoring session for protocol: ' + tool.name);
                   runtime.logEvent('[Session] 📡 Reconnecting ' + deviceManager.activeDataSourceIds.length + ' active devices...');
                   
-                  // Sync devices state is already loaded by useDeviceManager
                   setActiveAppIdLocal(tool.id);
-                  // This will trigger connection to all active devices
                   protocolRunner.toggleProtocol(tool);
               }
           }
       }
   }, [apiConfig.autoRestoreSession, runtime.tools.list()]);
 
-  // Autonomy Logic Effect
   useEffect(() => {
       if (!autonomyEnabled || !isSwarmRunning) return;
 
@@ -140,7 +153,6 @@ export const MAIN_PANEL_CODE = `
 
   }, [autonomyEnabled, isSwarmRunning, validatedSources, generatingIds, runtime.tools.list()]);
 
-  // Handle external app launch requests
   useEffect(() => {
     if (activeAppId) {
         const app = runtime.tools.list().find(t => t.id === activeAppId);
@@ -165,7 +177,6 @@ export const MAIN_PANEL_CODE = `
   }, [isSwarmRunning, currentUserTask]);
 
 
-  // --- Handlers ---
   const handleStartResearch = () => {
     if (isSwarmRunning) {
         handleStopSwarm();
@@ -238,21 +249,19 @@ export const MAIN_PANEL_CODE = `
               const result = await runtime.tools.run('Import Neurofeedback Protocols', { protocolsJson: content });
               if (result.success) {
                    runtime.logEvent('[System] ✅ ' + result.message);
-                   // Force refresh logic if needed, though tool list usually updates automatically via React state
               } else {
                    runtime.logEvent('[System] ❌ Import failed: ' + result.message);
               }
           } catch (err) {
               runtime.logEvent('[System] ❌ Critical Import Error: ' + err.message);
           }
-          // Reset value to allow re-importing same file if needed
           event.target.value = '';
       };
       reader.readAsText(file);
   };
 
   const handleFactoryReset = () => {
-      console.log("Factory reset requested"); // Log to confirm click
+      console.log("Factory reset requested");
       runtime.logEvent('[System] Factory reset requested by user.');
       setShowResetConfirm(true);
   };
@@ -300,6 +309,28 @@ export const MAIN_PANEL_CODE = `
             allTools: runtime.tools.list()
         });
         setEvoGoalInput('');
+  };
+
+  const handleGenesisLaunch = () => {
+      if (!isSwarmRunning) {
+          setGenesisMode(true);
+          streamEngineManager.startEngine();
+          runtime.logEvent('[Genesis] 🌌 Bootstrapping Stream Engine...');
+          
+          const genesisPrompt = ${JSON.stringify(GENESIS_PROMPT)};
+
+          startSwarmTask({
+              task: {
+                  userRequest: { text: "Initialize the Vibecoder Genesis graph. Connect vision to visuals." }
+              },
+              systemPrompt: genesisPrompt,
+              allTools: runtime.tools.list()
+          });
+      } else {
+          handleStopSwarm();
+          streamEngineManager.stopEngine();
+          setGenesisMode(false);
+      }
   };
 
   const renderEvolveModal = () => {
@@ -353,7 +384,6 @@ export const MAIN_PANEL_CODE = `
       );
   };
 
-  // --- Render Functions (Extracted) ---
   ${RENDER_FUNCTIONS_CODE}
 
   return (
@@ -362,7 +392,6 @@ export const MAIN_PANEL_CODE = `
         {renderEvolveModal()}
         {renderResetConfirmModal()}
         
-        {/* Hidden Input for Import */}
         <input 
             type="file" 
             ref={fileInputRef}
@@ -450,44 +479,52 @@ export const MAIN_PANEL_CODE = `
             </div>
         </div>
 
-        {/* Center Panel with Flexbox Layout for Status Bar */}
         <div className="flex-grow flex flex-col bg-black relative z-0">
-            {/* Player Grid Wrapper */}
-            <div className="flex-grow relative overflow-hidden">
-                {protocolRunner.runningProtocols.length > 0 ? (
-                    <div className={\`grid w-full h-full \${
-                        protocolRunner.runningProtocols.length === 1 ? 'grid-cols-1' :
-                        protocolRunner.runningProtocols.length === 2 ? 'grid-cols-2' :
-                        'grid-cols-2 grid-rows-2' 
-                    }\`}>
-                        {protocolRunner.runningProtocols.map(app => (
-                            <div key={app.id} className="relative border border-slate-800/50 overflow-hidden bg-[#050505] p-2">
-                                {renderPlayerDisplay({
-                                    selectedProtocol: app,
-                                    runningProtocol: app,
-                                    processedData: protocolRunner.processedDataMap[app.id],
-                                    rawData: protocolRunner.rawData,
-                                    connectionStatus: protocolRunner.connectionStatus,
-                                    handleRunProtocol: (p) => protocolRunner.toggleProtocol(p),
-                                    runtime,
-                                    vibecoderHistory,
-                                    startSwarmTask,
-                                    onEvolve: handleEvolveRequest
-                                })}
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="flex h-full flex-col items-center justify-center text-slate-600 opacity-50">
-                        <BeakerIcon className="h-24 w-24 mb-4 text-slate-700" />
-                        <h2 className="text-xl font-bold text-slate-500">Ready for Deployment</h2>
-                        <p className="text-sm">Select protocols from the Library to launch.</p>
-                    </div>
-                )}
-            </div>
+             {genesisMode ? (
+                 <div className="flex-grow relative w-full h-full">
+                     <UniversalCanvas runtime={runtime} />
+                     <div className="absolute top-4 left-4 z-50">
+                         <div className="bg-purple-900/50 border border-purple-500 text-purple-200 px-3 py-1 rounded font-bold text-xs animate-pulse">
+                             VIBECODER GENESIS ACTIVE
+                         </div>
+                     </div>
+                 </div>
+             ) : (
+                <div className="flex-grow relative overflow-hidden">
+                    {protocolRunner.runningProtocols.length > 0 ? (
+                        <div className={\`grid w-full h-full \${
+                            protocolRunner.runningProtocols.length === 1 ? 'grid-cols-1' :
+                            protocolRunner.runningProtocols.length === 2 ? 'grid-cols-2' :
+                            'grid-cols-2 grid-rows-2' 
+                        }\`}>
+                            {protocolRunner.runningProtocols.map(app => (
+                                <div key={app.id} className="relative border border-slate-800/50 overflow-hidden bg-[#050505] p-2">
+                                    {renderPlayerDisplay({
+                                        selectedProtocol: app,
+                                        runningProtocol: app,
+                                        processedData: protocolRunner.processedDataMap[app.id],
+                                        rawData: protocolRunner.rawData,
+                                        connectionStatus: protocolRunner.connectionStatus,
+                                        handleRunProtocol: (p) => protocolRunner.toggleProtocol(p),
+                                        runtime,
+                                        vibecoderHistory,
+                                        startSwarmTask,
+                                        onEvolve: handleEvolveRequest
+                                    })}
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex h-full flex-col items-center justify-center text-slate-600 opacity-50">
+                            <BeakerIcon className="h-24 w-24 mb-4 text-slate-700" />
+                            <h2 className="text-xl font-bold text-slate-500">Ready for Deployment</h2>
+                            <p className="text-sm">Select protocols from the Library to launch.</p>
+                        </div>
+                    )}
+                </div>
+            )}
             
-            {/* Status Bar - Positioned via Flexbox so it never overlaps */}
-            {protocolRunner.runningProtocols.length > 0 && (
+            {protocolRunner.runningProtocols.length > 0 && !genesisMode && (
                  <div className="flex-none h-8 bg-slate-900/80 backdrop-blur-md border-t border-slate-800 flex items-center justify-between px-6 z-30">
                      <div className="text-[10px] text-slate-400 flex items-center gap-2">
                          <span className="text-green-400 font-mono font-bold">{protocolRunner.connectionStatus || 'Connecting...'}</span>
@@ -505,6 +542,13 @@ export const MAIN_PANEL_CODE = `
             <div className="h-12 border-b border-slate-800 flex items-center px-4 justify-between bg-slate-900">
                 <span className="text-xs font-bold text-slate-500 tracking-wider uppercase">Telemetry & I/O</span>
                 <div className="flex gap-1">
+                    <button 
+                        onClick={handleGenesisLaunch} 
+                        className={\`p-1.5 rounded hover:bg-slate-800 \${genesisMode ? 'text-purple-400 border border-purple-500' : 'text-slate-600'}\`} 
+                        title="Launch Vibecoder Genesis Mode"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547a2 2 0 00-.547 1.806l.443 2.387a6 6 0 00.517 3.86l.158.318a6 6 0 00.517 3.86l.477 2.387zM12 6V4m0 2a2 2 0 012 2v1H10V8a2 2 0 012-2z" /></svg>
+                    </button>
                     <button onClick={() => setRightTab('telemetry')} className={\`p-1.5 rounded hover:bg-slate-800 \${rightTab === 'telemetry' ? 'text-cyan-400' : 'text-slate-600'}\`}><DeviceIcon className="h-4 w-4"/></button>
                     <button onClick={() => setRightTab('logs')} className={\`p-1.5 rounded hover:bg-slate-800 \${rightTab === 'logs' ? 'text-cyan-400' : 'text-slate-600'}\`}><TerminalIcon className="h-4 w-4"/></button>
                 </div>

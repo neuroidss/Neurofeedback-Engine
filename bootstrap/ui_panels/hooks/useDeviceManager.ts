@@ -5,10 +5,28 @@ const useDeviceManager = ({ runtime }) => {
   const [connectedDevices, setConnectedDevices] = useState(() => {
       try {
           const savedDevices = localStorage.getItem('neurofeedback-devices');
-          const defaultDevice = { id: 'simulator-free8-1', name: 'FreeEEG8 Simulator #1', status: 'Active', ip: null, mode: 'simulator', deviceType: 'FreeEEG8', channelCount: 8, useWss: false };
+          // NEW DEFAULT: Consistent naming with handleAddSimulator
+          const defaultDevice = { id: 'free8-1', name: 'FreeEEG8 Sim #1', status: 'Active', ip: null, mode: 'simulator', deviceType: 'FreeEEG8', channelCount: 8, useWss: false };
           
           if (savedDevices) {
-              const parsedDevices = JSON.parse(savedDevices);
+              let parsedDevices = JSON.parse(savedDevices);
+              
+              // --- MIGRATION: Fix inconsistent naming from previous versions ---
+              // Rename 'simulator-free8-1' to 'free8-1' to match the 'free8-N' pattern of added devices.
+              let modified = false;
+              parsedDevices = parsedDevices.map(d => {
+                  if (d.id === 'simulator-free8-1') {
+                      modified = true;
+                      return { ...d, id: 'free8-1', name: 'FreeEEG8 Sim #1' };
+                  }
+                  return d;
+              });
+              
+              if (modified) {
+                  runtime.logEvent('[System] Migrated legacy simulator ID to consistent format (free8-1).');
+              }
+              // ---------------------------------------------------------------
+
               const loadedHardware = parsedDevices
                 .filter(d => d.mode !== 'simulator')
                 .map(d => ({ ...d, status: 'Offline', error: null, useWss: d.useWss || false })); // Hardware starts offline
@@ -22,7 +40,7 @@ const useDeviceManager = ({ runtime }) => {
           return [defaultDevice];
       } catch (e) {
           runtime.logEvent('[System] Error loading saved devices: ' + e.message);
-          return [{ id: 'simulator-free8-1', name: 'FreeEEG8 Simulator #1', status: 'Active', ip: null, mode: 'simulator', deviceType: 'FreeEEG8', channelCount: 8, useWss: false }];
+          return [{ id: 'free8-1', name: 'FreeEEG8 Sim #1', status: 'Active', ip: null, mode: 'simulator', deviceType: 'FreeEEG8', channelCount: 8, useWss: false }];
       }
   });
 
@@ -30,12 +48,18 @@ const useDeviceManager = ({ runtime }) => {
       try {
           const savedActiveIds = localStorage.getItem('neurofeedback-active-device-ids');
           if (savedActiveIds) {
-              const parsed = JSON.parse(savedActiveIds);
-              return Array.isArray(parsed) ? parsed : ['simulator-free8-1'];
+              let parsed = JSON.parse(savedActiveIds);
+              if (!Array.isArray(parsed)) parsed = ['free8-1'];
+              
+              // --- MIGRATION for IDs in selection list ---
+              parsed = parsed.map(id => id === 'simulator-free8-1' ? 'free8-1' : id);
+              // -------------------------------------------
+              
+              return parsed;
           }
-          return ['simulator-free8-1'];
+          return ['free8-1'];
       } catch (e) {
-          return ['simulator-free8-1'];
+          return ['free8-1'];
       }
   });
 
@@ -96,11 +120,14 @@ const useDeviceManager = ({ runtime }) => {
     const existingSimulators = connectedDevices.filter(d => d.deviceType === deviceType);
     const newId = typePrefix + '-' + (existingSimulators.length + 1);
     
-    const channelCounts = {'FreeEEG8': 8, 'FreeEEG32': 32, 'FreeEEG128': 128};
+    const channelCounts = {
+        'FreeEEG8': 8, 'FreeEEG32': 32, 'FreeEEG128': 128,
+        'Camera': 0, 'Microphone': 0 
+    };
 
     const newSimulator = {
         id: newId,
-        name: deviceType + ' Simulator #' + (existingSimulators.length + 1),
+        name: deviceType + ' Sim #' + (existingSimulators.length + 1),
         status: 'Active',
         ip: null,
         mode: 'simulator',
@@ -112,6 +139,27 @@ const useDeviceManager = ({ runtime }) => {
     setConnectedDevices(prev => [...prev, newSimulator]);
     setActiveDataSourceIds(prev => [...prev, newId]); // Auto-select
     runtime.logEvent('[Device] Added ' + newSimulator.name);
+  };
+  
+  const handleAddCamera = () => {
+      const id = 'sys-cam-' + (connectedDevices.filter(d => d.deviceType === 'Camera').length + 1);
+      const newDevice = {
+          id: id,
+          name: 'System Camera',
+          status: 'Ready', // Camera activation is handled by the Vision Tool, so we mark it ready.
+          ip: 'local',
+          mode: 'local',
+          deviceType: 'Camera',
+          channelCount: 0,
+          error: null,
+          useWss: false
+      };
+      
+      if (!connectedDevices.find(d => d.id === id)) {
+          setConnectedDevices(prev => [...prev, newDevice]);
+          setActiveDataSourceIds(prev => [...prev, id]);
+          runtime.logEvent('[Device] Added System Camera entry.');
+      }
   };
 
   const handleRemoveDevice = (deviceId) => {
@@ -240,6 +288,7 @@ const useDeviceManager = ({ runtime }) => {
     bluetoothAvailabilityError,
     onDeviceProvisioned,
     handleAddSimulator,
+    handleAddCamera,
     handleRemoveDevice,
     handleAddBleDevice,
     handleAddSerialDevice,
@@ -247,4 +296,4 @@ const useDeviceManager = ({ runtime }) => {
     handleToggleWss
   };
 };
-`;
+`

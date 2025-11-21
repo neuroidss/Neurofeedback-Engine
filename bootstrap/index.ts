@@ -14,6 +14,11 @@ import { FIRMWARE_TOOLS } from './firmware_tools';
 import { SYNERGY_FORGE_UI_CODE } from './ui_components';
 import { DSP_TOOLS } from './dsp_tools';
 import { THEATER_TOOLS } from './theater_tools';
+import { STREAM_TOOLS } from './stream_tools';
+import { VISION_TOOLS } from './vision_tools';
+import { NODE_TOOLS } from './nodes';
+import { neuroBus } from '../services/neuroBus';
+import { streamEngine } from '../services/streamEngine';
 
 const SYNERGY_FORGE_TOOLS: ToolCreatorPayload[] = [{
     name: 'Neurofeedback Engine Main UI',
@@ -65,4 +70,13 @@ export const BOOTSTRAP_TOOL_PAYLOADS: ToolCreatorPayload[] = [
     ...FIRMWARE_TOOLS,
     ...DSP_TOOLS,
     ...THEATER_TOOLS,
+    ...STREAM_TOOLS,
+    ...VISION_TOOLS,
+    ...NODE_TOOLS
 ];
+
+// Inject global runtime services for string-based tool execution
+if (typeof window !== 'undefined') {
+    (window as any).neuroBus = neuroBus;
+    (window as any).streamEngine = streamEngine;
+}

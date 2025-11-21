@@ -1,5 +1,4 @@
-
-
+// types.ts
 export type ToolCategory = 'UI Component' | 'Functional' | 'Automation' | 'Server';
 export type AgentStatus = 'idle' | 'working' | 'error' | 'success';
 
@@ -129,6 +128,13 @@ export interface APIConfig {
   imageModel?: string; // 'imagen-4.0-generate-001' | 'gemini-2.5-flash-image'
   audioInputMode?: 'transcription' | 'raw'; // 'transcription' (Browser STT) | 'raw' (Send Audio to Model)
   ttsModel?: string; // 'browser' | 'gemini-tts'
+
+  // --- Budgetary Guardian Settings ---
+  velocityLimit?: number; // Max calls per window
+  velocityWindow?: number; // Window in seconds
+
+  // --- Generator Mode ---
+  protocolGenerationMode?: 'script' | 'graph'; // 'script' = Classic React, 'graph' = Stream Engine
 }
 
 export type UIToolRunnerProps = Record<string, any>;
@@ -188,3 +194,42 @@ export interface ValidatedSource {
 export type ScriptExecutionState = 'idle' | 'running' | 'paused' | 'finished' | 'error';
 export type StepStatus = { status: 'pending' | 'completed' | 'error'; result?: any; error?: string };
 export type SubStepProgress = { text: string, current: number, total: number } | null;
+
+// --- VIBECODER GENESIS TYPES ---
+
+export interface NeuroFrame {
+    timestamp: number;
+    sourceId: string;
+    type: 'EEG' | 'Vision' | 'Audio' | 'System';
+    payload: any; // Flexible payload (e.g., FaceLandmarkerResult, EEG Epoch)
+    confidence?: number;
+}
+
+export interface StreamNode {
+    id: string;
+    type: 'Source' | 'Transform' | 'Sink';
+    // The JS implementation code for the node's logic.
+    // Signature: (inputs: Record<string, any>, config: any, state: any, bus: any) => Promise<{ output?: any, state?: any }>
+    implementation: string; 
+    config: Record<string, any>;
+    state: Record<string, any>; // Internal state for the node (e.g., filters)
+    inputs: string[]; // IDs of nodes feeding into this
+    position?: { x: number, y: number }; // For UI visualization
+    toolName?: string; // Optional: origin tool
+    nodeType?: string; // Optional: subtype
+    parameter?: string; // Optional: for Sink
+}
+
+export interface StreamGraph {
+    id: string;
+    nodes: Record<string, StreamNode>;
+    edges: any[]; // Optional, implicitly defined by inputs
+}
+
+export interface VisualState {
+    globalColor: string; // Hex or HSL
+    intensity: number; // 0-1
+    geometryMode: 'Particles' | 'FlowField' | 'Void';
+    textOverlay?: string;
+    distortions?: string[];
+}

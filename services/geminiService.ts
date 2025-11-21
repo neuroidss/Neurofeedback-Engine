@@ -35,7 +35,14 @@ const stripThinking = (text: string | null | undefined): string => {
 const isGemmaModel = (modelId: string): boolean => modelId.startsWith('gemma-');
 
 const sanitizeToolName = (name: string): string => {
-    return name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    // Replace invalid chars with underscores
+    let sanitized = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    // Ensure it doesn't start with a number
+    if (/^[0-9]/.test(sanitized)) {
+        sanitized = '_' + sanitized;
+    }
+    // Enforce max length of 64 characters
+    return sanitized.slice(0, 64);
 }
 
 const mapTypeToGemini = (type: LLMTool['parameters'][0]['type']): Type => {
@@ -51,7 +58,8 @@ const mapTypeToGemini = (type: LLMTool['parameters'][0]['type']): Type => {
 
 const buildGeminiTools = (tools: LLMTool[]): FunctionDeclaration[] => {
     return tools.map(tool => ({
-        name: sanitizeToolName(tool.name),
+        // USE ID instead of NAME to ensure uniqueness and prevent "Duplicate function declaration" API errors
+        name: sanitizeToolName(tool.id),
         description: tool.description,
         parameters: {
             type: Type.OBJECT,
@@ -120,6 +128,52 @@ const parseToolCallFromText = (text: string, toolNameMap: Map<string, string>): 
     }
 };
 
+// Helper to extract text and tools manually to avoid SDK warnings about non-text parts
+const extractResponseData = (response: GenerateContentResponse, toolNameMap: Map<string, string>, tools: LLMTool[]): { text: string, toolCalls: AIToolCall[] | null } => {
+    let text = "";
+    const toolCalls: AIToolCall[] = [];
+    
+    const candidate = response.candidates?.[0];
+    if (candidate?.content?.parts) {
+        for (const part of candidate.content.parts) {
+            if (part.text) {
+                text += part.text;
+            }
+            if (part.functionCall) {
+                const fc = part.functionCall;
+                // Map the sanitized ID back to the original Name
+                const originalName = toolNameMap.get(fc.name) || fc.name;
+                
+                const toolDefinition = tools.find(t => t.name === originalName);
+                const parsedArgs = { ...fc.args };
+
+                // Handle complex types encoded as strings
+                if (toolDefinition) {
+                    for (const param of toolDefinition.parameters) {
+                        const argValue = parsedArgs[param.name];
+                        if ((param.type === 'array' || param.type === 'object') && typeof argValue === 'string') {
+                            try {
+                                parsedArgs[param.name] = JSON.parse(argValue);
+                            } catch (e) {
+                                console.warn(`[Gemini Service] Failed to parse JSON string for argument '${param.name}' in tool '${originalName}'. Error: ${e}`);
+                            }
+                        }
+                    }
+                }
+
+                toolCalls.push({
+                    name: originalName,
+                    arguments: parsedArgs as Record<string, any>
+                });
+            }
+            // Note: We intentionally ignore 'thought' parts here to prevent them from polluting the text output 
+            // and to avoid the SDK warning about non-text parts.
+        }
+    }
+    
+    return { text: stripThinking(text), toolCalls: toolCalls.length > 0 ? toolCalls : null };
+};
+
 
 export const generateWithTools = async (
     userInput: string,
@@ -130,7 +184,12 @@ export const generateWithTools = async (
     files: { type: string, data: string }[] = []
 ): Promise<AIResponse> => {
     const ai = getGeminiInstance(apiKey);
-    const toolNameMap = new Map(tools.map(t => [sanitizeToolName(t.name), t.name]));
+    
+    // Map sanitized IDs to original names so we can resolve API responses back to valid runtime tool names
+    // CRITICAL FIX: We map from ID because that is what we send to the API as the function name.
+    const toolNameMap = new Map(tools.map(t => [sanitizeToolName(t.id), t.name]));
+    
+    // Also allow mapping by original name for robustness (in case of fallbacks)
     tools.forEach(tool => toolNameMap.set(tool.name, tool.name));
 
     // --- GEMMA-SPECIFIC PATH (PROMPT-BASED TOOLING) ---
@@ -166,7 +225,7 @@ ${toolDescriptions}`;
         });
 
         // For Gemma, we can only rely on parsing the text response.
-        const responseText = stripThinking(response.text);
+        const { text: responseText } = extractResponseData(response, toolNameMap, tools);
         const toolCalls = parseToolCallFromText(responseText, toolNameMap);
         
         return { toolCalls, text: responseText };
@@ -186,34 +245,8 @@ ${toolDescriptions}`;
         }
     });
     
-    const responseText = stripThinking(response.text);
-
-    let toolCalls: AIToolCall[] | null = response.functionCalls?.map(fc => {
-        const originalName = toolNameMap.get(fc.name) || fc.name;
-        
-        const toolDefinition = tools.find(t => t.name === originalName);
-        const parsedArgs = { ...fc.args };
-        if (toolDefinition) {
-            for (const param of toolDefinition.parameters) {
-                // FIX: Store the argument value in a temporary variable.
-                // This helps TypeScript's control flow analysis correctly narrow the type
-                // of `argValue` to a string within the `if` block, resolving the error.
-                const argValue = parsedArgs[param.name];
-                if ((param.type === 'array' || param.type === 'object') && typeof argValue === 'string') {
-                    try {
-                        parsedArgs[param.name] = JSON.parse(argValue);
-                    } catch (e) {
-                        console.warn(`[Gemini Service] Failed to parse JSON string for argument '${param.name}' in tool '${originalName}'. Leaving as string. Error: ${e}`);
-                    }
-                }
-            }
-        }
-        
-        return {
-            name: originalName,
-            arguments: parsedArgs,
-        };
-    }) || null;
+    // EXTRACT DATA MANUALLY to avoid "non-text parts" warnings from SDK
+    let { text: responseText, toolCalls } = extractResponseData(response, toolNameMap, tools);
 
     // --- FAULT TOLERANCE: FALLBACK LOGIC ---
     if ((!toolCalls || toolCalls.length === 0) && responseText) {
@@ -238,7 +271,6 @@ export const generateText = async (
     const ai = getGeminiInstance(apiKey);
     
     // --- GEMMA-SPECIFIC PATH ---
-    // Gemma models do not support systemInstruction, so we prepend it to the user prompt.
     if (isGemmaModel(modelId)) {
         console.log(`[Gemini Service] Using prompt concatenation for Gemma model text generation: ${modelId}`);
         const fullPrompt = `${systemInstruction}\n\n${userInput}`;
@@ -246,7 +278,8 @@ export const generateText = async (
             model: modelId,
             contents: { parts: buildParts(fullPrompt, files), role: 'user' },
         });
-        return stripThinking(response.text);
+        const { text } = extractResponseData(response, new Map(), []);
+        return text;
     }
     
     // --- GEMINI-SPECIFIC PATH ---
@@ -256,7 +289,8 @@ export const generateText = async (
         config: { systemInstruction }
     });
 
-    return stripThinking(response.text);
+    const { text } = extractResponseData(response, new Map(), []);
+    return text;
 };
 
 export const generateImage = async (
@@ -398,7 +432,7 @@ export const contextualizeWithSearch = async (
         },
     });
 
-    const responseText = stripThinking(response.text);
+    const { text: responseText } = extractResponseData(response, new Map(), []);
     const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
     
     if (!groundingMetadata?.groundingChunks) {

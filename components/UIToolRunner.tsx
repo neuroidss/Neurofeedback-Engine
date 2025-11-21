@@ -1,10 +1,7 @@
 
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
-// FIX: Switched to a default import for React (`import React from 'react'`) to resolve
-// type resolution issues where properties like 'props' and 'setState' were not being found on the
-// ErrorBoundary class component. The previous namespace import was causing this issue in the current build configuration.
-import React from 'react';
+import React, { Component, type ReactNode, type ErrorInfo } from 'react';
 import type { LLMTool, UIToolRunnerProps } from '../types';
 import DebugLogView from './ui_tools/DebugLogView';
 import * as Icons from './icons';
@@ -20,16 +17,16 @@ interface UIToolRunnerComponentProps {
 // A wrapper to catch runtime errors in the compiled component.
 // It now resets its error state if the tool being rendered changes.
 type ErrorBoundaryProps = {
-  fallback: React.ReactNode;
+  fallback: ReactNode;
   toolName: string;
-  children?: React.ReactNode;
+  children?: ReactNode;
 };
 type ErrorBoundaryState = {
   hasError: boolean;
 };
 
-// FIX: Extended React.Component to make this a valid React class component, which provides access to `this.props` and `this.setState`.
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+// FIX: Extended Component explicitly to ensure it is treated as a React component class by TypeScript.
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   // FIX: The constructor-based state initialization was failing with the build configuration. 
   // Switched to class property syntax for state, which is more modern and resolves the type inference issues.
   state: ErrorBoundaryState = { hasError: false };
@@ -45,7 +42,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     }
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error(`UI Tool Runner Error in tool '${this.props.toolName}':`, error, errorInfo);
   }
 
@@ -71,12 +68,71 @@ const UIToolRunner: React.FC<UIToolRunnerComponentProps> = ({ tool, props }) => 
     }
 
     const code = tool.implementationCode || '';
-    // FIX: Aggressively strip markdown code blocks which AI models often add despite instructions.
-    // Also strip 'export default' which is common in React snippets.
-    const sanitizedCode = code
-      .replace(/^```(javascript|js|jsx|typescript|ts)?\s*[\r\n]*/i, '') // Remove leading markdown fence
-      .replace(/```\s*$/, '') // Remove trailing markdown fence
-      .replace(/export default .*;?/g, '');
+    
+    let sanitizedCode = code;
+
+    // Robust Extraction: Logic to handle conversational wrapper text (e.g. "Here is your code: ...")
+    // If the code contains markdown code blocks, we extract the content of the first one.
+    const markdownBlockRegex = /```(?:javascript|js|jsx|typescript|ts|tsx)?\s*([\s\S]*?)```/i;
+    const match = code.match(markdownBlockRegex);
+    if (match && match[1]) {
+        sanitizedCode = match[1];
+    } else {
+        // Fallback cleanup if no blocks found (legacy or raw code)
+        sanitizedCode = code
+          .replace(/^```(javascript|js|jsx|typescript|ts)?\s*[\r\n]*/i, '') 
+          .replace(/```\s*$/, '');
+    }
+
+    // --- Advanced Sanitization ---
+    
+    // 1. Detect Export Default
+    // We look for 'export default ComponentName' so we can manually return it later.
+    let exportedComponentName = null;
+    const exportDefaultMatch = sanitizedCode.match(/export\s+default\s+(?:function\s+|class\s+)?(\w+)/);
+    if (exportDefaultMatch) {
+        exportedComponentName = exportDefaultMatch[1];
+    }
+
+    sanitizedCode = sanitizedCode
+      // Remove CSS/Side-effect imports: import './styles.css';
+      .replace(/^\s*import\s+['"][^'"]+['"];?/gm, '')
+      // Remove Standard imports: import X from 'y';
+      .replace(/^\s*import\s+[\s\S]*?from\s+['"][^'"]+['"];?/gm, '') 
+      // Remove 'export default' keywords but keep the declaration
+      .replace(/^\s*export\s+default\s+/gm, '') 
+      // Remove named 'export' keywords
+      .replace(/^\s*export\s+/gm, '') 
+      // FIX: Common AI error: space in optional chaining (e.g. "data ? .prop" -> "data?.prop")
+      .replace(/\?\s+\./g, '?.')
+      .trim();
+
+    // --- FIX: Handle IIFEs and Block Wrappers ---
+    
+    // Case A: Unwrap block-wrapped IIFEs (e.g. { (() => { ... })() })
+    // This is a common artifact where AI thinks it's writing inside a JSX expression.
+    if (sanitizedCode.startsWith('{') && sanitizedCode.endsWith('}')) {
+        const inner = sanitizedCode.slice(1, -1).trim();
+        // Check if inner content looks like an IIFE (starts with ( and ends with invocation)
+        if (inner.startsWith('(') && /[\}\)]\s*\(\)\s*;?$/.test(inner)) {
+            sanitizedCode = inner;
+        }
+    }
+
+    // Case B: Add 'return' to IIFEs that are missing it
+    // If the code is just an IIFE `(() => { ... })()`, it needs to be returned to the runner function.
+    if (sanitizedCode.startsWith('(') && /[\}\)]\s*\(\)\s*;?$/.test(sanitizedCode)) {
+        // Ensure it's not already a return statement
+        if (!sanitizedCode.startsWith('return ')) {
+            sanitizedCode = `return ${sanitizedCode}`;
+        }
+    }
+    
+    // 2. Append Return Statement if an export was found
+    // This ensures that "export default App" becomes "return React.createElement(App, props)"
+    if (exportedComponentName) {
+        sanitizedCode += `\nreturn React.createElement(${exportedComponentName}, props);`;
+    }
 
     // Decouple component compilation from the live props object.
     // The list of props to destructure is derived from the tool's static definition.

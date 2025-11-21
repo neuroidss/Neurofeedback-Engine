@@ -2,6 +2,66 @@
 import type { ToolCreatorPayload } from '../types';
 import { GENERATIVE_CANVAS_CODE } from './ui_panels/generative_canvas';
 
+// --- CONSTANTS: PROMPTS ---
+
+const ALCHEMIST_SYSTEM_PROMPT = `You are an expert Neuro-Alchemist and Game Designer. Your task is to translate a user's esoteric, mystical, or artistic goal into a rigorous scientific neurofeedback objective and a matching visual metaphor.
+
+**MAPPING LOGIC:**
+- 'Third Eye' -> Prefrontal Gamma Synchrony (Insight/Focus).
+- 'Aura' -> Alpha/Theta power spectral density (Relaxation).
+- 'Chakras' -> Coherence between different brain regions.
+- 'Telepathy' -> Inter-brain synchronization (Hyper-scanning).
+
+**OUTPUT FORMAT:**
+Return ONLY a JSON object: { "scientificObjective": "string", "visualMetaphor": "string" }`;
+
+const COGNITIVE_FILTER_PROMPT = `You are a Cognitive Distortion Filter.
+Rewrite the input text to reflect the following biases: {{BIASES}}.
+
+RULES:
+1. Keep the physical facts vague but plausible.
+2. Change the EMOTIONAL TONE and INTERPRETATION heavily.
+3. If 'Pareidolia': Describe inanimate objects as having faces or intent.
+4. If 'Negativity Bias': Highlight threats, shadows, and decay.
+5. If 'Halo Effect': Describe ambiguous objects as divine, perfect, or trustworthy.
+6. Do NOT explicitly say "This is a bias". Write it as if it is the absolute truth perceived by the observer.`;
+
+const GAME_MASTER_PROMPT = `You are the Psychoanalytic Quantum Game Master (QGM). You control a consistent, persistent world (The Symbolic).
+The Player acts based on their perception (The Imaginary), which may be distorted.
+
+**CONTEXT:**
+- Objective World State: {{WORLD_STATE}}
+- Player Lucidity: {{LUCIDITY}} (1.0=Awake/Real, 0.0=Hallucinating)
+- Player Biases: {{BIASES}}
+- Player Action: "{{ACTION}}"
+
+**MECHANIC: THE RETURN OF THE REAL**
+If the player's action implies interaction with a hallucination (e.g., attacking a monster that is actually a shadow), the REALITY must resist.
+- Describe the failure jarringly (e.g., "Your sword hits the stone wall. Sparks fly. There was no monster.").
+- If the action is valid within the Objective World, proceed normally.
+
+**TASK:**
+1. Determine the outcome based on the Objective World Graph.
+2. Update the World Graph (moves, items taken).
+3. Generate the **NEXT SCENE OBJECTIVE DESCRIPTION**. This must be factual and devoid of bias (e.g., "A stone corridor with a flickering torch.").
+4. Generate 3 suggested actions (in {{LANGUAGE}}).
+
+**OUTPUT FORMAT (JSON ONLY):**
+{
+    "narrative": "Description of the outcome (in {{LANGUAGE}})...",
+    "gmRuling": "Accepted" | "Rejected/Real_Intervention",
+    "nextObjectiveScene": "Factual description of the new state...",
+    "suggestedActions": [ "Action 1", "Action 2", "Action 3" ],
+    "updatedGraphUpdates": {
+        "currentLocation": { "name": "...", "description": "..." },
+        "newNodes": []
+    },
+    "imagePrompt": "Basic visual description of the objective scene...",
+    "suggestedDuration": 3
+}`;
+
+// --- TOOLS ---
+
 const INTERPRET_AND_GAMIFY: ToolCreatorPayload = {
     name: 'Interpret and Gamify Esoteric Goal',
     description: 'Acts as a "Scientific Alchemist". It takes a non-scientific, artistic, or esoteric user goal (e.g., "Open Third Eye", "Align Chakras", "See my Aura") and translates it into a valid neurofeedback protocol with an artistic visualization, then builds it.',
@@ -15,9 +75,8 @@ const INTERPRET_AND_GAMIFY: ToolCreatorPayload = {
         const { esotericGoal } = args;
         runtime.logEvent(\`[Alchemist] 🧙‍♂️ Interpreting mystical request: "\${esotericGoal}"...\`);
 
-        const systemInstruction = "You are an expert Neuro-Alchemist and Game Designer. Your task is to translate a user's esoteric, mystical, or artistic goal into a rigorous scientific neurofeedback objective and a matching visual metaphor.\\n\\n**MAPPING LOGIC:**\\n- 'Third Eye' -> Prefrontal Gamma Synchrony (Insight/Focus).\\n- 'Aura' -> Alpha/Theta power spectral density (Relaxation).\\n- 'Chakras' -> Coherence between different brain regions.\\n- 'Telepathy' -> Inter-brain synchronization (Hyper-scanning).\\n\\n**OUTPUT FORMAT:**\\nReturn ONLY a JSON object: { \\"scientificObjective\\": \\"string\\", \\"visualMetaphor\\": \\"string\\" }";
-
-        const prompt = \`User Goal: "\${esotericGoal}". Translate this into a neurofeedback protocol.\`;
+        const systemInstruction = ${JSON.stringify(ALCHEMIST_SYSTEM_PROMPT)};
+        const prompt = "User Goal: " + esotericGoal + ". Translate this into a neurofeedback protocol.";
         
         const responseText = await runtime.ai.generateText(prompt, systemInstruction);
         let translation;
@@ -31,12 +90,11 @@ const INTERPRET_AND_GAMIFY: ToolCreatorPayload = {
 
         runtime.logEvent(\`[Alchemist] ⚗️ Translation complete.\\nScientific Base: \${translation.scientificObjective}\\nVisual Metaphor: \${translation.visualMetaphor}\`);
 
-        // Trigger the standard development workflow with the translated objective
-        const fullObjective = \`Create a neurofeedback tool for \${translation.scientificObjective}. Visualization: \${translation.visualMetaphor}\`;
+        const fullObjective = "Create a neurofeedback tool for " + translation.scientificObjective + ". Visualization: " + translation.visualMetaphor;
         
         return await runtime.tools.run('Develop Tool from Objective', {
             objective: fullObjective,
-            sourceMaterial: \`Target State: \${translation.scientificObjective}.\\nVisualization Requirement: \${translation.visualMetaphor}.\\nContext: This is a gamified neurofeedback experience.\`
+            sourceMaterial: "Target State: " + translation.scientificObjective + ".\\nVisualization Requirement: " + translation.visualMetaphor + ".\\nContext: This is a gamified neurofeedback experience."
         });
     `
 };
@@ -55,6 +113,7 @@ const DEPLOY_LSL_AGGREGATOR: ToolCreatorPayload = {
         const { streamName, expectedDeviceCount } = args;
         runtime.logEvent(\`[DevOps] 🏗️ Generating LSL Aggregator for \${expectedDeviceCount} devices...\`);
 
+        // Template literal is safe here as it is generating Python code, not another JS template
         const pythonScript = \`
 import time
 import sys
@@ -75,9 +134,6 @@ def run_aggregator():
             active_devices += 1
             print(f"[LSL Relay] New device discovered. Total active: {active_devices}")
         
-        # Simulate aggregating 80 streams into one vector
-        # In real life, this pushes data to an LSL Outlet
-        
         time.sleep(1)
         sys.stdout.flush()
 
@@ -85,14 +141,12 @@ if __name__ == "__main__":
     run_aggregator()
 \`;
 
-        // 1. Write the script to the server
         await runtime.tools.run('Server File Writer', {
             filePath: 'lsl_aggregator.py',
             content: pythonScript,
             baseDir: 'scripts'
         });
         
-        // 2. Launch the process
         const result = await runtime.tools.run('Start Python Process', {
             processId: 'lsl_aggregator_' + Date.now(),
             scriptPath: 'lsl_aggregator.py'
@@ -121,19 +175,10 @@ const APPLY_COGNITIVE_FILTER: ToolCreatorPayload = {
             return { success: true, filteredDescription: rawSceneDescription, distortionType: 'None' };
         }
         
-        const systemInstruction = \`You are a Cognitive Distortion Filter.
-        Rewrite the input text to reflect the following biases: \${activeBiases.join(', ')}.
+        let systemInstruction = ${JSON.stringify(COGNITIVE_FILTER_PROMPT)};
+        systemInstruction = systemInstruction.replace("{{BIASES}}", activeBiases.join(', '));
         
-        RULES:
-        1. Keep the physical facts vague but plausible.
-        2. Change the EMOTIONAL TONE and INTERPRETATION heavily.
-        3. If 'Pareidolia': Describe inanimate objects as having faces or intent.
-        4. If 'Negativity Bias': Highlight threats, shadows, and decay.
-        5. If 'Halo Effect': Describe ambiguous objects as divine, perfect, or trustworthy.
-        6. Do NOT explicitly say "This is a bias". Write it as if it is the absolute truth perceived by the observer.
-        \`;
-        
-        const prompt = \`Objective Reality: "\${rawSceneDescription}"\n\nRewrite this as perceived by a mind under heavy cognitive load.\`;
+        const prompt = "Objective Reality: " + rawSceneDescription + "\\n\\nRewrite this as perceived by a mind under heavy cognitive load.";
         
         const filteredDescription = await runtime.ai.generateText(prompt, systemInstruction);
         
@@ -158,44 +203,17 @@ const GENERATE_SCENE_QUANTUM_V2: ToolCreatorPayload = {
     implementationCode: `
         const { worldGraph, lucidityLevel, userAction, userAudio, activeBiases, targetLanguage = 'English' } = args;
         
-        // 1. GM Logic: The Reality Check
-        const systemInstruction = \`You are the Psychoanalytic Quantum Game Master (QGM). You control a consistent, persistent world (The Symbolic).
-        The Player acts based on their perception (The Imaginary), which may be distorted.
-        
-        **CONTEXT:**
-        - Objective World State: \${JSON.stringify(worldGraph.currentLocation)}
-        - Player Lucidity: \${lucidityLevel.toFixed(2)} (1.0=Awake/Real, 0.0=Hallucinating)
-        - Player Biases: \${activeBiases.join(', ')}
-        - Player Action: "\${userAction || "None (Initial State)"}"
-        
-        **MECHANIC: THE RETURN OF THE REAL**
-        If the player's action implies interaction with a hallucination (e.g., attacking a monster that is actually a shadow), the REALITY must resist.
-        - Describe the failure jarringly (e.g., "Your sword hits the stone wall. Sparks fly. There was no monster.").
-        - If the action is valid within the Objective World, proceed normally.
-        
-        **TASK:**
-        1. Determine the outcome based on the Objective World Graph.
-        2. Update the World Graph (moves, items taken).
-        3. Generate the **NEXT SCENE OBJECTIVE DESCRIPTION**. This must be factual and devoid of bias (e.g., "A stone corridor with a flickering torch.").
-        4. Generate 3 suggested actions (in \${targetLanguage}).
-        
-        **OUTPUT FORMAT (JSON ONLY):**
-        {
-            "narrative": "Description of the outcome (in \${targetLanguage})...",
-            "gmRuling": "Accepted" | "Rejected/Real_Intervention",
-            "nextObjectiveScene": "Factual description of the new state...",
-            "suggestedActions": [ "Action 1", "Action 2", "Action 3" ],
-            "updatedGraphUpdates": {
-                "currentLocation": { "name": "...", "description": "..." },
-                "newNodes": []
-            },
-            "imagePrompt": "Basic visual description of the objective scene...",
-            "suggestedDuration": 3
-        }\`;
+        let systemInstruction = ${JSON.stringify(GAME_MASTER_PROMPT)};
+        // Manual Interpolation
+        systemInstruction = systemInstruction.replace("{{WORLD_STATE}}", JSON.stringify(worldGraph.currentLocation));
+        systemInstruction = systemInstruction.replace("{{LUCIDITY}}", lucidityLevel.toFixed(2));
+        systemInstruction = systemInstruction.replace("{{BIASES}}", activeBiases.join(', '));
+        systemInstruction = systemInstruction.replace("{{ACTION}}", userAction || "None (Initial State)");
+        // Replace all occurrences of LANGUAGE
+        systemInstruction = systemInstruction.split("{{LANGUAGE}}").join(targetLanguage);
 
         const prompt = "Simulate the next time step. Resolve the conflict between Player Action and Objective Reality.";
         
-        // --- MULTIMODAL HANDLING ---
         const files = [];
         if (userAudio) {
             files.push({ type: 'audio/wav', data: userAudio });
@@ -209,7 +227,6 @@ const GENERATE_SCENE_QUANTUM_V2: ToolCreatorPayload = {
              if (!jsonMatch) throw new Error("No JSON found.");
              gmData = JSON.parse(jsonMatch[0]);
         } catch (e) {
-             // Fallback
              gmData = { 
                  narrative: "The simulation destabilizes. " + e.message, 
                  gmRuling: "Error",
@@ -220,29 +237,22 @@ const GENERATE_SCENE_QUANTUM_V2: ToolCreatorPayload = {
              };
         }
 
-        // 2. THE IMAGINARY LAYER (Cognitive Filter)
-        // If lucidity is low, we distort the NEXT scene before showing it to the player.
         let finalNarrative = gmData.narrative;
         let finalImagePrompt = gmData.imagePrompt;
         
         if (lucidityLevel < 0.85) {
-            // Recursive call to the filter tool
             const filterResult = await runtime.tools.run('Apply_Cognitive_Filter', {
                 rawSceneDescription: gmData.nextObjectiveScene,
                 activeBiases: activeBiases,
                 distortionStrength: 1.0 - lucidityLevel
             });
             
-            // Append the subjective perception to the GM's objective outcome
             finalNarrative += "\\n\\n" + filterResult.filteredDescription;
-            
-            // The image should reflect the HALLUCINATION, not the reality, so the player stays trapped in the Imaginary
             finalImagePrompt = filterResult.filteredDescription + ". Style: Surrealist, distorted, dream-logic.";
         } else {
             finalImagePrompt += ". Style: Hyper-realistic, clear, objective photography.";
         }
 
-        // 3. MEDIA GENERATION
         const imagePromise = runtime.ai.generateImage(finalImagePrompt); 
         const audioPromise = runtime.ai.generateSpeech(finalNarrative, lucidityLevel < 0.5 ? 'Fenrir' : 'Zephyr');
         
@@ -256,7 +266,7 @@ const GENERATE_SCENE_QUANTUM_V2: ToolCreatorPayload = {
             debugData: {
                 graphUpdates: gmData.updatedGraphUpdates,
                 suggestedDuration: gmData.suggestedDuration || 3,
-                objectiveReality: gmData.nextObjectiveScene // For debug UI
+                objectiveReality: gmData.nextObjectiveScene
             },
             imageUrl,
             audioUrl
@@ -285,39 +295,22 @@ const PSYCHOANALYTIC_ROGUELIKE: ToolCreatorPayload = {
 
     return {
         update: async (eegData, sampleRate) => {
-             // 1. Calculate Neural Lucidity
-             // Formula: (Alpha + Theta) / (Beta + Gamma + epsilon)
-             // High Alpha/Theta = Calm/Lucid/Flow. High Beta/Gamma = Stress/Fragmented.
              let lucidity = 0.5; 
-             let betaPower = 0;
-             let alphaPower = 0;
-             
              try {
-                 // Mock calculation (replace with real FFT if available in runtime utils)
-                 // We simulate "Stress" drifting over time
                  const time = Date.now() / 5000;
-                 const stressWave = Math.sin(time) * 0.4 + 0.5; // 0.1 to 0.9
-                 
-                 // In a real scenario, we would analyze eegData['Fz'] here.
-                 // For this demo, we use the simulated stress wave inverse as lucidity.
+                 const stressWave = Math.sin(time) * 0.4 + 0.5; 
                  lucidity = 1.0 - stressWave; 
-                 
-                 // Random momentary clarity
                  if (Math.random() > 0.9) lucidity += 0.2;
-                 
                  lucidity = Math.max(0.05, Math.min(0.95, lucidity));
              } catch(e) {}
 
-             // 2. Determine Active Biases
-             // The "Id" bubbles up distortions when Lucidity is low.
              const activeBiases = [];
              if (lucidity < 0.8) {
-                 // Pick a bias deterministically based on time so it doesn't flicker too fast
                  const index = Math.floor(Date.now() / 10000) % BIAS_POOL.length;
                  activeBiases.push(BIAS_POOL[index]);
              }
              if (lucidity < 0.4) {
-                 activeBiases.push('Paranoia'); // Hardcode bad vibes for low state
+                 activeBiases.push('Paranoia'); 
              }
 
              return { lucidity, activeBiases, vetoSignal: 0 };

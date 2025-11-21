@@ -1,36 +1,45 @@
 
-
-
-
-
+// hooks/useAppStateManager.ts
 import { useState, useEffect, useCallback } from 'react';
 import { loadStateFromStorage, saveStateToStorage, saveMapStateToStorage, loadMapStateToStorage } from '../versioning';
 import type { AIModel, APIConfig, ValidatedSource, LLMTool } from '../types';
-// FIX: ModelProvider is now imported from its source in `types.ts` instead of from `constants.ts`.
 import { ModelProvider } from '../types';
 import { AI_MODELS } from '../constants';
 
 
-const MOCK_SMR_ABSTRACT = `Sensorimotor rhythm (SMR) neurofeedback, targeting the 12-15 Hz frequency band, is associated with states of focused calm. The protocol aims to enhance SMR activity. The core metric is the ratio of SMR power (12-15 Hz) to theta power (4-8 Hz). Positive reinforcement is provided when this SMR/theta ratio increases. The user interface should provide simple, clear feedback via a vertical bar that grows in height and changes color from blue to green as the ratio improves.`;
+const MOCK_SMR_ABSTRACT = `### Protocol Specification: SMR "Aperture" Focus Trainer
+
+**Objective:** Enhance cognitive inhibition and attention by training the Sensorimotor Rhythm (SMR) while suppressing Theta activity.
+
+**Signal Processing Logic:**
+1.  **Input:** EEG channel 'Cz' (primary) or 'C3'/'C4' (fallback).
+2.  **Metric:** \`focusRatio\` = (Power of 12-15 Hz) / (Power of 4-8 Hz).
+3.  **Simulation:** If real data is absent, generate a smooth 0.5Hz oscillating signal ranging from 0.5 to 1.8 to demonstrate the full visual range.
+
+**Visual Interface (The "Camera Lens" Metaphor):**
+1.  **The Aperture (Focus):** A central ring that expands as \`focusRatio\` increases.
+2.  **The Blur (Distraction):** A foggy overlay. Opacity decreases as focus increases.
+3.  **Lock-On State:** When \`focusRatio > 1.2\`:
+    *   The Aperture turns Gold and pulses.
+    *   The Blur vanishes completely.
+    *   Text "LOCK ON" appears.
+4.  **Idle State:** Below 1.2, the Aperture is Cyan and the fog is visible.`;
 
 const MOCK_SMR_SOURCE: ValidatedSource = {
-    uri: 'internal://smr-example-protocol-1',
-    title: 'Example: SMR Neurofeedback for ADHD',
-    summary: MOCK_SMR_ABSTRACT,
-    reliabilityScore: 0.95,
-    justification: 'This is a canonical example of a well-researched neurofeedback protocol, pre-loaded for demonstration purposes.',
+    uri: 'internal://smr-aperture-focus-specification',
+    title: 'Protocol Specification: SMR "Aperture" Focus Trainer',
+    summary: 'A specific neurofeedback design using a "Camera Lens" metaphor. High SMR/Theta ratio expands a central aperture and clears a foggy overlay. Includes a "Lock-On" state with gold pulsing visuals when the ratio exceeds 1.2.',
+    reliabilityScore: 0.99,
+    justification: 'Canonical protocol specification designed for high-fidelity code generation.',
     status: 'valid',
     origin: 'AI Validation',
     textContent: MOCK_SMR_ABSTRACT
 };
 
 
-// FIX: Changed from const arrow function to a function declaration
-// to potentially resolve type inference issues in consuming hooks.
 export function useAppStateManager() {
     const [eventLog, setEventLog] = useState<string[]>([]);
 
-    // FIX: Moved logEvent declaration before its first use to resolve the 'used before declaration' error.
     const logEvent = useCallback((message: string) => {
         const timestamp = new Date().toLocaleTimeString();
         setEventLog(prev => [...prev, `[${timestamp}] ${message}`]);
@@ -47,10 +56,14 @@ export function useAppStateManager() {
         deepSeekBaseUrl: 'https://api.tokenfactory.nebius.com/v1/',
         ollamaHost: 'http://localhost:11434',
         useQuantumSDR: false,
-        computeBackend: 'gpu', // Default to GPU
+        computeBackend: 'gpu',
         defaultWifiSSID: '',
         defaultWifiPassword: '',
         autoRestoreSession: false,
+        // Budget defaults: Higher by default for usability
+        velocityLimit: 50,
+        velocityWindow: 10,
+        protocolGenerationMode: 'script'
     });
     // Live feed state
     const [liveFeed, setLiveFeed] = useState<any[]>([]);
@@ -66,14 +79,14 @@ export function useAppStateManager() {
     const [ollamaModels, setOllamaModels] = useState<AIModel[]>([]);
     const [ollamaState, setOllamaState] = useState<{ loading: boolean; error: string | null }>({ loading: false, error: null });
 
-    // --- NEW: Budgetary Guardian State ---
+    // --- Budgetary Guardian State ---
     const [apiCallTimestamps, setApiCallTimestamps] = useState<number[]>([]);
     const [isBudgetGuardTripped, setIsBudgetGuardTripped] = useState(false);
     
-    // --- NEW: Global EEG Data Stream ---
+    // --- Global EEG Data Stream ---
     const [globalEegData, setGlobalEegData] = useState(null);
     
-    // --- NEW: Vibecoder OS State ---
+    // --- Vibecoder OS State ---
     const [vibecoderHistory, setVibecoderHistory] = useState<any[]>([]);
 
 
@@ -130,11 +143,14 @@ export function useAppStateManager() {
             deepSeekBaseUrl: storedState?.apiConfig?.deepSeekBaseUrl || 'https://api.tokenfactory.nebius.com/v1/',
             ollamaHost: storedState?.apiConfig?.ollamaHost || 'http://localhost:11434',
             useQuantumSDR: storedState?.apiConfig?.useQuantumSDR || false,
-            // Handle legacy boolean useGPUAcceleration -> new computeBackend enum
             computeBackend: storedState?.apiConfig?.computeBackend || ((storedState?.apiConfig as any)?.useGPUAcceleration === false ? 'worker' : 'gpu'),
             defaultWifiSSID: process.env.WIFI_SSID || '',
             defaultWifiPassword: process.env.WIFI_PASSWORD || '',
             autoRestoreSession: storedState?.apiConfig?.autoRestoreSession || false,
+            // Load limits if present, otherwise default
+            velocityLimit: storedState?.apiConfig?.velocityLimit || 50,
+            velocityWindow: storedState?.apiConfig?.velocityWindow || 10,
+            protocolGenerationMode: storedState?.apiConfig?.protocolGenerationMode || 'script',
         }));
 
         if (storedState?.apiConfig?.googleAIAPIKey) {
@@ -164,11 +180,10 @@ export function useAppStateManager() {
             const liveFeed = mapState.liveFeed || [];
             const allSources = mapState.allSources || [];
             
-            // Check for duplicates in the two main arrays that are rendered with keys
             if (hasDuplicates(liveFeed, item => item.id) || hasDuplicates(allSources, item => item.id)) {
                 logEvent("[SYSTEM] ERROR: Corrupted cache detected (duplicate items). Clearing cache to prevent application freeze.");
                 localStorage.removeItem('synergy-forge-map-state');
-                mapState = null; // Nullify state to force a fresh start
+                mapState = null; 
             }
         }
 
@@ -186,22 +201,23 @@ export function useAppStateManager() {
             }
         }
         
-        // After loading everything from storage, check if we need to add the example.
-        // This ensures a clean slate or first-time users see the example.
-        if (initialValidatedSources.length === 0) {
-            initialValidatedSources.push(MOCK_SMR_SOURCE);
-            logEvent("[SYSTEM] Pre-loaded an example SMR protocol into the Research Dossier for demonstration.");
+        // Ensure the MOCK_SMR_SOURCE is always present at the top if the list is empty OR if we want to force update it
+        // We'll just check if a source with that URI exists, and if so, update it, otherwise add it.
+        const smrIndex = initialValidatedSources.findIndex(s => s.uri === MOCK_SMR_SOURCE.uri);
+        if (smrIndex !== -1) {
+             initialValidatedSources[smrIndex] = MOCK_SMR_SOURCE; // Force update
+        } else {
+             initialValidatedSources.unshift(MOCK_SMR_SOURCE); // Add to top
+             logEvent("[SYSTEM] Pre-loaded the 'Aperture' SMR specification into the Research Dossier.");
         }
+
         setValidatedSources(initialValidatedSources);
         
-        // Initialize with a welcome message
         setEventLog(prev => [`[${new Date().toLocaleTimeString()}] [SYSTEM] Session started.`, ...prev]);
     }, [logEvent]);
 
     // Effect to persist apiConfig state whenever it changes
     useEffect(() => {
-        // Create a version of the config that only includes user-set values,
-        // not ones from process.env, to avoid writing them to localStorage.
         const configToSave: APIConfig = {
             googleAIAPIKey: apiConfig.googleAIAPIKey,
             openAIAPIKey: apiConfig.openAIAPIKey,
@@ -213,14 +229,14 @@ export function useAppStateManager() {
             useQuantumSDR: apiConfig.useQuantumSDR,
             computeBackend: apiConfig.computeBackend,
             autoRestoreSession: apiConfig.autoRestoreSession,
+            velocityLimit: apiConfig.velocityLimit,
+            velocityWindow: apiConfig.velocityWindow,
+            protocolGenerationMode: apiConfig.protocolGenerationMode,
         };
         saveStateToStorage({ apiConfig: configToSave });
     }, [apiConfig]);
 
-    // Effect to persist map state and live feed whenever it changes
     useEffect(() => {
-        // This effect will run whenever any of the map-related states change,
-        // ensuring the map is always saved.
         saveMapStateToStorage({
             allSources,
             validatedSources,
@@ -243,10 +259,8 @@ export function useAppStateManager() {
         setSelectedModel,
         apiConfig,
         setApiConfig,
-        // Feed state and setters
         liveFeed,
         setLiveFeed,
-        // Map state and setters
         allSources,
         setAllSources,
         validatedSources,
@@ -259,19 +273,15 @@ export function useAppStateManager() {
         setMapNormalization,
         taskPrompt,
         setTaskPrompt,
-        // Ollama dynamic model state and fetcher
         ollamaModels,
         ollamaState,
         fetchOllamaModels,
-        // Budgetary Guardian
         apiCallTimestamps,
         setApiCallTimestamps,
         isBudgetGuardTripped,
         setIsBudgetGuardTripped,
-        // Global EEG Data Stream
         globalEegData,
         setGlobalEegData,
-        // Vibecoder OS
         vibecoderHistory,
         setVibecoderHistory,
     };

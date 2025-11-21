@@ -1,5 +1,22 @@
 
 export const TELEMETRY_PANEL_CODE = `
+  // --- Real-time Signal Monitoring ---
+  const [signalStats, setSignalStats] = React.useState({ latency: 0, bufferHealth: 100, fps: 0 });
+  
+  React.useEffect(() => {
+      if (!runtime.neuroBus) return;
+      const handleSystemFrame = (frame) => {
+          if (frame.type === 'Vision' && frame.payload && typeof frame.payload.fps === 'number') {
+              setSignalStats(prev => ({ ...prev, fps: frame.payload.fps }));
+          }
+          // Heuristic for latency: difference between frame timestamp and now
+          const latency = Date.now() - frame.timestamp;
+          setSignalStats(prev => ({ ...prev, latency }));
+      };
+      const unsub = runtime.neuroBus.subscribe(handleSystemFrame);
+      return unsub;
+  }, [runtime]);
+
   const renderTelemetryPanel = () => (
       <div className="flex flex-col h-full space-y-4">
           {/* Device List */}
@@ -10,6 +27,7 @@ export const TELEMETRY_PANEL_CODE = `
                        <button onClick={() => setShowProvisioning(!showProvisioning)} className="text-[10px] bg-slate-700 text-slate-300 px-2 py-0.5 rounded hover:bg-slate-600 transition-colors" title="Provision WiFi">Config WiFi</button>
                        <button onClick={deviceManager.handleAddBleDevice} disabled={!!deviceManager.bluetoothAvailabilityError} className="text-[10px] bg-cyan-900/50 text-cyan-400 px-2 py-0.5 rounded hover:bg-cyan-900 transition-colors">ADD BLE</button>
                        <button onClick={deviceManager.handleAddSerialDevice} className="text-[10px] bg-orange-900/50 text-orange-400 px-2 py-0.5 rounded hover:bg-orange-900 transition-colors" title="Connect via USB Serial">ADD USB</button>
+                       <button onClick={deviceManager.handleAddCamera} className="text-[10px] bg-purple-900/50 text-purple-400 px-2 py-0.5 rounded hover:bg-purple-900 transition-colors" title="Add System Webcam">ADD CAM</button>
                   </div>
               </div>
               <div className="p-2 space-y-1">
@@ -26,12 +44,49 @@ export const TELEMETRY_PANEL_CODE = `
                       </div>
                   )}
                   
+                  {/* Dynamic Vision Source Entry */}
+                  {visionState.active && (
+                      <div className="flex flex-col text-xs p-1.5 bg-purple-900/20 border border-purple-500/30 rounded mb-1 animate-fade-in">
+                          <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2">
+                                  <div className={\`w-2 h-2 rounded-full \${visionState.data?.status === 'loading' ? 'bg-yellow-500 animate-ping' : 'bg-purple-500 animate-pulse'}\`}></div>
+                                  <span className="text-purple-200 font-bold">Integrated Camera</span>
+                                  <span className="text-[9px] text-purple-400 bg-purple-900/50 px-1 rounded">VISION</span>
+                              </div>
+                              <div className="text-[9px] text-purple-300 font-mono">
+                                {visionState.data?.status === 'loading' ? 'INIT...' : 'ACTIVE'}
+                              </div>
+                          </div>
+                          {visionState.data?.status === 'loading' && (
+                              <div className="text-[9px] text-yellow-500 text-center py-1">{visionState.data.message || 'Loading...'}</div>
+                          )}
+                          {visionState.data && visionState.data.status !== 'loading' && (
+                              <div className="grid grid-cols-3 gap-2 text-[9px] font-mono mt-1 border-t border-purple-800/50 pt-1">
+                                  <div className="flex flex-col items-center bg-black/20 rounded p-0.5">
+                                      <span className="text-purple-400 text-[8px]">SMILE</span>
+                                      <span className="text-white font-bold">{(visionState.data.smile * 100).toFixed(0)}%</span>
+                                  </div>
+                                  <div className="flex flex-col items-center bg-black/20 rounded p-0.5">
+                                      <span className="text-purple-400 text-[8px]">EYES</span>
+                                      <span className="text-white font-bold">{(visionState.data.eyeOpen * 100).toFixed(0)}%</span>
+                                  </div>
+                                  <div className="flex flex-col items-center bg-black/20 rounded p-0.5">
+                                      <span className="text-purple-400 text-[8px]">FPS</span>
+                                      <span className="text-white font-bold">{signalStats.fps}</span>
+                                  </div>
+                              </div>
+                          )}
+                      </div>
+                  )}
+
                   {deviceManager.connectedDevices.map(d => (
                       <div key={d.id} className="flex items-center justify-between text-xs p-1.5 bg-slate-700/30 rounded">
                           <div className="flex items-center gap-2">
-                              <div className={\`w-2 h-2 rounded-full \${d.status === 'Active' ? 'bg-green-500' : (d.status === 'Connecting...' ? 'bg-yellow-500' : 'bg-red-500')}\`}></div>
+                              <div className={\`w-2 h-2 rounded-full \${d.status === 'Active' || d.status === 'Ready' ? 'bg-green-500' : (d.status === 'Connecting...' ? 'bg-yellow-500' : 'bg-red-500')}\`}></div>
                               <span className="text-slate-300">{d.name}</span>
                               {d.mode === 'serial' && <span className="text-[9px] text-orange-400 bg-orange-900/30 px-1 rounded">USB</span>}
+                              {d.deviceType === 'Camera' && <span className="text-[9px] text-purple-400 bg-purple-900/30 px-1 rounded">CAM</span>}
+                              {d.deviceType === 'Microphone' && <span className="text-[9px] text-yellow-400 bg-yellow-900/30 px-1 rounded">MIC</span>}
                           </div>
                           <div className="flex items-center gap-2">
                              {d.mode === 'wifi' && (
@@ -48,17 +103,22 @@ export const TELEMETRY_PANEL_CODE = `
                       </div>
                   ))}
                    <div className="flex gap-1 mt-1">
-                        <button onClick={() => deviceManager.handleAddSimulator('FreeEEG8')} className="flex-1 text-[10px] bg-slate-700/50 hover:bg-slate-600 text-slate-300 py-1 rounded transition-colors">+ Sim 8</button>
-                        <button onClick={() => deviceManager.handleAddSimulator('FreeEEG32')} className="flex-1 text-[10px] bg-slate-700/50 hover:bg-slate-600 text-slate-300 py-1 rounded transition-colors">+ Sim 32</button>
-                        <button onClick={() => deviceManager.handleAddSimulator('FreeEEG128')} className="flex-1 text-[10px] bg-slate-700/50 hover:bg-slate-600 text-slate-300 py-1 rounded transition-colors">+ Sim 128</button>
+                        <button onClick={() => deviceManager.handleAddSimulator('FreeEEG8')} className="flex-1 text-[10px] bg-slate-700/50 hover:bg-slate-600 text-slate-300 py-1 rounded transition-colors" title="Add EEG Simulator">+ Sim 8</button>
+                        <button onClick={() => deviceManager.handleAddSimulator('Camera')} className="flex-1 text-[10px] bg-purple-900/20 hover:bg-purple-900/40 text-purple-300 py-1 rounded transition-colors border border-purple-900/50" title="Add Virtual Camera (Simulates Face Tracking)">+ Sim Cam</button>
+                        <button onClick={() => deviceManager.handleAddSimulator('Microphone')} className="flex-1 text-[10px] bg-yellow-900/20 hover:bg-yellow-900/40 text-yellow-300 py-1 rounded transition-colors border border-yellow-900/50" title="Add Virtual Microphone">+ Sim Mic</button>
                    </div>
               </div>
           </div>
 
-          {/* Raw Data Monitor */}
+          {/* Signal Stream Monitor */}
           <div className="bg-slate-800/50 rounded border border-slate-700 flex-grow flex flex-col min-h-0">
-               <div className="bg-slate-800 px-3 py-2 border-b border-slate-700">
+               <div className="bg-slate-800 px-3 py-2 border-b border-slate-700 flex justify-between items-center">
                   <span className="text-xs font-bold text-slate-300">SIGNAL STREAM</span>
+                  <div className="flex gap-2 text-[9px] font-mono">
+                      <span className={\`\${signalStats.latency < 50 ? 'text-green-400' : 'text-yellow-500'}\`}>
+                          LAT: {signalStats.latency}ms
+                      </span>
+                  </div>
               </div>
               <div className="flex-grow p-2 bg-black/80 font-mono text-[10px] text-green-500 overflow-hidden relative">
                  <div className="absolute inset-0 p-2 overflow-y-auto custom-scrollbar">
@@ -86,4 +146,4 @@ export const TELEMETRY_PANEL_CODE = `
           )}
       </div>
   );
-`;
+`

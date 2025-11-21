@@ -1,6 +1,6 @@
 
 export const USE_PROTOCOL_RUNNER_CODE = `
-const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, setConnectedDevices, setGlobalEegData }) => {
+const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, setConnectedDevices, setGlobalEegData, startSwarmTask }) => {
   const [runningProtocols, setRunningProtocols] = useState([]);
   const [processedDataMap, setProcessedDataMap] = useState({});
   const [rawData, setRawData] = useState(null);
@@ -32,6 +32,20 @@ const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, set
     'FreeEEG32': ['FP1', 'AF3', 'F7', 'F3', 'FC1', 'FC5', 'T7', 'C3', 'CP1', 'CP5', 'P7', 'P3', 'Pz', 'PO3', 'O1', 'Oz', 'O2', 'PO4', 'P4', 'P8', 'CP6', 'CP2', 'C4', 'T8', 'FC6', 'FC2', 'F4', 'F8', 'AF4', 'FP2', 'Fz', 'Cz'],
     'FreeEEG128': Array.from({length: 128}, (_, i) => 'CH' + (i+1))
   };
+
+  // --- TELEMETRY BRIDGE: Listen to Vision/Audio/System events on NeuroBus ---
+  useEffect(() => {
+    if (!runtime.neuroBus) return;
+    const unsub = runtime.neuroBus.subscribe(frame => {
+        // If we receive a Vision frame, update telemetry UI to show it's working
+        if (frame.type === 'Vision') {
+             const { smile, eyeOpen, isSimulated } = frame.payload;
+             const simTag = isSimulated ? '[SIM]' : '';
+             updateTelemetryUI(\`[VISION\${simTag}] Smile: \${(smile*100).toFixed(0)}% | Eye: \${((eyeOpen || 0)*100).toFixed(0)}%\`);
+        }
+    });
+    return unsub;
+  }, [runtime]);
   
   // --- Helper: Robust Serial Cleanup ---
   const cleanupSerial = async (id) => {
@@ -72,6 +86,19 @@ const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, set
 
   const processEEGFrame = async (eegDataSnapshot) => {
       setGlobalEegData(eegDataSnapshot);
+      
+      // --- BRIDGE TO STREAM ENGINE ---
+      // Publish the raw snapshot to NeuroBus so graph nodes can consume it.
+      if (runtime.neuroBus) {
+          runtime.neuroBus.publish({
+              timestamp: Date.now(),
+              sourceId: 'protocol_runner',
+              type: 'EEG',
+              payload: eegDataSnapshot,
+              confidence: 1.0
+          });
+      }
+      
       const results = {};
       const processors = activeProcessorsRef.current;
       
@@ -168,16 +195,13 @@ const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, set
           const simpleKey = rawChName;
           
           // Decide where to store it based on what we are tracking
-          let key = simpleKey;
-          if (activeChannelKeysRef.current.includes(prefixedKey)) {
-              key = prefixedKey;
-          } else if (!activeChannelKeysRef.current.includes(simpleKey)) {
-               if (activeChannelKeysRef.current.some(k => k.includes(':'))) {
-                   key = prefixedKey;
-               }
-          }
+          // FIXED: Capture data if the prefixed key is tracked OR if the simple key is tracked.
+          // Also capture if ANY data is needed (fail-safe for dynamic graphs).
+          let key = prefixedKey; // Default to precise key
           
+          // Ensure buffer exists
           if (!eegBufferRef.current[key]) eegBufferRef.current[key] = [];
+          
           eegBufferRef.current[key].push(channelValues[i]);
           if (eegBufferRef.current[key].length > bufferSize) eegBufferRef.current[key].shift();
       }
@@ -399,15 +423,25 @@ const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, set
   const ensureDataStream = async (activeDevices) => {
       if (activeDevices.length === 0) return;
       
+      // --- CRITICAL UPDATE: CAPTURE EVERYTHING ---
+      // Instead of selectively enabling channels based on protocol requirements (which may be empty for dynamic graphs),
+      // we now enable ALL available channels for active devices if ANY protocol is running.
+      // This ensures the Stream Engine (graph) always gets data.
+      
       const neededChannelKeys = [];
       const isMultiDevice = activeDevices.length > 1;
       
       activeDevices.forEach(d => {
+          // Skip non-EEG devices
+          if (d.deviceType === 'Camera' || d.deviceType === 'Microphone') return;
+          
           const map = DEVICE_CHANNEL_MAPS[d.deviceType] || DEVICE_CHANNEL_MAPS['FreeEEG8'];
           const count = d.channelCount || 8;
+          
           for(let i=0; i<count; i++) {
               const chName = map[i] || 'CH'+(i+1);
-              neededChannelKeys.push(isMultiDevice ? \`\${d.id}:\${chName}\` : chName);
+              // Track precise key (Device:Channel)
+              neededChannelKeys.push(\`\${d.id}:\${chName}\`);
           }
       });
       activeChannelKeysRef.current = neededChannelKeys;
@@ -420,12 +454,53 @@ const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, set
           
           const updateSim = async () => {
               const samplesToGenerate = 10; // 250Hz simulation
+              
+              // --- Camera/Mic Simulation ---
+              simulators.forEach(sim => {
+                  if (sim.deviceType === 'Camera') {
+                      const time = simulationTimeRef.current;
+                      const smile = (Math.sin(time * 0.3) + 1) / 2 * 0.8; 
+                      let eyeOpen = 1.0;
+                      const blinkCycle = time % 10;
+                      if (blinkCycle > 9.5) eyeOpen = Math.abs(Math.sin(blinkCycle * 10));
+                      
+                      if (runtime.neuroBus) {
+                           runtime.neuroBus.publish({
+                              timestamp: Date.now(),
+                              sourceId: 'vision_source_1', 
+                              type: 'Vision',
+                              payload: { smile: smile, eyeOpen: eyeOpen, raw: [], isSimulated: true, fps: 60 },
+                              confidence: 1.0
+                           });
+                      }
+                  }
+                  else if (sim.deviceType === 'Microphone') {
+                      const time = simulationTimeRef.current;
+                      const isTalking = Math.sin(time * 0.5) > 0; 
+                      let amplitude = Math.random() * 0.05; 
+                      if (isTalking) amplitude += (Math.abs(Math.sin(time * 10)) * 0.6 + 0.2);
+                      
+                       if (runtime.neuroBus) {
+                           runtime.neuroBus.publish({
+                              timestamp: Date.now(),
+                              sourceId: 'audio_source_sim',
+                              type: 'Audio',
+                              payload: { amplitude: amplitude },
+                              confidence: 1.0
+                           });
+                      }
+                  }
+              });
+
+              // --- EEG Simulation ---
               for (let s = 0; s < samplesToGenerate; s++) {
                   phaseLagRef.current += (Math.random() - 0.5) * 0.05;
                   const sourceA = Math.sin(simulationTimeRef.current) * 50;
                   const sourceB = Math.sin(simulationTimeRef.current + phaseLagRef.current) * 50;
                   
                   simulators.forEach(sim => {
+                       if (sim.deviceType === 'Camera' || sim.deviceType === 'Microphone') return;
+
                        const channelMap = DEVICE_CHANNEL_MAPS[sim.deviceType] || [];
                        const vals = [];
                        for(let i=0; i<sim.channelCount; i++) {
@@ -436,7 +511,7 @@ const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, set
                            const noise = (Math.random() - 0.5) * 30;
                            vals.push((sourceA * mix + sourceB * (1 - mix)) + noise);
                        }
-                       updateTelemetryUI(Date.now() + ',' + vals.map(v => v.toFixed(0)).join(','));
+                       if (s === 0) updateTelemetryUI(Date.now() + ',' + vals.map(v => v.toFixed(0)).join(','));
                        ingestData(sim.id, vals);
                   });
                   simulationTimeRef.current += (2 * Math.PI * 10) / 250; 
@@ -465,7 +540,6 @@ const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, set
         setRunningProtocols(prev => prev.filter(p => p.id !== protocol.id));
         setProcessedDataMap(prev => { const n = { ...prev }; delete n[protocol.id]; return n; });
         
-        // If we just stopped the only protocol, shutdown resources AND clear persistence
         if (activeProcessorsRef.current.size === 0) {
              stopAllProtocols();
         }
@@ -473,7 +547,6 @@ const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, set
     }
 
     runtime.logEvent('[Player] Launching: ' + protocol.name);
-    // Save state for auto-restore
     localStorage.setItem('neurofeedback-last-protocol', protocol.id);
 
     const activeDevices = connectedDevices.filter(d => activeDataSourceIds.includes(d.id));
@@ -482,8 +555,18 @@ const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, set
         return;
     }
     
+    let codeToEval = '';
     try {
-        const fnOrFactory = eval('(' + protocol.processingCode + ')');
+        if (!protocol.processingCode || typeof protocol.processingCode !== 'string') {
+             throw new Error("Processing code is missing or invalid.");
+        }
+        
+        let cleanCode = protocol.processingCode.trim();
+        cleanCode = cleanCode.replace(/^(const|let|var)\s+\w+\s*=\s*/, '');
+        if (cleanCode.endsWith(';')) cleanCode = cleanCode.slice(0, -1);
+        
+        codeToEval = '(\\n' + cleanCode + '\\n)';
+        const fnOrFactory = eval(codeToEval);
         let processor;
         let isAsync = false;
 
@@ -498,11 +581,25 @@ const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, set
         ensureDataStream(activeDevices);
 
     } catch (e) {
-        runtime.logEvent("[Player] Compilation Error: " + e.message);
+        console.error("[Protocol Error] Failed Code:\\n", codeToEval); 
+        runtime.logEvent("[Player] Compilation Error: " + e.message + ". Check browser console for full code.");
+        
+        if (startSwarmTask) {
+            runtime.logEvent("[System] 🔧 Initiating Auto-Repair for protocol '" + protocol.name + "'...");
+            startSwarmTask({
+                task: { 
+                    userRequest: { 
+                        text: "The tool '" + protocol.name + "' failed with error: " + e.message + ". Please fix the 'processingCode' of this tool to be valid JavaScript. Use the 'Tool Creator' to overwrite it with the corrected code." 
+                    },
+                    context: {}
+                },
+                systemPrompt: "You are a Code Repair Agent. Your goal is to fix the syntax error in the specified tool's processing code.",
+                allTools: runtime.tools.list()
+            });
+        }
     }
   };
   
-  // Cleanup only resources on unmount, do not clear persistence
   useEffect(() => { return _cleanupResources; }, []);
 
   return {
@@ -516,4 +613,4 @@ const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, set
     stopAllProtocols
   };
 };
-`
+`;
