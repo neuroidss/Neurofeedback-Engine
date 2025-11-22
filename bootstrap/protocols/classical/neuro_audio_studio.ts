@@ -113,7 +113,7 @@ const HYBRID_CONTROLLER_IMPL = `
 `;
 
 const STUDIO_UI_IMPL = `
-    const { useState, useEffect, useRef } = React;
+    const { useState, useEffect, useRef, useMemo } = React;
     
     // --- 1. Graph Management ---
     useEffect(() => {
@@ -178,8 +178,9 @@ const STUDIO_UI_IMPL = `
     const [shield, setShield] = useState(false);
     const [shieldLevel, setShieldLevel] = useState(0);
     
-    const [strobe, setStrobe] = useState(false); // AVE (Audio Visual Entrainment)
-    const [strobeConfirm, setStrobeConfirm] = useState(false); // Safety check state
+    const [vizMode, setVizMode] = useState('pulse'); // 'flash' | 'pulse' | 'spiral'
+    const [strobeActive, setStrobeActive] = useState(false); 
+    const [strobeConfirm, setStrobeConfirm] = useState(false);
     
     // Presets
     const PRESETS = {
@@ -223,8 +224,6 @@ const STUDIO_UI_IMPL = `
         });
         
         // Update Audio Engine
-        // Note: Controller output overrides 'noiseVolume' if dynamic updates occur, 
-        // but we set defaults here for init.
         runtime.streamEngine.updateNodeConfig('audio_out', {
             carrierHz: PRESETS[preset].carrier,
             synthType: texture,
@@ -259,55 +258,130 @@ const STUDIO_UI_IMPL = `
     // --- 4. 3D Render ---
     const R3F = window.ReactThreeFiber;
     const Drei = window.ReactThreeDrei;
-    if (!R3F || !Drei) return <div>Loading 3D...</div>;
+    const THREE = window.THREE;
+    
+    if (!R3F || !Drei || !THREE) return <div>Loading 3D...</div>;
     const { Canvas, useFrame } = R3F;
-    const { Sphere, MeshDistortMaterial, Float, Stars } = Drei;
+    const { Sphere, MeshDistortMaterial, Float, Stars, Torus, Octahedron } = Drei;
 
-    // AVE Strobe Effect Component
-    const StrobeEffect = ({ beatHz, active }) => {
-        const ref = useRef();
-
-        // Simple sine wave opacity modulation based on beat frequency
-        useFrame(({ clock }) => {
-            if (!ref.current) return;
-            
-            if (!active) {
-                ref.current.material.opacity = 0;
-                return;
-            }
-
-            const t = clock.getElapsedTime();
-            // Sinusoidal pulse at exact beat frequency
-            // Range 0 to 0.6 opacity (stronger strobe for visible effect)
-            const val = (Math.sin(t * beatHz * 2 * Math.PI) + 1) / 2;
-            ref.current.material.opacity = val * 0.6; 
-        });
-
-        return (
-            <mesh ref={ref} position={[0, 0, 2]}>
-                <planeGeometry args={[100, 100]} />
-                <meshBasicMaterial color="white" transparent opacity={0} depthTest={false} />
-            </mesh>
-        );
+    // Scale-to-Color Mapping for Harmony
+    const SCALE_COLORS = {
+        pentatonic_minor: '#fbbf24', // Amber (Focus)
+        lydian: '#f472b6', // Pink (Creative)
+        dorian: '#22d3ee', // Cyan (Relax)
+        raga: '#818cf8', // Indigo (Deep)
+        major: '#4ade80' // Green (Happy)
     };
 
-    const Emitter = ({ preset, texture }) => {
-        const ref = useRef();
-        useFrame((state) => {
-            if(ref.current) {
-                const t = state.clock.getElapsedTime();
-                const speed = preset === 'focus' ? 2 : preset === 'relax' ? 1 : 0.2;
-                const amp = texture === 'drone' ? 0.4 : 0.1;
-                ref.current.distort = 0.3 + Math.sin(t * speed) * amp;
+    const HypnoticMandala = ({ beatHz, active, mode, scale }) => {
+        const groupRef = useRef();
+        const ringsRef = useRef([]);
+        const coreRef = useRef();
+        
+        const baseColor = SCALE_COLORS[scale] || '#ffffff';
+
+        useFrame(({ clock }) => {
+            if (!groupRef.current) return;
+            
+            const targetOpacity = active ? 1 : 0;
+            const targetScale = active ? 1 : 0;
+            groupRef.current.scale.lerp({ x: targetScale, y: targetScale, z: targetScale }, 0.1);
+            
+            if (!active) return;
+
+            const t = clock.getElapsedTime();
+            
+            // 1. Entrainment Pulse (The Science)
+            const pulse = (Math.sin(t * beatHz * Math.PI * 2) + 1) / 2; 
+            
+            // 2. Mode Logic
+            if (mode === 'flash') {
+                // Classic Strobe: Uses BasicMaterial (Unlit) so it flashes bright white regardless of lighting
+                // DoubleSide ensures it's visible even if camera is inside
+                if (coreRef.current) {
+                    coreRef.current.scale.setScalar(20); // Fill screen
+                    coreRef.current.visible = pulse > 0.5; // Hard strobe
+                }
+                // Hide rings in flash mode
+                ringsRef.current.forEach(m => { if(m) m.visible = false; });
+            } else {
+                // Artistic Modes (Pulse/Spiral)
+                if (coreRef.current) {
+                    coreRef.current.visible = true;
+                    coreRef.current.scale.setScalar(1 + pulse * 0.5);
+                    coreRef.current.rotation.y += 0.01;
+                    coreRef.current.rotation.z += 0.02;
+                }
+                
+                const isSpiral = mode === 'spiral';
+                
+                ringsRef.current.forEach((mesh, i) => {
+                    if (!mesh) return;
+                    mesh.visible = true;
+                    
+                    // Spiral: Offset Z to create tunnel
+                    const zBase = isSpiral ? i * -2 : 0;
+                    mesh.position.z = zBase;
+                    
+                    // Rotation
+                    mesh.rotation.z += (i % 2 === 0 ? 1 : -1) * (isSpiral ? 0.5 : 0.2) * 0.01;
+                    
+                    // Twist effect for spiral
+                    if (isSpiral) {
+                        mesh.rotation.z = (t * 0.2) + (i * 0.5); 
+                    }
+                    
+                    mesh.rotation.x = Math.sin(t * 0.5 + (i*0.2)) * 0.5;
+                    
+                    // Pulse Scale/Emissive
+                    const ringPulse = Math.sin((t * beatHz * Math.PI * 2) - (i * 0.5)); // Phase shifted
+                    
+                    const scaleBase = 2 + (i * 1.5);
+                    // Spiral gets larger as it goes deeper (3x base size + growth)
+                    const scaleSpiral = isSpiral ? (3 + i * 1.5) : scaleBase;
+                    
+                    const scaleDyn = scaleSpiral + (ringPulse * 0.2);
+                    mesh.scale.setScalar(scaleDyn);
+                    
+                    mesh.material.emissiveIntensity = Math.max(0, ringPulse * 2);
+                    mesh.material.color.set(baseColor);
+                });
+                
+                // Tunnel effect for Spiral
+                if (isSpiral) {
+                    groupRef.current.rotation.z += 0.005 * beatHz;
+                    // Gentle wobble
+                    groupRef.current.rotation.x = Math.sin(t * 0.5) * 0.2;
+                    groupRef.current.rotation.y = Math.cos(t * 0.3) * 0.2;
+                } else {
+                    groupRef.current.rotation.z = 0;
+                    groupRef.current.rotation.x = 0;
+                    groupRef.current.rotation.y = 0;
+                }
             }
         });
-        const color = preset === 'focus' ? '#fbbf24' : preset === 'relax' ? '#22d3ee' : '#818cf8';
+
         return (
-            <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-                <Sphere args={[1.8, 64, 64]} ref={ref}>
-                    <MeshDistortMaterial color={color} speed={2} distort={0.4} radius={1} />
-                </Sphere>
-            </Float>
+            <group ref={groupRef}>
+                {/* Core Crystal / Strobe Source */}
+                {mode === 'flash' ? (
+                     <mesh ref={coreRef}>
+                        <planeGeometry args={[10, 10]} />
+                        <meshBasicMaterial color="white" side={THREE.DoubleSide} transparent opacity={1} />
+                     </mesh>
+                ) : (
+                    <Octahedron args={[1, 0]} ref={coreRef}>
+                        <meshStandardMaterial color={baseColor} wireframe={true} transparent opacity={0.8} />
+                    </Octahedron>
+                )}
+                
+                {/* Mandala Rings */}
+                {mode !== 'flash' && [...Array(8)].map((_, i) => (
+                    <Torus key={i} args={[1, 0.02, 16, 100]} ref={el => ringsRef.current[i] = el}>
+                        <meshStandardMaterial color={baseColor} emissive={baseColor} emissiveIntensity={0.5} />
+                    </Torus>
+                ))}
+            </group>
         );
     };
 
@@ -334,7 +408,7 @@ const STUDIO_UI_IMPL = `
                             {mode === 'bio_harmony' && <span className="animate-pulse">●</span>}
                         </button>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
                         <button 
                             onClick={toggleShield}
                             className={\`px-3 py-1 text-[10px] font-bold rounded border transition-colors flex items-center gap-2 \${shield ? 'bg-yellow-900/80 border-yellow-500 text-yellow-200' : 'bg-slate-800 border-slate-600 text-slate-500 hover:text-white'}\`}
@@ -347,39 +421,52 @@ const STUDIO_UI_IMPL = `
                             )}
                         </button>
                         
-                        {/* SAFETY BUTTON IMPLEMENTATION FOR STROBE */}
-                        <button 
-                            onClick={() => {
-                                if (strobe) {
-                                    setStrobe(false);
-                                    setStrobeConfirm(false);
-                                } else {
-                                    if (strobeConfirm) {
-                                        setStrobe(true);
+                        {/* SAFETY BUTTON IMPLEMENTATION FOR VISUALS */}
+                        <div className="flex bg-slate-800 rounded border border-slate-700 overflow-hidden">
+                             {strobeActive && (
+                                <select 
+                                    value={vizMode} 
+                                    onChange={e => setVizMode(e.target.value)}
+                                    className="bg-slate-900 text-[10px] text-slate-300 outline-none px-1 border-r border-slate-700"
+                                >
+                                    <option value="pulse">Pulse</option>
+                                    <option value="spiral">Spiral</option>
+                                    <option value="flash">Flash</option>
+                                </select>
+                             )}
+                             <button 
+                                onClick={() => {
+                                    if (strobeActive) {
+                                        setStrobeActive(false);
                                         setStrobeConfirm(false);
                                     } else {
-                                        setStrobeConfirm(true);
-                                        // Reset confirm state after 3 seconds if not clicked
-                                        setTimeout(() => setStrobeConfirm(false), 3000);
+                                        if (strobeConfirm) {
+                                            setStrobeActive(true);
+                                            setStrobeConfirm(false);
+                                        } else {
+                                            setStrobeConfirm(true);
+                                            setTimeout(() => setStrobeConfirm(false), 3000);
+                                        }
                                     }
-                                }
-                            }}
-                            className={\`px-3 py-1 text-[10px] font-bold rounded border transition-colors flex items-center gap-2 \${strobe ? 'bg-white text-black border-white animate-pulse' : (strobeConfirm ? 'bg-red-600 text-white border-red-500 animate-bounce' : 'bg-slate-800 border-slate-600 text-slate-500 hover:text-white')}\`}
-                        >
-                            <span>{strobeConfirm ? 'CONFIRM FLASH?' : 'AVE STROBE'}</span>
-                        </button>
+                                }}
+                                className={\`px-3 py-1 text-[10px] font-bold transition-colors flex items-center gap-2 \${strobeActive ? 'bg-white text-black animate-pulse' : (strobeConfirm ? 'bg-red-600 text-white animate-bounce' : 'text-slate-400 hover:text-white')}\`}
+                            >
+                                <span>{strobeConfirm ? 'CONFIRM VISUALS?' : (strobeActive ? 'HYPNOTIC ON' : 'START VISUALS')}</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
 
             {/* Main Vis */}
-            <div className="flex-grow relative">
+            <div className="flex-grow relative bg-black">
                 <Canvas>
                     <ambientLight intensity={0.5} />
                     <pointLight position={[10, 10, 10]} intensity={1} />
                     <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
-                    <Emitter preset={preset} texture={texture} />
-                    <StrobeEffect beatHz={realtimeBeat} active={strobe} />
+                    
+                    <HypnoticMandala beatHz={realtimeBeat} active={strobeActive} mode={vizMode} scale={vibe} />
+                    
                 </Canvas>
             </div>
 
