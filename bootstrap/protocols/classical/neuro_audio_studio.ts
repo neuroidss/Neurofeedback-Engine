@@ -255,7 +255,7 @@ const STUDIO_UI_IMPL = `
         return unsub;
     }, []);
 
-    // --- 4. 3D Render ---
+    // --- 4. 3D Render & Flash Engine ---
     const R3F = window.ReactThreeFiber;
     const Drei = window.ReactThreeDrei;
     const THREE = window.THREE;
@@ -273,120 +273,109 @@ const STUDIO_UI_IMPL = `
         major: '#4ade80' // Green (Happy)
     };
 
-    const HypnoticMandala = ({ beatHz, active, mode, scale }) => {
-        const groupRef = useRef();
-        const ringsRef = useRef([]);
-        const coreRef = useRef();
+    // HIGH PERFORMANCE GPU INSTANCING
+    const InstancedTunnel = ({ beatHz, active, mode, scale }) => {
+        const meshRef = useRef();
+        const count = 60;
+        const dummy = useMemo(() => new THREE.Object3D(), []);
         
-        const baseColor = SCALE_COLORS[scale] || '#ffffff';
+        // Base color derived from scale
+        const baseColor = useMemo(() => new THREE.Color(SCALE_COLORS[scale] || '#ffffff'), [scale]);
 
         useFrame(({ clock }) => {
-            if (!groupRef.current) return;
+            if (!meshRef.current) return;
             
-            const targetOpacity = active ? 1 : 0;
-            const targetScale = active ? 1 : 0;
-            groupRef.current.scale.lerp({ x: targetScale, y: targetScale, z: targetScale }, 0.1);
-            
-            if (!active) return;
+            // If not active or in flash mode (handled by overlay), hide tunnel
+            if (!active || mode === 'flash') {
+                meshRef.current.visible = false;
+                return;
+            }
+            meshRef.current.visible = true;
 
             const t = clock.getElapsedTime();
-            
-            // 1. Entrainment Pulse (The Science)
-            const pulse = (Math.sin(t * beatHz * Math.PI * 2) + 1) / 2; 
-            
-            // 2. Mode Logic
-            if (mode === 'flash') {
-                // Classic Strobe: Uses BasicMaterial (Unlit) so it flashes bright white regardless of lighting
-                // DoubleSide ensures it's visible even if camera is inside
-                if (coreRef.current) {
-                    coreRef.current.scale.setScalar(20); // Fill screen
-                    coreRef.current.visible = pulse > 0.5; // Hard strobe
-                }
-                // Hide rings in flash mode
-                ringsRef.current.forEach(m => { if(m) m.visible = false; });
-            } else {
-                // Artistic Modes (Pulse/Spiral)
-                if (coreRef.current) {
-                    coreRef.current.visible = true;
-                    coreRef.current.scale.setScalar(1 + pulse * 0.5);
-                    coreRef.current.rotation.y += 0.01;
-                    coreRef.current.rotation.z += 0.02;
-                }
+            const isSpiral = mode === 'spiral';
+
+            for (let i = 0; i < count; i++) {
+                const tOffset = i * 0.1;
+                const pulse = Math.sin((t * beatHz * Math.PI * 2) - tOffset); // Phase shift
                 
-                const isSpiral = mode === 'spiral';
+                // Position
+                // Spiral Mode: Spread rings deeply along Z to create a tunnel
+                // Pulse Mode: Keep them mostly centered or slightly offset
+                const z = isSpiral ? -i * 2 : 0; 
+                dummy.position.set(0, 0, z);
+
+                // Rotation
+                const rotSpeed = isSpiral ? 0.5 : 0.1;
+                const twist = isSpiral ? i * 0.2 : 0;
+                dummy.rotation.set(
+                    Math.sin(t * 0.5 + i * 0.1) * 0.2, // Gentle wobble X
+                    Math.cos(t * 0.3 + i * 0.1) * 0.2, // Gentle wobble Y
+                    (t * rotSpeed) + twist // Z Rotation
+                );
+
+                // Scale
+                // Spiral: Becomes larger as it goes deeper
+                const baseScale = isSpiral ? (3 + i * 0.5) : (2 + i * 0.5);
+                const scaleFactor = baseScale + (pulse * 0.5);
+                dummy.scale.setScalar(scaleFactor);
+
+                dummy.updateMatrix();
+                meshRef.current.setMatrixAt(i, dummy.matrix);
                 
-                ringsRef.current.forEach((mesh, i) => {
-                    if (!mesh) return;
-                    mesh.visible = true;
-                    
-                    // Spiral: Offset Z to create tunnel
-                    const zBase = isSpiral ? i * -2 : 0;
-                    mesh.position.z = zBase;
-                    
-                    // Rotation
-                    mesh.rotation.z += (i % 2 === 0 ? 1 : -1) * (isSpiral ? 0.5 : 0.2) * 0.01;
-                    
-                    // Twist effect for spiral
-                    if (isSpiral) {
-                        mesh.rotation.z = (t * 0.2) + (i * 0.5); 
-                    }
-                    
-                    mesh.rotation.x = Math.sin(t * 0.5 + (i*0.2)) * 0.5;
-                    
-                    // Pulse Scale/Emissive
-                    const ringPulse = Math.sin((t * beatHz * Math.PI * 2) - (i * 0.5)); // Phase shifted
-                    
-                    const scaleBase = 2 + (i * 1.5);
-                    // Spiral gets larger as it goes deeper (3x base size + growth)
-                    const scaleSpiral = isSpiral ? (3 + i * 1.5) : scaleBase;
-                    
-                    const scaleDyn = scaleSpiral + (ringPulse * 0.2);
-                    mesh.scale.setScalar(scaleDyn);
-                    
-                    mesh.material.emissiveIntensity = Math.max(0, ringPulse * 2);
-                    mesh.material.color.set(baseColor);
-                });
-                
-                // Tunnel effect for Spiral
-                if (isSpiral) {
-                    groupRef.current.rotation.z += 0.005 * beatHz;
-                    // Gentle wobble
-                    groupRef.current.rotation.x = Math.sin(t * 0.5) * 0.2;
-                    groupRef.current.rotation.y = Math.cos(t * 0.3) * 0.2;
-                } else {
-                    groupRef.current.rotation.z = 0;
-                    groupRef.current.rotation.x = 0;
-                    groupRef.current.rotation.y = 0;
-                }
+                // Color brightness modulation based on pulse
+                const brightness = 0.5 + (pulse * 0.5);
+                meshRef.current.setColorAt(i, baseColor.clone().multiplyScalar(brightness));
             }
+            meshRef.current.instanceMatrix.needsUpdate = true;
+            if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
         });
 
         return (
-            <group ref={groupRef}>
-                {/* Core Crystal / Strobe Source */}
-                {mode === 'flash' ? (
-                     <mesh ref={coreRef}>
-                        <planeGeometry args={[10, 10]} />
-                        <meshBasicMaterial color="white" side={THREE.DoubleSide} transparent opacity={1} />
-                     </mesh>
-                ) : (
-                    <Octahedron args={[1, 0]} ref={coreRef}>
-                        <meshStandardMaterial color={baseColor} wireframe={true} transparent opacity={0.8} />
-                    </Octahedron>
-                )}
-                
-                {/* Mandala Rings */}
-                {mode !== 'flash' && [...Array(8)].map((_, i) => (
-                    <Torus key={i} args={[1, 0.02, 16, 100]} ref={el => ringsRef.current[i] = el}>
-                        <meshStandardMaterial color={baseColor} emissive={baseColor} emissiveIntensity={0.5} />
-                    </Torus>
-                ))}
-            </group>
+            <instancedMesh ref={meshRef} args={[null, null, count]}>
+                <torusGeometry args={[1, 0.02, 16, 50]} />
+                <meshStandardMaterial 
+                    toneMapped={false}
+                    transparent
+                    opacity={0.8}
+                />
+            </instancedMesh>
         );
     };
+    
+    // --- Flash Overlay Engine ---
+    const flashOverlayRef = useRef(null);
+    
+    useEffect(() => {
+        let frameId;
+        const startTime = Date.now();
+        
+        const loop = () => {
+            if (strobeActive && vizMode === 'flash' && flashOverlayRef.current) {
+                const t = (Date.now() - startTime) / 1000;
+                // Square wave strobe logic
+                const phase = Math.sin(t * realtimeBeat * Math.PI * 2);
+                // Bright flash (white/color) when phase > 0
+                const opacity = phase > 0 ? 0.8 : 0; 
+                
+                flashOverlayRef.current.style.opacity = opacity;
+                flashOverlayRef.current.style.backgroundColor = SCALE_COLORS[vibe] || 'white';
+            } else if (flashOverlayRef.current) {
+                // Ensure it's hidden when inactive
+                flashOverlayRef.current.style.opacity = 0;
+            }
+            frameId = requestAnimationFrame(loop);
+        };
+        loop();
+        return () => cancelAnimationFrame(frameId);
+    }, [strobeActive, vizMode, realtimeBeat, vibe]);
+
 
     return (
         <div className="w-full h-full bg-slate-950 relative font-sans text-slate-200 flex flex-col">
+            {/* Fullscreen Flash Overlay */}
+            <div ref={flashOverlayRef} className="absolute inset-0 z-[9999] pointer-events-none transition-none mix-blend-screen" style={{backgroundColor: 'white', opacity: 0}}></div>
+
             {/* Header Controls */}
             <div className="absolute top-0 left-0 right-0 p-4 z-10 bg-gradient-to-b from-black/80 to-transparent flex justify-between items-start">
                 <div>
@@ -465,7 +454,7 @@ const STUDIO_UI_IMPL = `
                     <pointLight position={[10, 10, 10]} intensity={1} />
                     <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
                     
-                    <HypnoticMandala beatHz={realtimeBeat} active={strobeActive} mode={vizMode} scale={vibe} />
+                    <InstancedTunnel beatHz={realtimeBeat} active={strobeActive} mode={vizMode} scale={vibe} />
                     
                 </Canvas>
             </div>
