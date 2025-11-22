@@ -18,10 +18,11 @@ export const TELEMETRY_PANEL_CODE = `
   }, [runtime]);
 
   const renderTelemetryPanel = () => (
-      <div className="flex flex-col h-full space-y-4">
-          {/* Device List */}
-          <div className="bg-slate-800/50 rounded border border-slate-700 overflow-hidden">
-              <div className="bg-slate-800 px-3 py-2 border-b border-slate-700 flex justify-between items-center">
+      <div className="flex flex-col h-full space-y-2">
+          
+          {/* Device List (Max height 40% to avoid crushing stream) */}
+          <div className="bg-slate-800/50 rounded border border-slate-700 flex flex-col flex-shrink-0 max-h-[40%] min-h-[120px] overflow-hidden">
+              <div className="bg-slate-800 px-3 py-2 border-b border-slate-700 flex justify-between items-center shrink-0">
                   <span className="text-xs font-bold text-slate-300">DEVICES</span>
                   <div className="flex gap-2">
                        <button onClick={() => setShowProvisioning(!showProvisioning)} className="text-[10px] bg-slate-700 text-slate-300 px-2 py-0.5 rounded hover:bg-slate-600 transition-colors" title="Provision WiFi">Config WiFi</button>
@@ -30,7 +31,7 @@ export const TELEMETRY_PANEL_CODE = `
                        <button onClick={deviceManager.handleAddCamera} className="text-[10px] bg-purple-900/50 text-purple-400 px-2 py-0.5 rounded hover:bg-purple-900 transition-colors" title="Add System Webcam">ADD CAM</button>
                   </div>
               </div>
-              <div className="p-2 space-y-1">
+              <div className="p-2 space-y-1 overflow-y-auto custom-scrollbar">
                   {showProvisioning && (
                       <div className="p-2 bg-slate-900/90 mb-2 rounded border border-purple-500/50 animate-fade-in">
                           <h4 className="text-[10px] font-bold text-purple-300 mb-2">Provision FreeEEG8 (WiFi via BLE)</h4>
@@ -110,9 +111,9 @@ export const TELEMETRY_PANEL_CODE = `
               </div>
           </div>
 
-          {/* Signal Stream Monitor */}
-          <div className="bg-slate-800/50 rounded border border-slate-700 flex-grow flex flex-col min-h-0">
-               <div className="bg-slate-800 px-3 py-2 border-b border-slate-700 flex justify-between items-center">
+          {/* Signal Stream Monitor - Grows to fill */}
+          <div className="bg-slate-800/50 rounded border border-slate-700 flex-grow flex flex-col min-h-0 overflow-hidden">
+               <div className="bg-slate-800 px-3 py-2 border-b border-slate-700 flex justify-between items-center shrink-0">
                   <span className="text-xs font-bold text-slate-300">SIGNAL STREAM</span>
                   <div className="flex gap-2 text-[9px] font-mono">
                       <span className={\`\${signalStats.latency < 50 ? 'text-green-400' : 'text-yellow-500'}\`}>
@@ -128,10 +129,10 @@ export const TELEMETRY_PANEL_CODE = `
               </div>
           </div>
           
-          {/* Vibecoder History (Mini) */}
+          {/* Vibecoder History (Fixed height, not flex-grow) */}
           {vibecoderHistory.length > 0 && (
-              <div className="bg-slate-800/50 rounded border border-slate-700 h-1/3 flex flex-col min-h-0">
-                <div className="bg-slate-800 px-3 py-2 border-b border-slate-700">
+              <div className="bg-slate-800/50 rounded border border-slate-700 h-32 flex-shrink-0 flex flex-col min-h-0">
+                <div className="bg-slate-800 px-3 py-2 border-b border-slate-700 shrink-0">
                     <span className="text-xs font-bold text-purple-300">VIBECODER LOOPS</span>
                 </div>
                 <div className="flex-grow overflow-y-auto p-2 space-y-1 custom-scrollbar">
@@ -146,4 +147,4 @@ export const TELEMETRY_PANEL_CODE = `
           )}
       </div>
   );
-`
+`;

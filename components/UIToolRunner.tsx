@@ -1,7 +1,6 @@
-
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
-import React, { type ReactNode, type ErrorInfo } from 'react';
+import React, { Component, type ReactNode, type ErrorInfo } from 'react';
 import type { LLMTool, UIToolRunnerProps } from '../types';
 import DebugLogView from './ui_tools/DebugLogView';
 import * as Icons from './icons';
@@ -24,7 +23,7 @@ type ErrorBoundaryState = {
   hasError: boolean;
 };
 
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { hasError: false };
 
   static getDerivedStateFromError(error: any): ErrorBoundaryState {
@@ -118,7 +117,7 @@ const UIToolRunner: React.FC<UIToolRunnerComponentProps> = ({ tool, props }) => 
     // Case B: Add 'return' to IIFEs that are missing it
     // If the code is just an IIFE `(() => { ... })()`, it needs to be returned to the runner function.
     if (sanitizedCode.startsWith('(') && /[\}\)]\s*\(\)\s*;?$/.test(sanitizedCode)) {
-        // Ensure it's not already a return statement
+        // Ensure it's already a return statement
         if (!sanitizedCode.startsWith('return ')) {
             sanitizedCode = `return ${sanitizedCode}`;
         }

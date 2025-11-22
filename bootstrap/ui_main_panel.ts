@@ -49,8 +49,8 @@ export const MAIN_PANEL_CODE = `
 
   // --- Immersive Mode State ---
   const isImmersive = apiConfig.immersiveMode !== false; // Default to true
-  const [panelVisibility, setPanelVisibility] = useState({ left: false, right: false, top: false, bottom: false });
-  const hoverTimers = useRef({ left: null, right: null, top: null, bottom: null });
+  const [panelVisibility, setPanelVisibility] = useState({ left: false, right: false });
+  const hoverTimers = useRef({ left: null, right: null });
 
   const handlePanelEnter = (side) => {
       if (!isImmersive) return;
@@ -405,71 +405,11 @@ export const MAIN_PANEL_CODE = `
 
   ${RENDER_FUNCTIONS_CODE}
 
-  // --- Global Header (Slide-out in Zen Mode) ---
-  const renderGlobalHeader = () => {
-      const visible = isImmersive ? panelVisibility.top : true;
-      const classes = isImmersive
-          ? \`fixed top-0 left-0 w-full h-12 bg-slate-900/95 backdrop-blur border-b border-slate-800 z-[70] shadow-lg transform transition-transform duration-300 \${visible ? 'translate-y-0' : '-translate-y-full'}\`
-          : "w-full h-12 bg-slate-900 border-b border-slate-800 flex-none z-20 relative";
-
-      return (
-          <div 
-            className={classes}
-            onMouseEnter={() => handlePanelEnter('top')}
-            onMouseLeave={() => handlePanelLeave('top')}
-          >
-              <div className="flex items-center justify-between px-4 h-full">
-                  <div className="font-bold text-slate-100 tracking-wider flex items-center gap-2">
-                        <div className="w-3 h-3 bg-cyan-500 rounded-sm rotate-45"></div>
-                        NEUROFEEDBACK
-                  </div>
-                  <button onClick={() => setShowSettings(true)} className="text-slate-500 hover:text-white transition-colors p-2">
-                      <GearIcon className="h-5 w-5"/>
-                  </button>
-              </div>
-          </div>
-      );
-  };
-
-  // --- Global Footer (Slide-out in Zen Mode) ---
-  const renderGlobalFooter = () => {
-      const visible = isImmersive ? panelVisibility.bottom : true;
-      const classes = isImmersive
-        ? \`fixed bottom-0 left-0 w-full h-8 bg-slate-900/90 backdrop-blur border-t border-slate-800 z-[70] transform transition-transform duration-300 \${visible ? 'translate-y-0' : 'translate-y-full'}\`
-        : "w-full h-8 bg-slate-900 border-t border-slate-800 flex-none z-20 relative";
-
-      return (
-         <div 
-            className={classes}
-            onMouseEnter={() => handlePanelEnter('bottom')}
-            onMouseLeave={() => handlePanelLeave('bottom')}
-         >
-             <div className="flex items-center justify-between px-6 h-full">
-                 <div className="text-[10px] text-slate-400 flex items-center gap-2">
-                     <span className="text-green-400 font-mono font-bold">{protocolRunner.connectionStatus || 'System Ready'}</span>
-                     {protocolRunner.runningProtocols.length > 0 && (
-                         <>
-                             <span>|</span>
-                             <span>{protocolRunner.runningProtocols.length} Active</span>
-                         </>
-                     )}
-                 </div>
-                 <div className="text-[10px] text-slate-500 font-mono">
-                    API Ops: {totalApiCalls}
-                 </div>
-             </div>
-         </div>
-      );
-  };
-
-  // --- Left Panel Wrapper ---
+  // --- Left Panel Wrapper (Contains Header) ---
   const renderLeftPanelContainer = () => {
       const visible = isImmersive ? panelVisibility.left : true;
-      // In Zen mode: Absolute positioning, full height minus header? No, full screen height.
-      // In Normal mode: Relative block.
-      
       const containerClasses = isImmersive 
-          ? \`fixed top-0 left-0 h-full w-[350px] bg-slate-900/95 backdrop-blur shadow-2xl z-[60] border-r border-slate-800 transform transition-transform duration-300 ease-out \${visible ? 'translate-x-0' : '-translate-x-full'}\`
+          ? \`fixed top-0 left-0 h-full w-[350px] flex flex-col bg-slate-900/95 backdrop-blur shadow-2xl z-[70] border-r border-slate-800 transform transition-transform duration-300 ease-out \${visible ? 'translate-x-0' : '-translate-x-full'}\`
           : "w-1/4 min-w-[300px] max-w-[400px] flex flex-col border-r border-slate-800 bg-slate-900 relative z-10";
 
       return (
@@ -478,13 +418,24 @@ export const MAIN_PANEL_CODE = `
             onMouseEnter={() => handlePanelEnter('left')}
             onMouseLeave={() => handlePanelLeave('left')}
           >
+            {/* Integrated Header */}
+            <div className="flex items-center justify-between px-4 h-12 border-b border-slate-800 shrink-0 bg-slate-900/80">
+                  <div className="font-bold text-slate-100 tracking-wider flex items-center gap-2">
+                        <div className="w-3 h-3 bg-cyan-500 rounded-sm rotate-45"></div>
+                        NEUROFEEDBACK
+                  </div>
+                  <button onClick={() => setShowSettings(true)} className="text-slate-500 hover:text-white transition-colors p-2" title="Settings">
+                      <GearIcon className="h-5 w-5"/>
+                  </button>
+            </div>
+
             {/* Navigation Tabs */}
-            <div className="flex border-b border-slate-800 shrink-0 bg-slate-900 pt-12 md:pt-0"> {/* Add padding top in Zen if header overlaps? No, z-index handles it. */}
+            <div className="flex border-b border-slate-800 shrink-0 bg-slate-900">
                 <button onClick={() => setLeftTab('research')} className={\`flex-1 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors \${leftTab === 'research' ? 'border-cyan-500 text-cyan-400 bg-slate-800' : 'border-transparent text-slate-500 hover:text-slate-300'}\`}>Mission Control</button>
                 <button onClick={() => setLeftTab('library')} className={\`flex-1 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors \${leftTab === 'library' ? 'border-cyan-500 text-cyan-400 bg-slate-800' : 'border-transparent text-slate-500 hover:text-slate-300'}\`}>Library</button>
                 <button onClick={() => setLeftTab('firmware')} className={\`flex-1 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors \${leftTab === 'firmware' ? 'border-cyan-500 text-cyan-400 bg-slate-800' : 'border-transparent text-slate-500 hover:text-slate-300'}\`}>System</button>
             </div>
-            <div className="flex-grow p-4 min-h-0 overflow-hidden">
+            <div className="flex-grow p-4 min-h-0 overflow-hidden flex flex-col">
                 {leftTab === 'research' && renderResearchPanel()}
                 {leftTab === 'library' && renderLibraryPanel()}
                 {leftTab === 'firmware' && renderFirmwarePanel()}
@@ -493,11 +444,11 @@ export const MAIN_PANEL_CODE = `
       );
   };
 
-  // --- Right Panel Wrapper ---
+  // --- Right Panel Wrapper (Contains Footer) ---
   const renderRightPanelContainer = () => {
       const visible = isImmersive ? panelVisibility.right : true;
       const containerClasses = isImmersive 
-          ? \`fixed top-0 right-0 h-full w-[300px] bg-slate-900/95 backdrop-blur shadow-2xl z-[60] border-l border-slate-800 transform transition-transform duration-300 ease-out \${visible ? 'translate-x-0' : 'translate-x-full'}\`
+          ? \`fixed top-0 right-0 h-full w-[300px] flex flex-col bg-slate-900/95 backdrop-blur shadow-2xl z-[70] border-l border-slate-800 transform transition-transform duration-300 ease-out \${visible ? 'translate-x-0' : 'translate-x-full'}\`
           : "w-1/4 min-w-[250px] max-w-[350px] flex flex-col border-l border-slate-800 bg-slate-900 relative z-10";
 
       return (
@@ -520,7 +471,7 @@ export const MAIN_PANEL_CODE = `
                     <button onClick={() => setRightTab('logs')} className={\`p-1.5 rounded hover:bg-slate-800 \${rightTab === 'logs' ? 'text-cyan-400' : 'text-slate-600'}\`}><TerminalIcon className="h-4 w-4"/></button>
                 </div>
             </div>
-            <div className="flex-grow p-4 min-h-0 overflow-hidden">
+            <div className="flex-grow p-4 min-h-0 overflow-hidden flex flex-col">
                 {rightTab === 'telemetry' ? renderTelemetryPanel() : (
                      <div className="h-full flex flex-col">
                         <div className="flex-grow overflow-y-auto font-mono text-[10px] text-slate-400 space-y-1 custom-scrollbar">
@@ -528,6 +479,22 @@ export const MAIN_PANEL_CODE = `
                         </div>
                      </div>
                 )}
+            </div>
+            
+            {/* Integrated Footer */}
+            <div className="h-10 border-t border-slate-800 bg-slate-900/90 shrink-0 flex items-center justify-between px-4 z-[60] relative">
+                 <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                     <span className="text-green-400 font-mono font-bold">{protocolRunner.connectionStatus || 'System Ready'}</span>
+                     {protocolRunner.runningProtocols.length > 0 && (
+                         <>
+                             <span>|</span>
+                             <span>{protocolRunner.runningProtocols.length} Active</span>
+                         </>
+                     )}
+                 </div>
+                 <div className="text-[10px] text-slate-500 font-mono">
+                    API Ops: {totalApiCalls}
+                 </div>
             </div>
           </div>
       );
@@ -599,9 +566,6 @@ export const MAIN_PANEL_CODE = `
             onChange={handleFileImport}
         />
         
-        {/* Global Overlays - Header & Footer */}
-        {renderGlobalHeader()}
-        
         {/* Main Content Area */}
         {/* In Zen mode, this takes full screen. In Normal, it flexes. */}
         <div className="flex-grow flex relative overflow-hidden">
@@ -610,15 +574,11 @@ export const MAIN_PANEL_CODE = `
             {renderRightPanelContainer()}
         </div>
 
-        {renderGlobalFooter()}
-
         {/* Trigger Zones for Immersive Mode */}
         {isImmersive && (
             <>
                 <div className="fixed top-0 left-0 h-full w-4 z-[55] cursor-pointer" onMouseEnter={() => handlePanelEnter('left')} />
                 <div className="fixed top-0 right-0 h-full w-4 z-[55] cursor-pointer" onMouseEnter={() => handlePanelEnter('right')} />
-                <div className="fixed bottom-0 left-0 w-full h-4 z-[55] cursor-pointer" onMouseEnter={() => handlePanelEnter('bottom')} />
-                <div className="fixed top-0 left-0 w-full h-4 z-[55] cursor-pointer" onMouseEnter={() => handlePanelEnter('top')} />
             </>
         )}
 
