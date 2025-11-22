@@ -25,6 +25,7 @@ export const MAIN_PANEL_CODE = `
   ${UNIVERSAL_CANVAS_CODE}
   ${PLAYER_DISPLAY_CODE}
 
+  // --- State ---
   const [leftTab, setLeftTab] = useState('research');
   const [rightTab, setRightTab] = useState('telemetry');
   const [activeAppIdLocal, setActiveAppIdLocal] = useState(null);
@@ -45,6 +46,24 @@ export const MAIN_PANEL_CODE = `
   const fileInputRef = useRef(null);
   
   const [visionState, setVisionState] = useState({ active: false, lastUpdate: 0, data: null });
+
+  // --- Immersive Mode State ---
+  const isImmersive = apiConfig.immersiveMode !== false; // Default to true
+  const [panelVisibility, setPanelVisibility] = useState({ left: false, right: false, top: false, bottom: false });
+  const hoverTimers = useRef({ left: null, right: null, top: null, bottom: null });
+
+  const handlePanelEnter = (side) => {
+      if (!isImmersive) return;
+      if (hoverTimers.current[side]) clearTimeout(hoverTimers.current[side]);
+      setPanelVisibility(prev => ({ ...prev, [side]: true }));
+  };
+
+  const handlePanelLeave = (side) => {
+      if (!isImmersive) return;
+      hoverTimers.current[side] = setTimeout(() => {
+          setPanelVisibility(prev => ({ ...prev, [side]: false }));
+      }, 400);
+  };
 
   useEffect(() => {
       if (!runtime.neuroBus) return;
@@ -386,8 +405,188 @@ export const MAIN_PANEL_CODE = `
 
   ${RENDER_FUNCTIONS_CODE}
 
+  // --- Global Header (Slide-out in Zen Mode) ---
+  const renderGlobalHeader = () => {
+      const visible = isImmersive ? panelVisibility.top : true;
+      const classes = isImmersive
+          ? \`fixed top-0 left-0 w-full h-12 bg-slate-900/95 backdrop-blur border-b border-slate-800 z-[70] shadow-lg transform transition-transform duration-300 \${visible ? 'translate-y-0' : '-translate-y-full'}\`
+          : "w-full h-12 bg-slate-900 border-b border-slate-800 flex-none z-20 relative";
+
+      return (
+          <div 
+            className={classes}
+            onMouseEnter={() => handlePanelEnter('top')}
+            onMouseLeave={() => handlePanelLeave('top')}
+          >
+              <div className="flex items-center justify-between px-4 h-full">
+                  <div className="font-bold text-slate-100 tracking-wider flex items-center gap-2">
+                        <div className="w-3 h-3 bg-cyan-500 rounded-sm rotate-45"></div>
+                        NEUROFEEDBACK
+                  </div>
+                  <button onClick={() => setShowSettings(true)} className="text-slate-500 hover:text-white transition-colors p-2">
+                      <GearIcon className="h-5 w-5"/>
+                  </button>
+              </div>
+          </div>
+      );
+  };
+
+  // --- Global Footer (Slide-out in Zen Mode) ---
+  const renderGlobalFooter = () => {
+      const visible = isImmersive ? panelVisibility.bottom : true;
+      const classes = isImmersive
+        ? \`fixed bottom-0 left-0 w-full h-8 bg-slate-900/90 backdrop-blur border-t border-slate-800 z-[70] transform transition-transform duration-300 \${visible ? 'translate-y-0' : 'translate-y-full'}\`
+        : "w-full h-8 bg-slate-900 border-t border-slate-800 flex-none z-20 relative";
+
+      return (
+         <div 
+            className={classes}
+            onMouseEnter={() => handlePanelEnter('bottom')}
+            onMouseLeave={() => handlePanelLeave('bottom')}
+         >
+             <div className="flex items-center justify-between px-6 h-full">
+                 <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                     <span className="text-green-400 font-mono font-bold">{protocolRunner.connectionStatus || 'System Ready'}</span>
+                     {protocolRunner.runningProtocols.length > 0 && (
+                         <>
+                             <span>|</span>
+                             <span>{protocolRunner.runningProtocols.length} Active</span>
+                         </>
+                     )}
+                 </div>
+                 <div className="text-[10px] text-slate-500 font-mono">
+                    API Ops: {totalApiCalls}
+                 </div>
+             </div>
+         </div>
+      );
+  };
+
+  // --- Left Panel Wrapper ---
+  const renderLeftPanelContainer = () => {
+      const visible = isImmersive ? panelVisibility.left : true;
+      // In Zen mode: Absolute positioning, full height minus header? No, full screen height.
+      // In Normal mode: Relative block.
+      
+      const containerClasses = isImmersive 
+          ? \`fixed top-0 left-0 h-full w-[350px] bg-slate-900/95 backdrop-blur shadow-2xl z-[60] border-r border-slate-800 transform transition-transform duration-300 ease-out \${visible ? 'translate-x-0' : '-translate-x-full'}\`
+          : "w-1/4 min-w-[300px] max-w-[400px] flex flex-col border-r border-slate-800 bg-slate-900 relative z-10";
+
+      return (
+          <div 
+            className={containerClasses}
+            onMouseEnter={() => handlePanelEnter('left')}
+            onMouseLeave={() => handlePanelLeave('left')}
+          >
+            {/* Navigation Tabs */}
+            <div className="flex border-b border-slate-800 shrink-0 bg-slate-900 pt-12 md:pt-0"> {/* Add padding top in Zen if header overlaps? No, z-index handles it. */}
+                <button onClick={() => setLeftTab('research')} className={\`flex-1 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors \${leftTab === 'research' ? 'border-cyan-500 text-cyan-400 bg-slate-800' : 'border-transparent text-slate-500 hover:text-slate-300'}\`}>Mission Control</button>
+                <button onClick={() => setLeftTab('library')} className={\`flex-1 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors \${leftTab === 'library' ? 'border-cyan-500 text-cyan-400 bg-slate-800' : 'border-transparent text-slate-500 hover:text-slate-300'}\`}>Library</button>
+                <button onClick={() => setLeftTab('firmware')} className={\`flex-1 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors \${leftTab === 'firmware' ? 'border-cyan-500 text-cyan-400 bg-slate-800' : 'border-transparent text-slate-500 hover:text-slate-300'}\`}>System</button>
+            </div>
+            <div className="flex-grow p-4 min-h-0 overflow-hidden">
+                {leftTab === 'research' && renderResearchPanel()}
+                {leftTab === 'library' && renderLibraryPanel()}
+                {leftTab === 'firmware' && renderFirmwarePanel()}
+            </div>
+          </div>
+      );
+  };
+
+  // --- Right Panel Wrapper ---
+  const renderRightPanelContainer = () => {
+      const visible = isImmersive ? panelVisibility.right : true;
+      const containerClasses = isImmersive 
+          ? \`fixed top-0 right-0 h-full w-[300px] bg-slate-900/95 backdrop-blur shadow-2xl z-[60] border-l border-slate-800 transform transition-transform duration-300 ease-out \${visible ? 'translate-x-0' : 'translate-x-full'}\`
+          : "w-1/4 min-w-[250px] max-w-[350px] flex flex-col border-l border-slate-800 bg-slate-900 relative z-10";
+
+      return (
+          <div 
+            className={containerClasses}
+            onMouseEnter={() => handlePanelEnter('right')}
+            onMouseLeave={() => handlePanelLeave('right')}
+          >
+            <div className="h-12 border-b border-slate-800 flex items-center px-4 justify-between bg-slate-900 shrink-0">
+                <span className="text-xs font-bold text-slate-500 tracking-wider uppercase">Telemetry & I/O</span>
+                <div className="flex gap-1">
+                    <button 
+                        onClick={handleGenesisLaunch} 
+                        className={\`p-1.5 rounded hover:bg-slate-800 \${genesisMode ? 'text-purple-400 border border-purple-500' : 'text-slate-600'}\`} 
+                        title="Launch Vibecoder Genesis Mode"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547a2 2 0 00-.547 1.806l.443 2.387a6 6 0 00.517 3.86l.158.318a6 6 0 00.517 3.86l.477 2.387zM12 6V4m0 2a2 2 0 012 2v1H10V8a2 2 0 012-2z" /></svg>
+                    </button>
+                    <button onClick={() => setRightTab('telemetry')} className={\`p-1.5 rounded hover:bg-slate-800 \${rightTab === 'telemetry' ? 'text-cyan-400' : 'text-slate-600'}\`}><DeviceIcon className="h-4 w-4"/></button>
+                    <button onClick={() => setRightTab('logs')} className={\`p-1.5 rounded hover:bg-slate-800 \${rightTab === 'logs' ? 'text-cyan-400' : 'text-slate-600'}\`}><TerminalIcon className="h-4 w-4"/></button>
+                </div>
+            </div>
+            <div className="flex-grow p-4 min-h-0 overflow-hidden">
+                {rightTab === 'telemetry' ? renderTelemetryPanel() : (
+                     <div className="h-full flex flex-col">
+                        <div className="flex-grow overflow-y-auto font-mono text-[10px] text-slate-400 space-y-1 custom-scrollbar">
+                             {runtime.getState().eventLog.map((log, i) => <div key={i} className="break-words border-b border-slate-800/50 pb-0.5">{log}</div>)}
+                        </div>
+                     </div>
+                )}
+            </div>
+          </div>
+      );
+  };
+
+  // --- Center Stage / Main Content ---
+  const renderCenterStage = () => {
+      return (
+        <div className="flex-grow flex flex-col bg-black relative z-0 overflow-hidden">
+             {genesisMode ? (
+                 <div className="flex-grow relative w-full h-full">
+                     <UniversalCanvas runtime={runtime} />
+                     <div className="absolute top-4 left-4 z-50">
+                         <div className="bg-purple-900/50 border border-purple-500 text-purple-200 px-3 py-1 rounded font-bold text-xs animate-pulse">
+                             VIBECODER GENESIS ACTIVE
+                         </div>
+                     </div>
+                 </div>
+             ) : (
+                <div className="flex-grow relative overflow-hidden flex">
+                    {protocolRunner.runningProtocols.length > 0 ? (
+                        <div className={\`grid w-full h-full \${
+                            protocolRunner.runningProtocols.length === 1 ? 'grid-cols-1' :
+                            protocolRunner.runningProtocols.length === 2 ? 'grid-cols-2' :
+                            'grid-cols-2 grid-rows-2' 
+                        }\`}>
+                            {protocolRunner.runningProtocols.map(app => (
+                                <div key={app.id} className="relative border border-slate-800/50 overflow-hidden bg-[#050505] p-0">
+                                    {renderPlayerDisplay({
+                                        selectedProtocol: app,
+                                        runningProtocol: app,
+                                        processedData: protocolRunner.processedDataMap[app.id],
+                                        rawData: protocolRunner.rawData,
+                                        connectionStatus: protocolRunner.connectionStatus,
+                                        handleRunProtocol: (p) => protocolRunner.toggleProtocol(p),
+                                        runtime,
+                                        vibecoderHistory,
+                                        startSwarmTask,
+                                        onEvolve: handleEvolveRequest
+                                    })}
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex-grow flex flex-col items-center justify-center text-slate-600 opacity-50">
+                            <BeakerIcon className="h-24 w-24 mb-4 text-slate-700" />
+                            <h2 className="text-xl font-bold text-slate-500">Ready for Deployment</h2>
+                            <p className="text-sm">Select protocols from the Library to launch.</p>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+      );
+  };
+
+  // --- Main Layout Return ---
   return (
-    <div className="h-full w-full bg-black text-slate-200 font-sans flex overflow-hidden relative">
+    <div className="h-full w-full bg-black text-slate-200 font-sans overflow-hidden relative flex flex-col">
         {renderSettingsModal()}
         {renderEvolveModal()}
         {renderResetConfirmModal()}
@@ -400,6 +599,30 @@ export const MAIN_PANEL_CODE = `
             onChange={handleFileImport}
         />
         
+        {/* Global Overlays - Header & Footer */}
+        {renderGlobalHeader()}
+        
+        {/* Main Content Area */}
+        {/* In Zen mode, this takes full screen. In Normal, it flexes. */}
+        <div className="flex-grow flex relative overflow-hidden">
+            {renderLeftPanelContainer()}
+            {renderCenterStage()}
+            {renderRightPanelContainer()}
+        </div>
+
+        {renderGlobalFooter()}
+
+        {/* Trigger Zones for Immersive Mode */}
+        {isImmersive && (
+            <>
+                <div className="fixed top-0 left-0 h-full w-4 z-[55] cursor-pointer" onMouseEnter={() => handlePanelEnter('left')} />
+                <div className="fixed top-0 right-0 h-full w-4 z-[55] cursor-pointer" onMouseEnter={() => handlePanelEnter('right')} />
+                <div className="fixed bottom-0 left-0 w-full h-4 z-[55] cursor-pointer" onMouseEnter={() => handlePanelEnter('bottom')} />
+                <div className="fixed top-0 left-0 w-full h-4 z-[55] cursor-pointer" onMouseEnter={() => handlePanelEnter('top')} />
+            </>
+        )}
+
+        {/* Security Handshake Modal */}
         {protocolRunner.authNeededDevice && (
             <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
                 <div className="bg-slate-900 border-2 border-yellow-600 rounded-lg shadow-2xl max-w-md w-full p-6 text-center">
@@ -434,6 +657,7 @@ export const MAIN_PANEL_CODE = `
             </div>
         )}
         
+        {/* Doc Viewer Modal */}
         {firmwareManager.docViewer && (
             <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
                 <div className="bg-slate-900 border border-slate-600 rounded-lg shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col">
@@ -458,111 +682,6 @@ export const MAIN_PANEL_CODE = `
                 </div>
             </div>
         )}
-
-        <div className="w-1/4 min-w-[300px] max-w-[400px] border-r border-slate-800 flex flex-col bg-slate-900 z-20 shadow-xl">
-            <div className="h-12 border-b border-slate-800 flex items-center px-4 justify-between">
-                <div className="font-bold text-slate-100 tracking-wider flex items-center gap-2">
-                    <div className="w-3 h-3 bg-cyan-500 rounded-sm rotate-45"></div>
-                    NEUROFEEDBACK
-                </div>
-                <button onClick={() => setShowSettings(true)} className="text-slate-500 hover:text-white"><GearIcon className="h-4 w-4"/></button>
-            </div>
-            <div className="flex border-b border-slate-800">
-                <button onClick={() => setLeftTab('research')} className={\`flex-1 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors \${leftTab === 'research' ? 'border-cyan-500 text-cyan-400 bg-slate-800' : 'border-transparent text-slate-500 hover:text-slate-300'}\`}>Mission Control</button>
-                <button onClick={() => setLeftTab('library')} className={\`flex-1 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors \${leftTab === 'library' ? 'border-cyan-500 text-cyan-400 bg-slate-800' : 'border-transparent text-slate-500 hover:text-slate-300'}\`}>Library</button>
-                <button onClick={() => setLeftTab('firmware')} className={\`flex-1 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors \${leftTab === 'firmware' ? 'border-cyan-500 text-cyan-400 bg-slate-800' : 'border-transparent text-slate-500 hover:text-slate-300'}\`}>System</button>
-            </div>
-            <div className="flex-grow p-4 min-h-0 overflow-hidden">
-                {leftTab === 'research' && renderResearchPanel()}
-                {leftTab === 'library' && renderLibraryPanel()}
-                {leftTab === 'firmware' && renderFirmwarePanel()}
-            </div>
-        </div>
-
-        <div className="flex-grow flex flex-col bg-black relative z-0">
-             {genesisMode ? (
-                 <div className="flex-grow relative w-full h-full">
-                     <UniversalCanvas runtime={runtime} />
-                     <div className="absolute top-4 left-4 z-50">
-                         <div className="bg-purple-900/50 border border-purple-500 text-purple-200 px-3 py-1 rounded font-bold text-xs animate-pulse">
-                             VIBECODER GENESIS ACTIVE
-                         </div>
-                     </div>
-                 </div>
-             ) : (
-                <div className="flex-grow relative overflow-hidden">
-                    {protocolRunner.runningProtocols.length > 0 ? (
-                        <div className={\`grid w-full h-full \${
-                            protocolRunner.runningProtocols.length === 1 ? 'grid-cols-1' :
-                            protocolRunner.runningProtocols.length === 2 ? 'grid-cols-2' :
-                            'grid-cols-2 grid-rows-2' 
-                        }\`}>
-                            {protocolRunner.runningProtocols.map(app => (
-                                <div key={app.id} className="relative border border-slate-800/50 overflow-hidden bg-[#050505] p-2">
-                                    {renderPlayerDisplay({
-                                        selectedProtocol: app,
-                                        runningProtocol: app,
-                                        processedData: protocolRunner.processedDataMap[app.id],
-                                        rawData: protocolRunner.rawData,
-                                        connectionStatus: protocolRunner.connectionStatus,
-                                        handleRunProtocol: (p) => protocolRunner.toggleProtocol(p),
-                                        runtime,
-                                        vibecoderHistory,
-                                        startSwarmTask,
-                                        onEvolve: handleEvolveRequest
-                                    })}
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="flex h-full flex-col items-center justify-center text-slate-600 opacity-50">
-                            <BeakerIcon className="h-24 w-24 mb-4 text-slate-700" />
-                            <h2 className="text-xl font-bold text-slate-500">Ready for Deployment</h2>
-                            <p className="text-sm">Select protocols from the Library to launch.</p>
-                        </div>
-                    )}
-                </div>
-            )}
-            
-            {protocolRunner.runningProtocols.length > 0 && !genesisMode && (
-                 <div className="flex-none h-8 bg-slate-900/80 backdrop-blur-md border-t border-slate-800 flex items-center justify-between px-6 z-30">
-                     <div className="text-[10px] text-slate-400 flex items-center gap-2">
-                         <span className="text-green-400 font-mono font-bold">{protocolRunner.connectionStatus || 'Connecting...'}</span>
-                         <span>|</span>
-                         <span>{protocolRunner.runningProtocols.length} Active Sessions</span>
-                     </div>
-                     <div className="text-[10px] text-slate-500 font-mono">
-                        API Ops: {totalApiCalls}
-                     </div>
-                 </div>
-            )}
-        </div>
-
-        <div className="w-1/4 min-w-[250px] max-w-[350px] border-l border-slate-800 flex flex-col bg-slate-900 z-20 shadow-xl">
-            <div className="h-12 border-b border-slate-800 flex items-center px-4 justify-between bg-slate-900">
-                <span className="text-xs font-bold text-slate-500 tracking-wider uppercase">Telemetry & I/O</span>
-                <div className="flex gap-1">
-                    <button 
-                        onClick={handleGenesisLaunch} 
-                        className={\`p-1.5 rounded hover:bg-slate-800 \${genesisMode ? 'text-purple-400 border border-purple-500' : 'text-slate-600'}\`} 
-                        title="Launch Vibecoder Genesis Mode"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547a2 2 0 00-.547 1.806l.443 2.387a6 6 0 00.517 3.86l.158.318a6 6 0 00.517 3.86l.477 2.387zM12 6V4m0 2a2 2 0 012 2v1H10V8a2 2 0 012-2z" /></svg>
-                    </button>
-                    <button onClick={() => setRightTab('telemetry')} className={\`p-1.5 rounded hover:bg-slate-800 \${rightTab === 'telemetry' ? 'text-cyan-400' : 'text-slate-600'}\`}><DeviceIcon className="h-4 w-4"/></button>
-                    <button onClick={() => setRightTab('logs')} className={\`p-1.5 rounded hover:bg-slate-800 \${rightTab === 'logs' ? 'text-cyan-400' : 'text-slate-600'}\`}><TerminalIcon className="h-4 w-4"/></button>
-                </div>
-            </div>
-            <div className="flex-grow p-4 min-h-0 overflow-hidden">
-                {rightTab === 'telemetry' ? renderTelemetryPanel() : (
-                     <div className="h-full flex flex-col">
-                        <div className="flex-grow overflow-y-auto font-mono text-[10px] text-slate-400 space-y-1 custom-scrollbar">
-                             {runtime.getState().eventLog.map((log, i) => <div key={i} className="break-words border-b border-slate-800/50 pb-0.5">{log}</div>)}
-                        </div>
-                     </div>
-                )}
-            </div>
-        </div>
 
     </div>
   );

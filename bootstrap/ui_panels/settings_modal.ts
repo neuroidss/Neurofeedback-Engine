@@ -8,12 +8,10 @@ export const SETTINGS_MODAL_CODE = `
           <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
               
               {/* Modal Container */}
-              {/* Removed 'animate-fade-in-scale' because it contained a 'translate(-50%, -50%)' transform which conflicted with Flexbox centering. */}
               <div 
                   className="relative w-full max-w-2xl bg-[#0f172a] border border-slate-700 rounded-xl shadow-2xl flex flex-col overflow-hidden max-h-[90vh]"
                   style={{ animation: 'popIn 0.2s ease-out' }}
               >
-                  {/* Style tag for local animation to avoid dependency on index.html's broken keyframes */}
                   <style>{\`
                     @keyframes popIn {
                       from { opacity: 0; transform: scale(0.95); }
@@ -21,7 +19,7 @@ export const SETTINGS_MODAL_CODE = `
                     }
                   \`}</style>
 
-                  {/* 1. Header - Fixed height */}
+                  {/* 1. Header */}
                   <div className="shrink-0 flex justify-between items-center p-4 border-b border-slate-800 bg-slate-900/50">
                       <h2 className="text-lg font-bold text-white flex items-center gap-3">
                           <div className="p-1.5 bg-cyan-500/10 rounded-lg border border-cyan-500/20">
@@ -37,9 +35,78 @@ export const SETTINGS_MODAL_CODE = `
                       </button>
                   </div>
                   
-                  {/* 2. Content - Scrollable */}
+                  {/* 2. Content */}
                   <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-950/30">
                       
+                      {/* System Section (Moved Top for visibility of Immersive Mode) */}
+                      <div className="space-y-3">
+                          <h3 className="text-xs font-bold text-purple-400 uppercase tracking-widest border-b border-slate-800/60 pb-2">
+                              Experience & System
+                          </h3>
+                          
+                          <div className="grid gap-3">
+                               <div className="flex items-center justify-between bg-slate-900/40 p-3 rounded-lg border border-slate-800">
+                                  <div>
+                                      <div className="text-sm font-bold text-white">Immersive Zen Mode</div>
+                                      <div className="text-xs text-slate-500">Auto-hide menus for full-screen neurofeedback</div>
+                                  </div>
+                                  <input 
+                                    type="checkbox" 
+                                    checked={apiConfig.immersiveMode !== false} // Default true
+                                    onChange={e => setApiConfig({...apiConfig, immersiveMode: e.target.checked})} 
+                                    className="accent-cyan-500 h-4 w-4 cursor-pointer"
+                                  />
+                              </div>
+
+                               <div className="flex items-center justify-between bg-slate-900/40 p-3 rounded-lg border border-slate-800">
+                                  <div>
+                                      <div className="text-sm font-bold text-white">Protocol Generation</div>
+                                      <div className="text-xs text-slate-500">Generation Strategy</div>
+                                  </div>
+                                  <select 
+                                    value={apiConfig.protocolGenerationMode || 'script'} 
+                                    onChange={e => setApiConfig({...apiConfig, protocolGenerationMode: e.target.value})}
+                                    className="bg-black/40 border border-slate-700 text-xs text-white rounded-md px-2 py-1 focus:border-purple-500 outline-none"
+                                  >
+                                    <option value="script">Classic Script (React)</option>
+                                    <option value="graph">Stream Graph (Vibecoder)</option>
+                                  </select>
+                              </div>
+
+                              <div className="flex items-center justify-between bg-slate-900/40 p-3 rounded-lg border border-slate-800">
+                                  <div>
+                                      <div className="text-sm font-bold text-white">Quantum Proxy</div>
+                                      <div className="text-xs text-slate-500">Enable D-Wave simulation</div>
+                                  </div>
+                                  <input type="checkbox" checked={apiConfig.useQuantumSDR || false} onChange={e => setApiConfig({...apiConfig, useQuantumSDR: e.target.checked})} className="accent-purple-500 h-4 w-4"/>
+                              </div>
+                              
+                              <div className="flex items-center justify-between bg-slate-900/40 p-3 rounded-lg border border-slate-800">
+                                  <div>
+                                      <div className="text-sm font-bold text-white">Auto-Restore</div>
+                                      <div className="text-xs text-slate-500">Resume last session on load</div>
+                                  </div>
+                                  <input type="checkbox" checked={apiConfig.autoRestoreSession || false} onChange={e => setApiConfig({...apiConfig, autoRestoreSession: e.target.checked})} className="accent-sky-500 h-4 w-4"/>
+                              </div>
+
+                              <div className="flex items-center justify-between bg-slate-900/40 p-3 rounded-lg border border-slate-800">
+                                  <div>
+                                      <div className="text-sm font-bold text-white">Compute Backend</div>
+                                      <div className="text-xs text-slate-500">DSP Processing Engine</div>
+                                  </div>
+                                  <select 
+                                    value={apiConfig.computeBackend || 'gpu'} 
+                                    onChange={e => setApiConfig({...apiConfig, computeBackend: e.target.value})}
+                                    className="bg-black/40 border border-slate-700 text-xs text-white rounded-md px-2 py-1 focus:border-cyan-500 outline-none"
+                                  >
+                                    <option value="gpu">GPU (WebGL)</option>
+                                    <option value="worker">CPU Worker</option>
+                                    <option value="main">Main Thread</option>
+                                  </select>
+                              </div>
+                          </div>
+                      </div>
+
                       {/* AI Providers Section */}
                       <div className="space-y-3">
                           <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-widest border-b border-slate-800/60 pb-2">
@@ -165,65 +232,9 @@ export const SETTINGS_MODAL_CODE = `
                               </div>
                            </div>
                       </div>
-
-                      {/* System Section */}
-                      <div className="space-y-3">
-                          <h3 className="text-xs font-bold text-purple-400 uppercase tracking-widest border-b border-slate-800/60 pb-2">
-                              System
-                          </h3>
-                          
-                          <div className="grid gap-3">
-                               <div className="flex items-center justify-between bg-slate-900/40 p-3 rounded-lg border border-slate-800">
-                                  <div>
-                                      <div className="text-sm font-bold text-white">Protocol Generation</div>
-                                      <div className="text-xs text-slate-500">Generation Strategy</div>
-                                  </div>
-                                  <select 
-                                    value={apiConfig.protocolGenerationMode || 'script'} 
-                                    onChange={e => setApiConfig({...apiConfig, protocolGenerationMode: e.target.value})}
-                                    className="bg-black/40 border border-slate-700 text-xs text-white rounded-md px-2 py-1 focus:border-purple-500 outline-none"
-                                  >
-                                    <option value="script">Classic Script (React)</option>
-                                    <option value="graph">Stream Graph (Vibecoder)</option>
-                                  </select>
-                              </div>
-
-                              <div className="flex items-center justify-between bg-slate-900/40 p-3 rounded-lg border border-slate-800">
-                                  <div>
-                                      <div className="text-sm font-bold text-white">Quantum Proxy</div>
-                                      <div className="text-xs text-slate-500">Enable D-Wave simulation</div>
-                                  </div>
-                                  <input type="checkbox" checked={apiConfig.useQuantumSDR || false} onChange={e => setApiConfig({...apiConfig, useQuantumSDR: e.target.checked})} className="accent-purple-500 h-4 w-4"/>
-                              </div>
-                              
-                              <div className="flex items-center justify-between bg-slate-900/40 p-3 rounded-lg border border-slate-800">
-                                  <div>
-                                      <div className="text-sm font-bold text-white">Auto-Restore</div>
-                                      <div className="text-xs text-slate-500">Resume last session on load</div>
-                                  </div>
-                                  <input type="checkbox" checked={apiConfig.autoRestoreSession || false} onChange={e => setApiConfig({...apiConfig, autoRestoreSession: e.target.checked})} className="accent-sky-500 h-4 w-4"/>
-                              </div>
-
-                              <div className="flex items-center justify-between bg-slate-900/40 p-3 rounded-lg border border-slate-800">
-                                  <div>
-                                      <div className="text-sm font-bold text-white">Compute Backend</div>
-                                      <div className="text-xs text-slate-500">DSP Processing Engine</div>
-                                  </div>
-                                  <select 
-                                    value={apiConfig.computeBackend || 'gpu'} 
-                                    onChange={e => setApiConfig({...apiConfig, computeBackend: e.target.value})}
-                                    className="bg-black/40 border border-slate-700 text-xs text-white rounded-md px-2 py-1 focus:border-cyan-500 outline-none"
-                                  >
-                                    <option value="gpu">GPU (WebGL)</option>
-                                    <option value="worker">CPU Worker</option>
-                                    <option value="main">Main Thread</option>
-                                  </select>
-                              </div>
-                          </div>
-                      </div>
                   </div>
                   
-                  {/* 3. Footer - Fixed height */}
+                  {/* 3. Footer */}
                   <div className="shrink-0 p-4 border-t border-slate-800 bg-slate-900/80 flex justify-end">
                       <button 
                         onClick={() => setShowSettings(false)} 

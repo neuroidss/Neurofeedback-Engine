@@ -135,6 +135,9 @@ export interface APIConfig {
 
   // --- Generator Mode ---
   protocolGenerationMode?: 'script' | 'graph'; // 'script' = Classic React, 'graph' = Stream Engine
+  
+  // --- UI Preferences ---
+  immersiveMode?: boolean; // Auto-hide panels
 }
 
 export type UIToolRunnerProps = Record<string, any>;
