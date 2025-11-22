@@ -1,7 +1,7 @@
 
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
-import React, { Component, type ReactNode, type ErrorInfo } from 'react';
+import React, { type ReactNode, type ErrorInfo } from 'react';
 import type { LLMTool, UIToolRunnerProps } from '../types';
 import DebugLogView from './ui_tools/DebugLogView';
 import * as Icons from './icons';
@@ -15,7 +15,6 @@ interface UIToolRunnerComponentProps {
 }
 
 // A wrapper to catch runtime errors in the compiled component.
-// It now resets its error state if the tool being rendered changes.
 type ErrorBoundaryProps = {
   fallback: ReactNode;
   toolName: string;
@@ -25,11 +24,11 @@ type ErrorBoundaryState = {
   hasError: boolean;
 };
 
-// FIX: Extended Component explicitly to ensure it is treated as a React component class by TypeScript.
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  // FIX: The constructor-based state initialization was failing with the build configuration. 
-  // Switched to class property syntax for state, which is more modern and resolves the type inference issues.
-  state: ErrorBoundaryState = { hasError: false };
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
 
   static getDerivedStateFromError(error: any): ErrorBoundaryState {
     console.error("UI Tool Runner caught an error:", error);

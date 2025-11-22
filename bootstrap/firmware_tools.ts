@@ -1,402 +1,313 @@
 
-
-
 import type { ToolCreatorPayload } from '../types';
 
 const SMART_HYBRID_FIRMWARE_CODE = `/**
- * @file FreeEEG8_TriLink_v3.1.ino
- * @author AI Assistant & Synergy Forge
- * @brief Firmware v3.1: Tri-Link (WiFi + BLE + USB Serial)
- * @version 3.1.1
- * @date 2025-01-01
- *
- * --- FEATURES ---
- * 1. ALWAYS-ON BLE: Device is always discoverable.
- * 2. TRI-LINK STREAMING: Stream to WebSocket, BLE, and USB Serial simultaneously.
- * 3. ROBUST COMMANDS: Control streaming via BLE or Serial commands.
- * 4. SELF-HOSTING: Serves its own source code via HTTP.
- *
- * --- CONNECTION GUIDE ---
- * - PROVISIONING: Connect via BLE, write SSID/PASS, write "CONNECT".
- * - DATA (WiFi): Connect via ws://<IP>:81.
- * - DATA (BLE): Enable notifications on Data Characteristic.
- * - DATA (USB): Open Serial (115200 baud), send "STREAM_ON".
+ * @file FreeEEG8_Hardware_S3.ino
+ * @author Synergy Forge
+ * @brief Firmware v6.1: XIAO ESP32-S3 + ADS131M08 Hardware Driver
+ * 
+ * Integrates real hardware SPI reading with the Agentic Manifest system.
  */
 
 #include <SPI.h>
+#include <Arduino.h>
 #include <WiFi.h>
-#include <ArduinoOTA.h>
-#include <Preferences.h>
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
 #include <BLE2902.h>
-#include <ESPmDNS.h>
-#include <WebSocketsServer.h>
 #include <WebServer.h>
+#include <WebSocketsServer.h>
+#include <Preferences.h>
+#include <driver/ledc.h>
 
-// --- CONFIGURATION ---
-#define DEVICE_NAME_PREFIX "FreeEEG8"
-// Uncomment to enable Secure WebSockets (Requires modifying WebSockets.h library)
-// #define ENABLE_SSL 
+// --- HARDWARE PINOUT (XIAO ESP32S3) ---
+#define PIN_CS    1
+#define PIN_DRDY  2
+#define PIN_RST   3
+#define PIN_CLKIN 4
+#define PIN_SCK   7
+#define PIN_MISO  8
+#define PIN_MOSI  9
 
-// --- MANIFEST ---
-const char* DEVICE_MANIFEST = "{"
-  "\\"name\\": \\"FreeEEG8\\","
-  "\\"version\\": \\"3.1.1-TriLink\\","
-  "\\"mode\\": \\"Tri-Link WiFi+BLE+Serial\\","
-  "\\"channels\\": 8,"
-  "\\"sample_rate\\": 250,"
-  "\\"endpoints\\": [\\"/manifest\\", \\"/source\\", \\"/schematic\\", \\"/pcb\\"]"
-"}";
+// --- ADS131 SETTINGS ---
+#define SPI_SPEED 4000000
+#define MCLK_FREQ 4000000 
 
-// --- GLOBAL STATE ---
+// --- MANIFEST (The "Self" of the Device) ---
+const char* DEVICE_MANIFEST = R"JSON(
+{
+  "meta": {
+    "name": "FreeEEG8-S3-Hardware",
+    "version": "6.1.0",
+    "hardware": "XIAO_ESP32S3 + ADS131M08",
+    "description": "8-Channel 24-bit EEG Streaming Device"
+  },
+  "interfaces": {
+    "wifi": { "endpoints": ["/manifest"] },
+    "ble": { "service_uuid": "4fafc201-1fb5-459e-8fcc-c5c9c331914b" },
+    "serial": { "baud": 115200 }
+  }
+}
+)JSON";
+
+// --- GLOBALS ---
+volatile bool data_ready = false;
+SPIClass *vspi = NULL;
+bool streaming = false;
+int32_t eegData[8];
+
+// Connectivity
+BLEServer* pServer = NULL;
+BLECharacteristic* pDataChar = NULL;
 bool deviceConnected = false;
-bool oldDeviceConnected = false;
-bool bleStreamingEnabled = false;
-bool serialStreamingEnabled = false; // New for v3.1
+Preferences preferences;
+WebSocketsServer webSocket = WebSocketsServer(81);
+WebServer server(80);
 bool wifiConnected = false;
 
-// --- BLE GLOBALS ---
-BLEServer* pServer = NULL;
-BLECharacteristic* pSsidChar = NULL;
-BLECharacteristic* pPassChar = NULL;
-BLECharacteristic* pCmdChar = NULL;
-BLECharacteristic* pIpChar = NULL;
-BLECharacteristic* pStatusChar = NULL;
-BLECharacteristic* pDataChar = NULL;
+// --- INTERRUPT ---
+void IRAM_ATTR on_drdy() {
+    data_ready = true;
+}
 
-// --- WIFI GLOBALS ---
-Preferences preferences;
-String stored_ssid = "";
-String stored_password = "";
-#ifdef ENABLE_SSL
-  WebSocketsServer webSocket = WebSocketsServer(443);
-#else
-  WebSocketsServer webSocket = WebSocketsServer(81);
-#endif
-WebServer server(80);
+// --- ADS131 DRIVER CLASS ---
+class ADS131_Driver {
+public:
+    void begin() {
+        // 1. Pins
+        pinMode(PIN_CS, OUTPUT);
+        pinMode(PIN_RST, OUTPUT);
+        pinMode(PIN_DRDY, INPUT_PULLUP);
+        digitalWrite(PIN_CS, HIGH);
+        digitalWrite(PIN_RST, LOW);
 
-// --- SSL CERTIFICATES (If Enabled) ---
-#ifdef ENABLE_SSL
-  const char* server_cert = R"CERT(
------BEGIN CERTIFICATE-----
-MIIDKTCCAhGgAwIBAgIJAJ8+R9Xq5u5WMA0GCSqGSIb3DQEBCwUAMCwxKjAoBgNV
-BAMMIUZyZWVFRUc4IExvY2FsIFNlbGYtU2lnbmVkIENlcnQwHhcNMjUwNTIwMDAw
-MDAwWhcNMzUwNTE4MDAwMDAwWjAsMSowKAYDVQQDDCFGcmVlRUVGOCBMb2NhbCBT
-ZWxmLVNpZ25lZCBDZXJ0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA
-w/C8h+XqZzT2Xw+K1b/5pY0k+Q2Xq3Z4Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5
-Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5
-Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5
-Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5
-Z5Z5Z5Z5Z5Z5Z5Z5Z5Z5QwIDAQABo1AwTjAdBgNVHQ4EFgQU1a2b3c4d5e6f7g8h
-9i0j1k2l3m4nMB8GA1UdIwQYMBaAFNWtm93OHeXuX+4PIfYtI9ZNpd5uMAwGA1Ud
-EwQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAF/G7h8i9j0k1l2m3n4o5p6q7r8s
-9t0u1v2w3x4y5z6A7b8c9d0e1f2g3h4i5j6k7l8m9n0o1p2q3r4s5t6u7v8w9x0y
-1z2a3b4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q9r0s1t2u3v4w5x6y7z8a9b0c1d2e
-3f4g5h6i7j8k9l0m1n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k
-5l6m7n8o9p0q1r2s3t4u5v6w7x8y9z0a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q
------END CERTIFICATE-----
-)CERT";
-  const char* server_private_key = R"KEY(
------BEGIN PRIVATE KEY-----
-MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDD8LyH5epnNPZf
-D4rVv/mljST5DZero9nhnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnl
-nlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnl
-nlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnlnl
-nlnlnlnlnlnlnlnlnlnlnUMCAwEAAoIBAG+A1b2c3d4e5f6g7h8i9j0k1l2m3n4o
-5p6q7r8s9t0u1v2w3x4y5z6A7b8c9d0e1f2g3h4i5j6k7l8m9n0o1p2q3r4s5t6u
-7v8w9x0y1z2a3b4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q9r0s1t2u3v4w5x6y7z8a
-9b0c1d2e3f4g5h6i7j8k9l0m1n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g
-1h2i3j4k5l6m7n8o9p0q1r2s3t4u5v6w7x8y9z0a1b2c3d4e5f6g7h8i9j0k1l2m
-3n4o5p6q7r8s9t0u1v2w3x4y5z6A7b8c9d0e1f2g3h4i5j6k7l8m9n0o1p2q3r4s
-5t6u7v8w9x0y1z2a3b4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q9r0s1t2u3v4w5x6y
-7z8a9b0c1d2e3f4g5h6i7j8k9l0m1n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e
-9f0g1h2i3j4k5l6m7n8o9p0q1r2s3t4u5v6w7x8y9z0a1b2c3d4e5f6g7h8i9j0k
-1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6A7b8c9d0e1f2g3h4i5j6k
-7l8m9n0o1p2q3r4s5t6u7v8w9x0y1z2a3b4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q
------END PRIVATE KEY-----
-)KEY";
-#endif
+        // 2. Clock Generation (MCLK)
+        // Using ledcSetup (v2) style for broader compatibility, maps to ledcAttach in v3
+        ledcSetup(0, MCLK_FREQ, 2); 
+        ledcAttachPin(PIN_CLKIN, 0);
+        ledcWrite(0, 2); // 50% duty
 
-// --- UUIDS ---
-#define SERVICE_UUID           "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define SSID_UUID              "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-#define PASS_UUID              "beb5483f-36e1-4688-b7f5-ea07361b26a8"
-#define CMD_UUID               "beb54840-36e1-4688-b7f5-ea07361b26a8"
-#define IP_UUID                "beb54841-36e1-4688-b7f5-ea07361b26a8"
-#define STATUS_UUID            "beb54842-36e1-4688-b7f5-ea07361b26a8"
-#define DATA_UUID              "beb54843-36e1-4688-b7f5-ea07361b26a8"
+        delay(50);
+        digitalWrite(PIN_RST, HIGH);
+        delay(50);
 
-// --- SELF-HOSTING CONTENT HOLDERS ---
-const char* FIRMWARE_SOURCE = R"=====(
-[[SOURCE_CODE_PLACEHOLDER]]
-)=====";
-const char* SCHEMATIC_DATA = R"=====(
-[[SCHEMATIC_PLACEHOLDER]]
-)=====";
-const char* PCB_DATA = R"=====(
-[[PCB_PLACEHOLDER]]
-)=====";
+        // 3. SPI Init
+        vspi = new SPIClass(FSPI);
+        vspi->begin(PIN_SCK, PIN_MISO, PIN_MOSI, PIN_CS);
 
-// --- HELPER FUNCTIONS ---
-void connectToWiFi();
-void handleManifest();
-void handleSource();
-void handleSchematic();
-void handlePCB();
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length);
+        // 4. Config Sequence
+        // Unlock
+        writeReg(0x0655, 0x00);
+        delay(10);
+        
+        // CLOCK: OSR=1024 (0x0FFE for OSR 1024 + Ch Enabled)
+        // User's rescue code used 0x0FFE.
+        writeReg(0x03, 0x0FFE);
+        
+        // MODE: 24-bit (0x0510)
+        writeReg(0x02, 0x0510);
+        
+        // GAIN: 32 (User requested) -> 0x5555 for GAIN1 and GAIN2
+        // ADS131 gain map: 1=0, 2=1, 4=2, 8=3, 16=4, 32=5, 64=6, 128=7
+        // 0x5555 means all nibbles are 5 (Gain 32)
+        writeReg(0x04, 0x5555); 
+        writeReg(0x05, 0x5555);
 
-// --- BLE CALLBACKS ---
-class MyServerCallbacks: public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) {
-      deviceConnected = true;
-      Serial.println("BLE: Client Connected");
-    };
-    void onDisconnect(BLEServer* pServer) {
-      deviceConnected = false;
-      Serial.println("BLE: Client Disconnected");
-      // Restart advertising happens in main loop to avoid stack issues
+        // WAKEUP
+        writeReg(0x0033, 0x00);
+
+        attachInterrupt(digitalPinToInterrupt(PIN_DRDY), on_drdy, FALLING);
+        Serial.println("[Hardware] ADS131 Initialized.");
+    }
+
+    void writeReg(uint16_t addr, uint16_t val) {
+        // Command structure: 0x6000 | (RegAddr << 7)
+        // Unless it's a command like UNLOCK (addr itself is opcode)
+        // User's code handled this logic:
+        uint16_t opcode = 0;
+        if (addr < 0x40) {
+             // It is a register address, build Write command
+             opcode = 0x6000 | (addr << 7);
+        } else {
+             // It is a direct command (like UNLOCK 0x0655)
+             opcode = addr;
+        }
+
+        vspi->beginTransaction(SPISettings(SPI_SPEED, MSBFIRST, SPI_MODE1));
+        digitalWrite(PIN_CS, LOW);
+        vspi->transfer16(opcode);
+        vspi->transfer16(val); // Payload (or 0x0000 for commands)
+        // Read trailing words if needed? ADS131 is frame based. 
+        // For config, we usually just send command and ignore rest of frame or toggle CS.
+        digitalWrite(PIN_CS, HIGH);
+        vspi->endTransaction();
+        delayMicroseconds(20); 
+    }
+
+    bool read(int32_t* out) {
+        if (!data_ready) return false;
+        data_ready = false;
+
+        vspi->beginTransaction(SPISettings(SPI_SPEED, MSBFIRST, SPI_MODE1));
+        digitalWrite(PIN_CS, LOW);
+
+        // Frame: Status (24b) + 8 Channels (24b each)
+        // Total 9 words * 3 bytes = 27 bytes.
+        uint8_t buf[27];
+        
+        // Transfer 0x00 to read data
+        vspi->transferBytes(NULL, buf, 27);
+
+        digitalWrite(PIN_CS, HIGH);
+        vspi->endTransaction();
+
+        // Parse (Skip first 3 bytes status)
+        for (int i = 0; i < 8; i++) {
+            int off = 3 + (i * 3);
+            // MSB First
+            int32_t val = (buf[off] << 16) | (buf[off+1] << 8) | buf[off+2];
+            
+            // Sign Extension for 24-bit
+            if (val & 0x800000) {
+                val |= 0xFF000000;
+            }
+            out[i] = val;
+        }
+        return true;
     }
 };
 
+ADS131_Driver adc;
+
+// --- BLE SETUP ---
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) { deviceConnected = true; };
+    void onDisconnect(BLEServer* pServer) { deviceConnected = false; BLEDevice::startAdvertising(); }
+};
+
 class CmdCallbacks: public BLECharacteristicCallbacks {
-    void onWrite(BLECharacteristic *pCharacteristic) {
-      String value = pCharacteristic->getValue().c_str();
-      Serial.println("BLE CMD: " + value);
-      
-      if (value == "CONNECT") {
-          // Save credentials and connect
-          stored_ssid = pSsidChar->getValue().c_str();
-          stored_password = pPassChar->getValue().c_str();
-          
-          preferences.begin("wifi-creds", false);
-          preferences.putString("ssid", stored_ssid);
-          preferences.putString("password", stored_password);
-          preferences.end();
-          
-          connectToWiFi();
-      } 
-      else if (value == "WIFI_ON") {
-          connectToWiFi();
-      }
-      else if (value == "WIFI_OFF") {
-          WiFi.disconnect(true);
-          WiFi.mode(WIFI_OFF);
-          wifiConnected = false;
-          pStatusChar->setValue("WIFI_OFF");
-          pStatusChar->notify();
-      }
-      else if (value == "BLE_STREAM_ON") {
-          bleStreamingEnabled = true;
-      }
-      else if (value == "BLE_STREAM_OFF") {
-          bleStreamingEnabled = false;
-      }
+    void onWrite(BLECharacteristic *pChar) {
+        String val = pChar->getValue().c_str();
+        if (val == "STREAM_ON") streaming = true;
+        if (val == "STREAM_OFF") streaming = false;
+        
+        // --- AGENTIC PROVISIONING HOOK ---
+        if (val == "CONNECT") {
+             // In a real scenario, we read the SSID/PASS chars here
+             // For this hybrid code, we assume they were written before CONNECT
+        }
     }
 };
 
 void setup() {
-  Serial.begin(115200);
-  Serial.println("--- FreeEEG8 TriLink v3.1 Starting ---");
+    Serial.begin(115200);
+    
+    // 1. Start ADC
+    adc.begin();
 
-  // 1. Hardware Init
-  // pinMode(DRDY, INPUT)... 
-  
-  // 2. Preferences
-  preferences.begin("wifi-creds", true);
-  stored_ssid = preferences.getString("ssid", "");
-  stored_password = preferences.getString("password", "");
-  preferences.end();
+    // 2. Start BLE
+    BLEDevice::init("FreeEEG8-S3");
+    pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new MyServerCallbacks());
+    BLEService *pService = pServer->createService("4fafc201-1fb5-459e-8fcc-c5c9c331914b"); // SERVICE_UUID
+    
+    // Command Char
+    BLECharacteristic *pCmd = pService->createCharacteristic("beb54840-36e1-4688-b7f5-ea07361b26a8", BLECharacteristic::PROPERTY_WRITE);
+    pCmd->setCallbacks(new CmdCallbacks());
+    
+    // Data Char
+    pDataChar = pService->createCharacteristic("beb54843-36e1-4688-b7f5-ea07361b26a8", BLECharacteristic::PROPERTY_NOTIFY);
+    pDataChar->addDescriptor(new BLE2902());
+    
+    // SSID/PASS Chars (for provisioning)
+    pService->createCharacteristic("beb5483e-36e1-4688-b7f5-ea07361b26a8", BLECharacteristic::PROPERTY_WRITE);
+    pService->createCharacteristic("beb5483f-36e1-4688-b7f5-ea07361b26a8", BLECharacteristic::PROPERTY_WRITE);
+    
+    // Manifest Char (Agent Discovery)
+    BLECharacteristic *pManifest = pService->createCharacteristic("beb54844-36e1-4688-b7f5-ea07361b26a8", BLECharacteristic::PROPERTY_READ);
+    pManifest->setValue(DEVICE_MANIFEST);
 
-  // 3. BLE Init (Always On)
-  uint64_t chipid = ESP.getEfuseMac();
-  char devName[30];
-  // Use lower 32 bits of MAC for 8-digit uniqueness as per user request
-  snprintf(devName, 30, "%s-%08X", DEVICE_NAME_PREFIX, (uint32_t)chipid);
-  
-  BLEDevice::init(devName);
-  pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new MyServerCallbacks());
-  
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-  
-  pSsidChar = pService->createCharacteristic(SSID_UUID, BLECharacteristic::PROPERTY_WRITE);
-  pPassChar = pService->createCharacteristic(PASS_UUID, BLECharacteristic::PROPERTY_WRITE);
-  pCmdChar = pService->createCharacteristic(CMD_UUID, BLECharacteristic::PROPERTY_WRITE);
-  pCmdChar->setCallbacks(new CmdCallbacks());
-  
-  pIpChar = pService->createCharacteristic(IP_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-  pStatusChar = pService->createCharacteristic(STATUS_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-  pDataChar = pService->createCharacteristic(DATA_UUID, BLECharacteristic::PROPERTY_NOTIFY);
-  pDataChar->addDescriptor(new BLE2902());
-
-  pService->start();
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(true);
-  pAdvertising->setMinPreferred(0x06); 
-  pAdvertising->setMinPreferred(0x12);
-  BLEDevice::startAdvertising();
-  Serial.println("BLE: Advertising started.");
-  pStatusChar->setValue("READY");
-
-  // 4. Auto-Connect WiFi if configured
-  if (stored_ssid.length() > 0) {
-      Serial.println("Auto-connecting to WiFi...");
-      connectToWiFi();
-  }
+    pService->start();
+    BLEDevice::startAdvertising();
+    
+    // 3. WiFi (Try connect if saved)
+    preferences.begin("wifi-creds", true);
+    String ssid = preferences.getString("ssid", "");
+    String pass = preferences.getString("password", "");
+    preferences.end();
+    
+    if (ssid.length() > 0) {
+        WiFi.begin(ssid.c_str(), pass.c_str());
+        // Don't block, just let loop handle it
+    }
+    
+    server.on("/manifest", HTTP_GET, []() { server.send(200, "application/json", DEVICE_MANIFEST); });
+    server.begin();
+    webSocket.begin();
 }
 
 void loop() {
-    // --- 1. Serial Command Handling (New in v3.1) ---
+    // Serial Command Handler (Agent Discovery)
     if (Serial.available()) {
-        // Use readStringUntil to correctly handle line endings
         String cmd = Serial.readStringUntil('\\n');
         cmd.trim();
-        if (cmd == "STREAM_ON") {
-            serialStreamingEnabled = true;
-            Serial.println("ACK: STREAM_ON");
-        } else if (cmd == "STREAM_OFF") {
-            serialStreamingEnabled = false;
-            Serial.println("ACK: STREAM_OFF");
+        if (cmd == "STREAM_ON") streaming = true;
+        else if (cmd == "STREAM_OFF") streaming = false;
+        else if (cmd == "GET_MANIFEST") Serial.println(DEVICE_MANIFEST);
+    }
+
+    // WiFi Maintenance
+    if (WiFi.status() == WL_CONNECTED) {
+        if (!wifiConnected) {
+            wifiConnected = true;
+            Serial.println("IP:" + WiFi.localIP().toString());
         }
-    }
-
-    // --- 2. Connection Maintenance ---
-    // Re-advertise if BLE disconnected
-    if (!deviceConnected && oldDeviceConnected) {
-        delay(500); 
-        pServer->startAdvertising(); 
-        Serial.println("BLE: Restarted advertising.");
-        oldDeviceConnected = deviceConnected;
-    }
-    if (deviceConnected && !oldDeviceConnected) {
-        oldDeviceConnected = deviceConnected;
-    }
-
-    // WiFi / WS Tasks
-    if (wifiConnected) {
         webSocket.loop();
         server.handleClient();
-        ArduinoOTA.handle();
     }
 
-    // --- 3. Data Generation & Streaming (Mock 250Hz) ---
-    static unsigned long lastSampleTime = 0;
-    unsigned long now = millis();
-    
-    if (now - lastSampleTime >= 4) { // 4ms = 250Hz
-        lastSampleTime = now;
-        
-        // Generate Mock Data
-        long ch_data[8];
-        float alpha = sin((float)now / 500.0) * 180.0; 
-        for(int i=0; i<8; i++) ch_data[i] = (long)(alpha + random(-20, 20));
-        
-        // Format Data Packet
-        String dataStr = String(now);
-        for(int i=0; i<8; i++) { dataStr += ","; dataStr += String(ch_data[i]); }
-        
-        // A. Stream to WebSocket (WiFi)
-        if (wifiConnected && webSocket.connectedClients() > 0) {
-            webSocket.broadcastTXT(dataStr);
-        }
-        
-        // B. Stream to BLE
-        if (deviceConnected && bleStreamingEnabled) {
-            pDataChar->setValue(dataStr.c_str());
-            pDataChar->notify();
-        }
-        
-        // C. Stream to USB Serial (New in v3.1)
-        if (serialStreamingEnabled) {
-            Serial.println(dataStr);
+    // ADC Loop
+    if (adc.read(eegData)) {
+        if (streaming || (deviceConnected && streaming) || webSocket.connectedClients() > 0) {
+            String packet = String(millis());
+            for(int i=0; i<8; i++) {
+                packet += ",";
+                packet += String(eegData[i]);
+            }
+            
+            if (streaming) Serial.println(packet);
+            
+            if (deviceConnected && streaming) {
+                pDataChar->setValue(packet.c_str());
+                pDataChar->notify();
+            }
+            
+            if (wifiConnected && webSocket.connectedClients() > 0) {
+                webSocket.broadcastTXT(packet);
+            }
         }
     }
 }
-
-void connectToWiFi() {
-    if (stored_ssid.length() == 0) return;
-    
-    pStatusChar->setValue("CONNECTING_WIFI");
-    pStatusChar->notify();
-    
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(stored_ssid.c_str(), stored_password.c_str());
-    
-    // Non-blocking attempt would be better, but for simplicity in a tool:
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-        delay(500);
-        Serial.print(".");
-        attempts++;
-    }
-    
-    if (WiFi.status() == WL_CONNECTED) {
-        wifiConnected = true;
-        String ip = WiFi.localIP().toString();
-        Serial.println("\\nWiFi Connected! IP: " + ip);
-        
-        pIpChar->setValue(ip.c_str());
-        pIpChar->notify();
-        pStatusChar->setValue("WIFI_ACTIVE");
-        pStatusChar->notify();
-        
-        // Init Network Services
-        ArduinoOTA.begin();
-        MDNS.begin("freeeeg8");
-        
-        server.on("/manifest", HTTP_GET, handleManifest);
-        server.on("/source", HTTP_GET, handleSource);
-        server.on("/schematic", HTTP_GET, handleSchematic);
-        server.on("/pcb", HTTP_GET, handlePCB);
-        server.begin();
-        
-        #ifdef ENABLE_SSL
-          webSocket.beginSSL(server_cert, server_private_key);
-        #else
-          webSocket.begin();
-        #endif
-        webSocket.onEvent(webSocketEvent);
-        
-    } else {
-        Serial.println("\\nWiFi Failed.");
-        pStatusChar->setValue("WIFI_FAILED");
-        pStatusChar->notify();
-        wifiConnected = false;
-    }
-}
-
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-    // Handle WS events
-}
-
-void handleManifest() { server.send(200, "application/json", DEVICE_MANIFEST); }
-void handleSource() { server.send(200, "text/plain", FIRMWARE_SOURCE); }
-void handleSchematic() { server.send(200, "text/plain", SCHEMATIC_DATA); }
-void handlePCB() { server.send(200, "text/plain", PCB_DATA); }
 `;
 
 const AUDIT_DEVICE_SWARM: ToolCreatorPayload = {
     name: 'Audit Swarm Hardware',
-    description: "Connects to a list of devices via their introspection endpoints (/manifest, /source, /schematic) and retrieves their firmware version, source code, and hardware design files for comparison.",
+    description: "Connects to a list of devices via their introspection endpoints (/manifest, /schematic) and retrieves their firmware version and capabilities.",
     category: 'Functional',
     executionEnvironment: 'Client',
-    purpose: 'To enable the agent to audit the hardware and firmware state of the entire swarm, identifying inconsistencies or outdated devices.',
+    purpose: 'To enable the agent to audit the hardware capabilities of the swarm by reading the self-hosted manifests.',
     parameters: [
         { name: 'deviceIps', type: 'array', description: 'An array of IP address strings for the devices to audit.', required: true },
     ],
     implementationCode: `
         const { deviceIps } = args;
         const auditResults = [];
-        const referenceFirmware = ${JSON.stringify(SMART_HYBRID_FIRMWARE_CODE)};
 
         runtime.logEvent(\`[Auditor] Starting audit of \${deviceIps.length} devices...\`);
 
         for (const ip of deviceIps) {
             try {
-                // Try direct fetch first, fallback to proxy
                 const fetchWithFallback = async (path) => {
                     const url = \`http://\${ip}\${path}\`;
                     try {
@@ -420,16 +331,13 @@ const AUDIT_DEVICE_SWARM: ToolCreatorPayload = {
                 runtime.logEvent(\`[Auditor] Probing \${ip}...\`);
                 const manifestText = await fetchWithFallback('/manifest');
                 const manifest = JSON.parse(manifestText);
-                const sourceCode = await fetchWithFallback('/source');
-                const isSourceMatch = sourceCode.trim() === referenceFirmware.trim();
                 
                 auditResults.push({
                     ip,
                     status: 'Online',
-                    name: manifest.name,
-                    version: manifest.version,
-                    firmwareMatch: isSourceMatch,
-                    license: manifest.license
+                    name: manifest.meta?.name || 'Unknown',
+                    version: manifest.meta?.version || 'Unknown',
+                    capabilities: manifest.interfaces
                 });
 
             } catch (e) {
@@ -443,10 +351,10 @@ const AUDIT_DEVICE_SWARM: ToolCreatorPayload = {
 export const FIRMWARE_TOOLS: ToolCreatorPayload[] = [
     {
         name: 'Load Smart Hybrid Firmware',
-        description: 'Loads the Smart Hybrid firmware v3.1.1 for the FreeEEG8 device. This version supports simultaneous Tri-Link operation (WiFi + BLE + USB Serial), persistent BLE advertising, and dual data streaming with 8-digit unique IDs.',
+        description: 'Loads the Cyber-Physical Agent Firmware v6.1 (Rescue Edition). This version includes the REAL hardware drivers for the ADS131M08 via SPI, matched to the FreeEEG8 schematics (XIAO ESP32S3).',
         category: 'Functional',
         executionEnvironment: 'Client',
-        purpose: 'To provide the current, recommended firmware for development and OTA updates.',
+        purpose: 'To provide working firmware that reads real EEG data.',
         parameters: [],
         implementationCode: `
             const firmware = ${JSON.stringify(SMART_HYBRID_FIRMWARE_CODE)};

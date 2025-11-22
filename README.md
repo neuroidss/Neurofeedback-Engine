@@ -1,3 +1,4 @@
+
 # Neurofeedback Engine
 
 **Live Demo:** [https://neuroidss.github.io/Neurofeedback-Engine/](https://neuroidss.github.io/Neurofeedback-Engine/)
@@ -8,45 +9,36 @@ The Neurofeedback Engine is a browser-first platform that empowers AI agents to 
 
 Licensed under AGPL, this project creates an open ecosystem where AI agents act as autonomous researchers, mining scientific literature to create self-contained, executable neurofeedback protocols.
 
-## Core Architecture
+## Core Features
 
-The engine is built on a **Client-First, Hybrid-Compute** architecture designed for real-time performance and broad hardware compatibility.
+### 1. Neuro-Audio Studio (Zero-Hardware)
+A professional-grade auditory entrainment suite that works instantly in any browser.
+*   **Open-Loop Mode:** Uses Binaural Beats, Isochronic Tones, and Generative Ambient Music to guide the brain into Focus, Relaxation, or Sleep states without any sensors.
+*   **Adaptive Sonic Shield:** Uses the microphone to monitor ambient noise levels. If a distraction (e.g., conversation, traffic) spikes, the engine automatically boosts the background "Brown Noise" density to mask it, preventing the "Startle Response" and preserving deep focus.
+*   **Bio-Harmony:** Uses your webcam (computer vision) to detect emotional valence (smile/frown) and automatically adjusts the musical harmony (Major/Lydian vs Minor/Dorian).
+*   **Neuro-Link:** If an EEG device is connected, it switches to "Closed-Loop" mode, dynamically adjusting the beat frequency based on real-time attention metrics.
 
-### 1. Autonomous R&D Swarm
+### 2. Stream Engine Architecture
+The engine is built on a reactive dataflow graph system ("Vibecoder Genesis").
+*   **Node-Based Logic:** Signal processing pipelines are constructed as directed graphs of nodes (Source -> Filter -> Sink).
+*   **Hot-Swappable:** The AI agent can re-wire the graph in real-time without reloading the page.
+*   **Cross-Modal:** Nodes can process EEG, Audio, and Vision data simultaneously.
+
+### 3. Autonomous R&D Swarm
 *   **Objective-Driven:** Users state a high-level goal (e.g., "Enhance theta-gamma coupling for memory").
 *   **Federated Search:** Agents autonomously query PubMed, BioRxiv, and Google Patents.
 *   **Self-Healing Generation:** The system writes, compiles, and *fixes* its own JavaScript/React code to build custom UI tools and signal processing pipelines.
-*   **Genetic Forking:** Safely evolves existing protocols by researching a user interest, forking the code, applying mutations, and compiling a new version without breaking the original.
 
-### 2. "Tri-Link" Hardware Integration
+### 4. "Tri-Link" Hardware Integration
 The platform supports the custom **FreeEEG8 Firmware v3.1**, enabling robust connectivity via three simultaneous channels:
 *   **Web Bluetooth (BLE):** For seamless, zero-install provisioning and control.
 *   **WiFi (WebSocket/WSS):** For high-bandwidth, low-latency data streaming over local networks.
 *   **USB Serial:** For reliable, hardwired telemetry and debugging.
-*   **Self-Hosting:** Devices serve their own manifest, source code, and schematics via HTTP.
-*   **Simulators:** Built-in physics-based simulators for 8, 32, and 128-channel arrays.
 
-### 3. Hybrid DSP & Quantum Proxy
-Real-time signal processing is decoupled from the main UI thread to ensure smooth 60fps rendering.
-*   **GPU Acceleration:** Uses **GPU.js (WebGL)** to offload O(N²) matrix calculations (like Phase Locking Value / ciPLV) for high-density arrays (up to 128 channels).
-*   **Quantum Annealing:** Connects to a backend simulation of **D-Wave Quantum Annealers** to solve NP-hard combinatorial optimization problems:
-    *   **Collective Coherence:** Optimizing hypergraph dissonance in multi-person groups.
-    *   **Neural Decoding:** Solving "Pattern Completion" for noisy Sparse Distributed Representations (SDRs).
-    *   **Stimulation Planning:** Combinatorial optimization of multi-electrode stimulation patterns.
-
-### 4. Vibecoder OS
-An experimental, autonomous optimization loop:
-1.  **Generate:** The agent creates a visual environment intended to induce a specific mental state (e.g., "Deep Focus").
-2.  **Measure:** It captures real-time EEG data from the user.
-3.  **Mutate:** Using the brainwave state as a loss function, it iteratively rewrites the UI code in real-time to maximize the target metric, evolving a hyper-personalized interface.
-
-## Theater of Minds & Neuro-Alchemy
-
-The engine includes specialized tools for artistic and psychoanalytic applications:
-
-*   **Scientific Alchemist:** A translation layer that takes esoteric or mystical user goals (e.g., "Open Third Eye", "Align Chakras") and maps them to rigorous neurophysiological correlates (e.g., Prefrontal Gamma Synchrony, Alpha Asymmetry) to generate valid scientific protocols.
-*   **The Mirror Stage:** A generative "Psychoanalytic Roguelike" where the game world is an objective reality, but the user's perception of it is distorted by their real-time neural state (Lucidity).
-*   **Crowd Aggregation:** Deploys server-side Python LSL (Lab Streaming Layer) aggregators to handle data from 80+ person collective performances.
+### 5. Hybrid DSP & Quantum Proxy
+Real-time signal processing is decoupled from the main UI thread.
+*   **GPU Acceleration:** Uses **GPU.js (WebGL)** for O(N²) matrix calculations (ciPLV).
+*   **Quantum Annealing:** Connects to a backend simulation of **D-Wave Quantum Annealers** for solving NP-hard combinatorial optimization problems in brain networks.
 
 ## AI Model Support
 
@@ -54,10 +46,7 @@ The engine is agnostic to the underlying LLM provider and supports:
 *   **Google Gemini:** 3 Pro, 2.5 Flash/Pro (Supports Image Gen, TTS, and Lyria Music).
 *   **DeepSeek (via Nebius):** DeepSeek-V3 and R1 models.
 *   **OpenAI:** GPT-4o/mini.
-*   **Local / Private:**
-    *   **Ollama:** For running open-weight models (Llama 3, Mistral) locally.
-    *   **Wllama:** In-browser execution of quantized models via WebAssembly.
-    *   **HuggingFace:** Direct browser-based inference via WebGPU.
+*   **Local / Private:** Ollama, Wllama (WASM), HuggingFace (WebGPU).
 
 ## Getting Started
 
@@ -81,13 +70,6 @@ Enables OTA Firmware Updates, Python Proxies, and Quantum Simulation.
     # In root directory
     npm run dev
     ```
-
-## Target Verticals
-
-*   **Rapid Prototyping:** Reduce the "Paper-to-Protocol" cycle from months to minutes.
-*   **Collective Intelligence:** Tools for measuring and training group flow states using hypergraph analysis.
-*   **Therapeutic Gaming:** Procedurally generated environments that adapt to user neural states.
-*   **Open Science:** A transparent, reproducible platform for sharing neurofeedback paradigms.
 
 ## License
 

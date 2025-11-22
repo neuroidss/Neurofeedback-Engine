@@ -1,10 +1,8 @@
 
-
-
 import type { ToolCreatorPayload } from '../types';
 
 import { SERVER_MANAGEMENT_TOOLS } from '../framework/mcp';
-import { AUTOMATION_TOOLS } from '../framework/automation';
+import { AUTOMATION_TOOLS } from './automation';
 import { WORKFLOW_TOOLS } from './workflow_tools';
 import { RESEARCH_TOOLS } from './research_tools';
 import { DATA_RECORDER_TOOLS } from './data_recorder_tools';

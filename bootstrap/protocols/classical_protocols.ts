@@ -10,14 +10,18 @@ import { STREAM_ALPHA_LEVITATOR } from './stream_alpha';
 import { CAMERA_BIOFEEDBACK_PROTOCOL } from './classical/camera_biofeedback';
 import { CAMERA_BIOFEEDBACK_GRAPH_PROTOCOL } from './classical/camera_biofeedback_graph';
 import { NEURAL_SYNCHRONY_GRAPH_PROTOCOL } from './classical/neural_synchrony_graph';
+import { ADAPTIVE_ENTRAINMENT_PROTOCOL } from './classical/adaptive_entrainment'; 
+import { NEURO_AUDIO_STUDIO_PROTOCOL } from './classical/neuro_audio_studio'; // Imported
 
 
 export const CLASSICAL_PROTOCOLS: ToolCreatorPayload[] = [
-    CAMERA_BIOFEEDBACK_PROTOCOL, // V1 (Classical)
-    CAMERA_BIOFEEDBACK_GRAPH_PROTOCOL, // V2 (Graph)
-    NEURAL_SYNCHRONY_PROTOCOL, // V1 (Classical)
-    NEURAL_SYNCHRONY_GRAPH_PROTOCOL, // V2 (Graph)
+    NEURO_AUDIO_STUDIO_PROTOCOL, // Zero-Hardware Entry Point (Top Priority)
+    CAMERA_BIOFEEDBACK_PROTOCOL, 
+    CAMERA_BIOFEEDBACK_GRAPH_PROTOCOL,
+    NEURAL_SYNCHRONY_PROTOCOL, 
+    NEURAL_SYNCHRONY_GRAPH_PROTOCOL,
     STREAM_ALPHA_LEVITATOR, 
+    ADAPTIVE_ENTRAINMENT_PROTOCOL, 
     EXAMPLE_PROTOCOL,
     SMR_FOCUS_TRAINER,
     ALPHA_ASYMMETRY_MOOD_BALANCER,
