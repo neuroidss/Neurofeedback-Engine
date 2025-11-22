@@ -150,7 +150,8 @@ const STUDIO_UI_IMPL = `
                 drumVolume: 0.5,
                 synthType: 'drone',
                 enableDrums: true,
-                musicalScale: 'pentatonic_minor'
+                musicalScale: 'pentatonic_minor',
+                bpm: 120 // Default focus bpm
             });
             
             runtime.streamEngine.start();
@@ -184,9 +185,9 @@ const STUDIO_UI_IMPL = `
     
     // Presets
     const PRESETS = {
-        focus: { beat: 14, carrier: 200, defaultVibe: 'pentatonic_minor' },
-        relax: { beat: 10, carrier: 130, defaultVibe: 'dorian' },
-        sleep: { beat: 4, carrier: 80, defaultVibe: 'raga' }
+        focus: { beat: 14, carrier: 200, defaultVibe: 'pentatonic_minor', bpm: 120 },
+        relax: { beat: 10, carrier: 130, defaultVibe: 'dorian', bpm: 60 },
+        sleep: { beat: 4, carrier: 80, defaultVibe: 'raga', bpm: 40 }
     };
 
     const applyPreset = (p) => {
@@ -213,11 +214,11 @@ const STUDIO_UI_IMPL = `
     useEffect(() => {
         if (!runtime.streamEngine) return;
         
-        const beat = PRESETS[preset].beat;
+        const p = PRESETS[preset];
         
         // Update Controller
         runtime.streamEngine.updateNodeConfig('controller', {
-            manualTarget: beat,
+            manualTarget: p.beat,
             mode: mode,
             enableShield: shield,
             baseNoise: noise // Pass slider value to controller
@@ -225,11 +226,12 @@ const STUDIO_UI_IMPL = `
         
         // Update Audio Engine
         runtime.streamEngine.updateNodeConfig('audio_out', {
-            carrierHz: PRESETS[preset].carrier,
+            carrierHz: p.carrier,
             synthType: texture,
             enableDrums: drums > 0.05,
             drumVolume: drums,
-            musicalScale: vibe
+            musicalScale: vibe,
+            bpm: p.bpm
         });
         
     }, [mode, preset, noise, drums, texture, vibe, shield]);

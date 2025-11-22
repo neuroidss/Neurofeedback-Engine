@@ -420,6 +420,8 @@ const AUDIO_SYNTH_IMPL = `
     const synthType = config.synthType || 'drone'; // 'binaural' | 'drone'
     let musicalScale = config.musicalScale || 'pentatonic_minor'; // 'pentatonic_minor', 'lydian', 'dorian', 'raga'
     const enableDrums = config.enableDrums || false;
+    const bpm = config.bpm || 90; // Default BPM if not provided
+    
     let targetBeatHz = 10; 
     let carrierHz = config.carrierHz || 200; 
     let noiseVolume = config.noiseVolume || 0; 
@@ -499,7 +501,7 @@ const AUDIO_SYNTH_IMPL = `
     // --- RHYTHM SCHEDULER (Drums & Bass) ---
     if (enableDrums) {
         const nextNote = () => {
-            const secondsPerBeat = 60.0 / 90; // Fixed 90 BPM for Lo-Fi vibe
+            const secondsPerBeat = 60.0 / bpm; 
             state.nextNoteTime += 0.25 * secondsPerBeat; // 16th note
             state.current16thNote = (state.current16thNote + 1) % 16;
         }
@@ -652,7 +654,7 @@ const AUDIO_SYNTH_IMPL = `
         state.noiseGain.gain.setTargetAtTime(noiseVolume * 0.15, now, ramp * 5);
     }
     
-    return { output: { carrier: carrierHz, beat: targetBeatHz, type: synthType, scale: musicalScale }, state };
+    return { output: { carrier: carrierHz, beat: targetBeatHz, type: synthType, scale: musicalScale, bpm: bpm }, state };
 `;
 
 const CREATE_AUDIO_SYNTHESIZER: ToolCreatorPayload = {
@@ -669,17 +671,18 @@ const CREATE_AUDIO_SYNTHESIZER: ToolCreatorPayload = {
         { name: 'drumVolume', type: 'number', description: 'Volume of Drum/Bass sequencer (0.0 to 1.0).', required: false, defaultValue: 0 },
         { name: 'synthType', type: 'string', description: "'binaural' or 'drone'.", required: false, defaultValue: 'binaural' },
         { name: 'enableDrums', type: 'boolean', description: 'Enable rhythmic generator.', required: false, defaultValue: false },
-        { name: 'musicalScale', type: 'string', description: 'Musical scale for drone harmony: "pentatonic_minor", "lydian", "dorian", "raga", "major".', required: false, defaultValue: 'pentatonic_minor' }
+        { name: 'musicalScale', type: 'string', description: 'Musical scale for drone harmony: "pentatonic_minor", "lydian", "dorian", "raga", "major".', required: false, defaultValue: 'pentatonic_minor' },
+        { name: 'bpm', type: 'number', description: 'Beats Per Minute for the drum sequencer (default 90).', required: false, defaultValue: 90 }
     ],
     implementationCode: `
-        const { nodeId, inputNodeId, carrierHz, noiseVolume, synthType, enableDrums, drumVolume, musicalScale } = args;
+        const { nodeId, inputNodeId, carrierHz, noiseVolume, synthType, enableDrums, drumVolume, musicalScale, bpm } = args;
         
         const inputs = inputNodeId ? [inputNodeId] : [];
         
         if (runtime.streamEngine) {
             // Check if update needed
             if (runtime.streamEngine.hasNode(nodeId)) {
-                 runtime.streamEngine.updateNodeConfig(nodeId, { carrierHz, noiseVolume, synthType, enableDrums, drumVolume, musicalScale });
+                 runtime.streamEngine.updateNodeConfig(nodeId, { carrierHz, noiseVolume, synthType, enableDrums, drumVolume, musicalScale, bpm });
                  return { success: true, message: "Audio Synth updated." };
             }
             
@@ -687,7 +690,7 @@ const CREATE_AUDIO_SYNTHESIZER: ToolCreatorPayload = {
                 id: nodeId,
                 type: 'Sink', 
                 inputs: inputs,
-                config: { carrierHz, noiseVolume, synthType, enableDrums, drumVolume, musicalScale },
+                config: { carrierHz, noiseVolume, synthType, enableDrums, drumVolume, musicalScale, bpm },
                 state: {}, 
                 implementation: ${JSON.stringify(AUDIO_SYNTH_IMPL)}
             });
