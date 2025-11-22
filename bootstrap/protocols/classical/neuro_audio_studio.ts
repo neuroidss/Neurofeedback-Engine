@@ -103,7 +103,7 @@ const HYBRID_CONTROLLER_IMPL = `
         type: 'System',
         sourceId: 'studio_logic',
         payload: { 
-            visualUpdate: { textOverlay: feedbackStr, intensity: (targetBeat / 30) },
+            visualUpdate: { textOverlay: feedbackStr, intensity: (targetBeat / 30), beatHz: targetBeat },
             debug: { shieldLevel } 
         }
     });
@@ -178,6 +178,9 @@ const STUDIO_UI_IMPL = `
     const [shield, setShield] = useState(false);
     const [shieldLevel, setShieldLevel] = useState(0);
     
+    const [strobe, setStrobe] = useState(false); // AVE (Audio Visual Entrainment)
+    const [strobeConfirm, setStrobeConfirm] = useState(false); // Safety check state
+    
     // Presets
     const PRESETS = {
         focus: { beat: 14, carrier: 200, defaultVibe: 'pentatonic_minor' },
@@ -234,11 +237,16 @@ const STUDIO_UI_IMPL = `
 
     // --- 3. Visualization State ---
     const [statusText, setStatusText] = useState('Ready');
+    const [realtimeBeat, setRealtimeBeat] = useState(10);
+
     useEffect(() => {
         const unsub = runtime.neuroBus.subscribe(f => {
             if (f.type === 'System') {
                 if (f.payload?.visualUpdate?.textOverlay) {
                     setStatusText(f.payload.visualUpdate.textOverlay);
+                }
+                if (f.payload?.visualUpdate?.beatHz) {
+                    setRealtimeBeat(f.payload.visualUpdate.beatHz);
                 }
                 if (f.payload?.debug?.shieldLevel !== undefined) {
                     setShieldLevel(f.payload.debug.shieldLevel);
@@ -254,6 +262,34 @@ const STUDIO_UI_IMPL = `
     if (!R3F || !Drei) return <div>Loading 3D...</div>;
     const { Canvas, useFrame } = R3F;
     const { Sphere, MeshDistortMaterial, Float, Stars } = Drei;
+
+    // AVE Strobe Effect Component
+    const StrobeEffect = ({ beatHz, active }) => {
+        const ref = useRef();
+
+        // Simple sine wave opacity modulation based on beat frequency
+        useFrame(({ clock }) => {
+            if (!ref.current) return;
+            
+            if (!active) {
+                ref.current.material.opacity = 0;
+                return;
+            }
+
+            const t = clock.getElapsedTime();
+            // Sinusoidal pulse at exact beat frequency
+            // Range 0 to 0.6 opacity (stronger strobe for visible effect)
+            const val = (Math.sin(t * beatHz * 2 * Math.PI) + 1) / 2;
+            ref.current.material.opacity = val * 0.6; 
+        });
+
+        return (
+            <mesh ref={ref} position={[0, 0, 2]}>
+                <planeGeometry args={[100, 100]} />
+                <meshBasicMaterial color="white" transparent opacity={0} depthTest={false} />
+            </mesh>
+        );
+    };
 
     const Emitter = ({ preset, texture }) => {
         const ref = useRef();
@@ -298,17 +334,41 @@ const STUDIO_UI_IMPL = `
                             {mode === 'bio_harmony' && <span className="animate-pulse">●</span>}
                         </button>
                     </div>
-                    <button 
-                        onClick={toggleShield}
-                        className={\`px-3 py-1 text-[10px] font-bold rounded border transition-colors flex items-center gap-2 \${shield ? 'bg-yellow-900/80 border-yellow-500 text-yellow-200' : 'bg-slate-800 border-slate-600 text-slate-500 hover:text-white'}\`}
-                    >
-                        <span>MIC SHIELD</span>
-                        {shield && (
-                            <div className="w-10 h-1.5 bg-black rounded-full overflow-hidden">
-                                <div className="h-full bg-yellow-500 transition-all duration-100" style={{width: (shieldLevel * 100) + '%'}}></div>
-                            </div>
-                        )}
-                    </button>
+                    <div className="flex gap-2">
+                        <button 
+                            onClick={toggleShield}
+                            className={\`px-3 py-1 text-[10px] font-bold rounded border transition-colors flex items-center gap-2 \${shield ? 'bg-yellow-900/80 border-yellow-500 text-yellow-200' : 'bg-slate-800 border-slate-600 text-slate-500 hover:text-white'}\`}
+                        >
+                            <span>MIC SHIELD</span>
+                            {shield && (
+                                <div className="w-10 h-1.5 bg-black rounded-full overflow-hidden">
+                                    <div className="h-full bg-yellow-500 transition-all duration-100" style={{width: (shieldLevel * 100) + '%'}}></div>
+                                </div>
+                            )}
+                        </button>
+                        
+                        {/* SAFETY BUTTON IMPLEMENTATION FOR STROBE */}
+                        <button 
+                            onClick={() => {
+                                if (strobe) {
+                                    setStrobe(false);
+                                    setStrobeConfirm(false);
+                                } else {
+                                    if (strobeConfirm) {
+                                        setStrobe(true);
+                                        setStrobeConfirm(false);
+                                    } else {
+                                        setStrobeConfirm(true);
+                                        // Reset confirm state after 3 seconds if not clicked
+                                        setTimeout(() => setStrobeConfirm(false), 3000);
+                                    }
+                                }
+                            }}
+                            className={\`px-3 py-1 text-[10px] font-bold rounded border transition-colors flex items-center gap-2 \${strobe ? 'bg-white text-black border-white animate-pulse' : (strobeConfirm ? 'bg-red-600 text-white border-red-500 animate-bounce' : 'bg-slate-800 border-slate-600 text-slate-500 hover:text-white')}\`}
+                        >
+                            <span>{strobeConfirm ? 'CONFIRM FLASH?' : 'AVE STROBE'}</span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -319,6 +379,7 @@ const STUDIO_UI_IMPL = `
                     <pointLight position={[10, 10, 10]} intensity={1} />
                     <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
                     <Emitter preset={preset} texture={texture} />
+                    <StrobeEffect beatHz={realtimeBeat} active={strobe} />
                 </Canvas>
             </div>
 
@@ -387,7 +448,7 @@ const STUDIO_UI_IMPL = `
 
 export const NEURO_AUDIO_STUDIO_PROTOCOL: ToolCreatorPayload = {
     name: 'Neuro-Audio Studio (Zero-Hardware)',
-    description: 'A professional-grade auditory entrainment suite. Features high-quality Musical Drones (Isochronic Tones) with Generative Harmony, Binaural Beats, and a Lo-Fi Groovebox. Works instantly without any hardware (Open-Loop), but can optionally connect to an EEG device to enable "Closed-Loop" adaptive training, or use the Camera for "Bio-Harmony" based on emotion.',
+    description: 'A professional-grade auditory entrainment suite. Features high-quality Musical Drones (Isochronic Tones) with Generative Harmony, Binaural Beats, and a Lo-Fi Groovebox. Includes "Audio-Visual Entrainment" (AVE) Strobe and Adaptive Sonic Shield. Works instantly without any hardware (Open-Loop), but can optionally connect to an EEG device to enable "Closed-Loop" adaptive training, or use the Camera for "Bio-Harmony" based on emotion.',
     category: 'UI Component',
     executionEnvironment: 'Client',
     purpose: 'To provide immediate value (Focus/Relaxation) via musical entrainment to all users, regardless of hardware ownership.',
@@ -397,16 +458,16 @@ export const NEURO_AUDIO_STUDIO_PROTOCOL: ToolCreatorPayload = {
     ],
     dataRequirements: { type: 'eeg', channels: [], metrics: [] }, 
     scientificDossier: {
-        title: "Auditory Beat Stimulation (ABS) for Cognitive Enhancement",
-        hypothesis: "Rhythmic auditory stimulation can entrain neural oscillations to specific frequencies (ASSR).",
-        mechanism: "ASSR via Binaural and Isochronic tones.",
+        title: "Audio-Visual Entrainment (AVE) for Cognitive Enhancement",
+        hypothesis: "Combined rhythmic auditory and visual stimulation is more effective at entraining neural oscillations (ASSR + SSVEP) than either modality alone.",
+        mechanism: "Synergy of Auditory Steady-State Response (ASSR) and Steady-State Visually Evoked Potential (SSVEP).",
         targetNeuralState: "Variable (Beta for Focus, Alpha for Relax).",
         citations: [
             "Chaieb, L., et al. (2015). Auditory beat stimulation and its effects on cognition and mood states.",
-            "Lane, J. D., et al. (1998). Binaural auditory beats affect vigilance performance and mood.",
-            "Reuter, K., et al. (2012). Auditory masking and attention."
+            "Collura, T. F. (2014). Steady-state visual evoked potential (SSVEP) based brain-computer interface.",
+            "Siever, D. (2003). Audio-Visual Entrainment: History, Theory, and Clinical Applications."
         ],
-        relatedKeywords: ["Binaural Beats", "Isochronic Tones", "ASSR", "Generative Music", "Auditory Masking"]
+        relatedKeywords: ["Binaural Beats", "Isochronic Tones", "ASSR", "SSVEP", "AVE", "Stroboscope", "Ganzfeld"]
     },
     processingCode: `(d, r) => ({})`,
     implementationCode: STUDIO_UI_IMPL

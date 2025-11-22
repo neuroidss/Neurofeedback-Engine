@@ -14,6 +14,7 @@ Licensed under AGPL, this project creates an open ecosystem where AI agents act 
 ### 1. Neuro-Audio Studio (Zero-Hardware)
 A professional-grade auditory entrainment suite that works instantly in any browser.
 *   **Open-Loop Mode:** Uses Binaural Beats, Isochronic Tones, and Generative Ambient Music to guide the brain into Focus, Relaxation, or Sleep states without any sensors.
+*   **Audio-Visual Entrainment (AVE):** Syncs a visual stroboscope with the binaural beat frequency to reinforce neural entrainment through the visual cortex (SSVEP). **WARNING:** This feature produces flashing lights and should not be used by individuals with photosensitive epilepsy.
 *   **Adaptive Sonic Shield:** Uses the microphone to monitor ambient noise levels. If a distraction (e.g., conversation, traffic) spikes, the engine automatically boosts the background "Brown Noise" density to mask it, preventing the "Startle Response" and preserving deep focus.
 *   **Bio-Harmony:** Uses your webcam (computer vision) to detect emotional valence (smile/frown) and automatically adjusts the musical harmony (Major/Lydian vs Minor/Dorian).
 *   **Neuro-Link:** If an EEG device is connected, it switches to "Closed-Loop" mode, dynamically adjusting the beat frequency based on real-time attention metrics.
