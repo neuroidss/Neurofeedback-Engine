@@ -92,13 +92,14 @@ const CREATE_FILTER_NODE: ToolCreatorPayload = {
     parameters: [
         { name: 'nodeId', type: 'string', description: 'ID.', required: true },
         { name: 'inputNodeIds', type: 'array', description: 'Inputs.', required: true },
-        { name: 'jsLogic', type: 'string', description: 'Logic returning { output: ... }.', required: true }
+        { name: 'jsLogic', type: 'string', description: 'Logic returning { output: ... }.', required: true },
+        { name: 'config', type: 'object', description: 'Initial configuration object for the node.', required: false }
     ],
     implementationCode: `
-        const { nodeId, inputNodeIds, jsLogic } = args;
+        const { nodeId, inputNodeIds, jsLogic, config } = args;
         if (runtime.streamEngine) {
              runtime.streamEngine.addNode({
-                id: nodeId, type: 'Transform', inputs: inputNodeIds, config: {}, state: {}, implementation: jsLogic
+                id: nodeId, type: 'Transform', inputs: inputNodeIds, config: config || {}, state: {}, implementation: jsLogic
             });
             return { success: true, nodeId };
         }

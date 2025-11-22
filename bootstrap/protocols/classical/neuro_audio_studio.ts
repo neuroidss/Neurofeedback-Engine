@@ -138,7 +138,12 @@ const STUDIO_UI_IMPL = `
             await runtime.tools.run('Create_Filter_Node', {
                 nodeId: 'controller',
                 inputNodeIds: ['eeg_source_1', 'vision_source_1'],
-                jsLogic: ${JSON.stringify(HYBRID_CONTROLLER_IMPL)}
+                jsLogic: ${JSON.stringify(HYBRID_CONTROLLER_IMPL)},
+                config: {
+                    baseNoise: 0.2, // Initial noise level matches default 'noise' state
+                    manualTarget: 14, // Initial beat target (Focus default)
+                    mode: 'manual'
+                }
             });
             
             // 4. Audio Engine
@@ -185,9 +190,11 @@ const STUDIO_UI_IMPL = `
     
     // --- Visual Tuner State (Persistent) ---
     const [showVisTuner, setShowVisTuner] = useState(false);
+    
+    // Load settings (v3 for clean state)
     const [visConfig, setVisConfig] = useState(() => {
         try {
-            const saved = localStorage.getItem('neuro-audio-vis-settings-v2');
+            const saved = localStorage.getItem('neuro-audio-vis-settings-v3');
             if (saved) return JSON.parse(saved);
         } catch(e) {}
         // Default profiles for distinct modes
@@ -200,7 +207,7 @@ const STUDIO_UI_IMPL = `
 
     // Persist visual settings
     useEffect(() => {
-        localStorage.setItem('neuro-audio-vis-settings-v2', JSON.stringify(visConfig));
+        localStorage.setItem('neuro-audio-vis-settings-v3', JSON.stringify(visConfig));
     }, [visConfig]);
     
     // Helper to update current mode's config
@@ -216,6 +223,32 @@ const STUDIO_UI_IMPL = `
     const containerRef = useRef(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
     
+    // --- CURSOR AUTO-HIDER HOOK ---
+    useEffect(() => {
+        if (!isFullscreen) {
+            document.body.style.cursor = 'auto';
+            return;
+        }
+
+        let timer;
+        const hide = () => document.body.style.cursor = 'none';
+        const show = () => {
+            document.body.style.cursor = 'auto';
+            clearTimeout(timer);
+            timer = setTimeout(hide, 2500);
+        };
+
+        document.addEventListener('mousemove', show);
+        // Hide initially after 2.5s if inactive
+        timer = setTimeout(hide, 2500);
+
+        return () => {
+            document.removeEventListener('mousemove', show);
+            clearTimeout(timer);
+            document.body.style.cursor = 'auto';
+        };
+    }, [isFullscreen]);
+
     // Presets
     const PRESETS = {
         focus: { beat: 14, carrier: 200, defaultVibe: 'pentatonic_minor', bpm: 120 },
@@ -422,7 +455,7 @@ const STUDIO_UI_IMPL = `
 
 
     return (
-        <div ref={containerRef} className="w-full h-full bg-slate-950 relative font-sans text-slate-200 flex flex-col">
+        <div ref={containerRef} title="" className="w-full h-full bg-slate-950 relative font-sans text-slate-200 flex flex-col">
             {/* Fullscreen Flash Overlay */}
             <div ref={flashOverlayRef} className="absolute inset-0 z-[9999] pointer-events-none transition-none mix-blend-screen" style={{backgroundColor: 'white', opacity: 0}}></div>
 
