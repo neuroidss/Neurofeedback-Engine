@@ -1,7 +1,7 @@
 
 # Neurofeedback Engine & Neuro Quest: Generative Reality System
 
-![Neuro Quest Banner](https://github.com/neuroidss/Neurofeedback-Engine/blob/main/docs/assets/banner.png?raw=true)
+**Live Demo:** [https://neuroidss.github.io/Neurofeedback-Engine/](https://neuroidss.github.io/Neurofeedback-Engine/)
 
 **A Browser-First Platform for Autonomous Neurotechnology & Generative Reality.**
 
