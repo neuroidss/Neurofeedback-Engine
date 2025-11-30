@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 
 interface DebugLogViewProps {
@@ -10,13 +11,14 @@ interface DebugLogViewProps {
 
 const DebugLogView: React.FC<DebugLogViewProps> = ({ logs, onReset, apiCallCounts, apiCallLimit, agentCount }) => {
     const [isOpen, setIsOpen] = useState(false);
+    const [autoScroll, setAutoScroll] = useState(false); // Default to FALSE as requested
     const logsContainerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (isOpen && logsContainerRef.current) {
+        if (isOpen && autoScroll && logsContainerRef.current) {
             logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
         }
-    }, [logs, isOpen]);
+    }, [logs, isOpen, autoScroll]);
 
     const totalCalls = React.useMemo(() => 
         Object.values(apiCallCounts || {}).reduce((sum: number, count) => sum + Number(count), 0), 
@@ -35,15 +37,24 @@ const DebugLogView: React.FC<DebugLogViewProps> = ({ logs, onReset, apiCallCount
     return (
         <div className="fixed bottom-4 right-4 z-[100] text-sm flex flex-col items-end gap-2">
             <div className={`w-[40rem] max-w-[calc(100vw-2rem)] h-96 bg-slate-900/90 backdrop-blur-sm border border-slate-600 rounded-lg p-2 flex-col shadow-2xl ${isOpen ? 'flex' : 'hidden'}`}>
-                <div className="flex justify-between items-center mb-2 gap-2">
-                    <h3 className="text-lg font-bold text-slate-200">Event Log</h3>
-                    <button
-                        onClick={onReset}
-                        className="text-xs px-2 py-1 bg-red-800/50 text-red-300 border border-red-700 rounded-md hover:bg-red-700/50"
-                        title="Reset all progress and saved data"
-                    >
-                        Factory Reset
-                    </button>
+                <div className="flex justify-between items-center mb-2 gap-2 bg-slate-800/50 p-1 rounded">
+                    <h3 className="text-lg font-bold text-slate-200 px-2">Event Log</h3>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setAutoScroll(!autoScroll)}
+                            className={`text-xs px-2 py-1 border rounded-md transition-colors ${autoScroll ? 'bg-cyan-700 border-cyan-500 text-white' : 'bg-slate-800 border-slate-600 text-slate-400'}`}
+                            title="Toggle Auto-Scroll"
+                        >
+                            {autoScroll ? 'Scroll: ON' : 'Scroll: OFF'}
+                        </button>
+                        <button
+                            onClick={onReset}
+                            className="text-xs px-2 py-1 bg-red-800/50 text-red-300 border border-red-700 rounded-md hover:bg-red-700/50"
+                            title="Reset all progress and saved data"
+                        >
+                            Factory Reset
+                        </button>
+                    </div>
                 </div>
                 <div ref={logsContainerRef} className="flex-grow overflow-y-auto bg-black/30 p-2 rounded text-xs font-mono scroll-smooth">
                     {logs.map((log, index) => (

@@ -1,3 +1,4 @@
+
 // hooks/useAppRuntime.ts
 import React, { useCallback, useRef, useMemo, useState, useEffect } from 'react';
 import { useAppStateManager } from './useAppStateManager';
@@ -11,7 +12,7 @@ import { neuroBus } from '../services/neuroBus';
 import { streamEngine } from '../services/streamEngine';
 import { ModelProvider } from '../types';
 import type { AIToolCall, EnrichedAIResponse, LLMTool, MainView, ToolCreatorPayload, ExecuteActionFunction, SearchResult, AIModel, SubStepProgress } from '../types';
-
+import UniversalGraphRenderer from '../components/UniversalGraphRenderer';
 
 // Tools that run frequently (e.g., in DSP loops) and should not spam the log.
 const NOISY_TOOLS = new Set([
@@ -21,12 +22,19 @@ const NOISY_TOOLS = new Set([
     'MultiSourceEEGStreamAggregator',
     'findHypergraphDissonanceQuantum',
     'findGraphDissonanceQuantum',
-    'Create_Vision_Source' // Vision source runs frequently
+    'Create_Vision_Source', // Vision source runs frequently
+    'List Managed Processes', // Polling tool for server management
+    'Create_EEG_Source', // Stream source
+    'Create_Standard_Node',
+    'Bind_To_Visuals'
 ]);
 
 export function useAppRuntime() {
     const stateManager = useAppStateManager();
-    const toolManager = useToolManager({ logEvent: stateManager.logEvent });
+    const toolManager = useToolManager({ 
+        logEvent: stateManager.logEvent,
+        disablePersistence: stateManager.apiConfig.disablePersistence 
+    });
     const { findRelevantTools } = useToolRelevance({ allTools: toolManager.allTools, logEvent: stateManager.logEvent });
 
     const executeActionRef = useRef<ExecuteActionFunction | null>(null);
@@ -97,6 +105,16 @@ export function useAppRuntime() {
         reportProgress: setSubStepProgress, // Expose the progress setter to tools
         startSwarmTask: swarmManager.startSwarmTask,
         handleStopSwarm: swarmManager.handleStopSwarm,
+        // --- NEW HELPER ---
+        renderGraphProtocol: (args: any, visualComponent: string, nodes: any[]) => {
+             // This helper allows tools to return a pre-configured Graph Renderer
+             // minimizing the code string stored in the tool definition.
+             return React.createElement(UniversalGraphRenderer, { 
+                 runtime: runtimeApi, // Pass self
+                 nodes: nodes, 
+                 visualComponent: visualComponent 
+             });
+        },
         os: {
           launchApp: (appId: string) => setActiveAppId(appId),
         },
@@ -209,6 +227,12 @@ export function useAppRuntime() {
         getObservationHistory: () => [], // Placeholder for a more advanced feature
         clearObservationHistory: () => {}, // Placeholder
     }), [stateManager, toolManager, swarmManager, setSubStepProgress, subStepProgress, activeAppId, setActiveAppId]);
+
+    // --- GLOBAL RUNTIME INJECTION ---
+    // Expose the runtime API to the global scope so StreamEngine nodes can access it via window.runtime
+    useEffect(() => {
+        (window as any).runtime = runtimeApi;
+    }, [runtimeApi]);
 
     const executeAction = useMemo<ExecuteActionFunction>(() => {
         const fn = async (

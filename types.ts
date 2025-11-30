@@ -1,3 +1,4 @@
+
 // types.ts
 export type ToolCategory = 'UI Component' | 'Functional' | 'Automation' | 'Server';
 export type AgentStatus = 'idle' | 'working' | 'error' | 'success';
@@ -138,6 +139,9 @@ export interface APIConfig {
   
   // --- UI Preferences ---
   immersiveMode?: boolean; // Auto-hide panels
+  
+  // --- Data & Storage ---
+  disablePersistence?: boolean; // If true, do not save state to localStorage
 }
 
 export type UIToolRunnerProps = Record<string, any>;

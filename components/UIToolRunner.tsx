@@ -1,6 +1,8 @@
+
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
-import React, { Component, type ReactNode, type ErrorInfo } from 'react';
+import React, { Component } from 'react';
+import type { ReactNode, ErrorInfo } from 'react';
 import type { LLMTool, UIToolRunnerProps } from '../types';
 import DebugLogView from './ui_tools/DebugLogView';
 import * as Icons from './icons';
@@ -23,8 +25,12 @@ type ErrorBoundaryState = {
   hasError: boolean;
 };
 
+// Ensure we extend Component properly
 class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false };
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
 
   static getDerivedStateFromError(error: any): ErrorBoundaryState {
     console.error("UI Tool Runner caught an error:", error);

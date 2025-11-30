@@ -1,9 +1,10 @@
 
+
 import { NeuroFrame } from '../types';
 
 type Subscriber = (frame: NeuroFrame) => void;
 
-class NeuroBusService {
+export class NeuroBusService {
     private subscribers: Set<Subscriber> = new Set();
     private history: NeuroFrame[] = [];
     private maxHistory = 100;

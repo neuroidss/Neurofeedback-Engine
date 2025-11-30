@@ -1,3 +1,4 @@
+
 #!/bin/bash
 # This script installs all necessary dependencies for the server.
 # Rename this file to install.sh and run `chmod +x install.sh` to make it executable.
@@ -6,10 +7,41 @@ echo "--- Installing Node.js dependencies from package.json... ---"
 npm install
 
 echo ""
-echo "--- Installing Python dependencies from requirements.txt... ---"
+echo "--- 🛠️ Creating BASE Environment (venv) ---"
+echo "    (Default environment for start.sh and generic scripts)"
 python3 -m venv venv
 source venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
+# SAFETY: Explicitly install server dependencies
+pip install fastapi uvicorn
+deactivate
 
 echo ""
-echo "✅ Installation complete. You can now run './start.sh' to launch the server."
+echo "--- 🎵 Creating AUDIO Environment (venv_audio) ---"
+echo "    (numpy < 2.0 for MusicGen/AudioCraft)"
+python3 -m venv venv_audio
+source venv_audio/bin/activate
+pip install --upgrade pip
+pip install -r requirements_audio.txt
+# SAFETY: Explicitly install server dependencies
+pip install fastapi uvicorn
+deactivate
+
+echo ""
+echo "--- 👁️ Creating VISION Environment (venv_vision) ---"
+echo "    (standard numpy for Diffusers/NeuroWorld)"
+python3 -m venv venv_vision
+source venv_vision/bin/activate
+pip install --upgrade pip
+pip install -r requirements_vision.txt
+# SAFETY: Explicitly install server dependencies
+pip install fastapi uvicorn
+deactivate
+
+echo ""
+echo "✅ Installation complete."
+echo "   - 'venv': Base system"
+echo "   - 'venv_audio': MusicGen"
+echo "   - 'venv_vision': NeuroWorld/SD"
+echo "   Run './start.sh' to launch the Kernel."

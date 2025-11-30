@@ -1,0 +1,14 @@
+
+fastapi
+uvicorn
+torch
+opencv-python
+pygame
+diffusers
+transformers
+protobuf
+pillow
+accelerate
+numpy
+requests
+sentence-transformers

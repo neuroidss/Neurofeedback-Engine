@@ -63,7 +63,9 @@ export function useAppStateManager() {
         // Budget defaults: Higher by default for usability
         velocityLimit: 50,
         velocityWindow: 10,
-        protocolGenerationMode: 'script'
+        protocolGenerationMode: 'script',
+        disablePersistence: false, // Default to saving state
+        immersiveMode: false // Default to Standard Mode (Menus Visible)
     });
     // Live feed state
     const [liveFeed, setLiveFeed] = useState<any[]>([]);
@@ -151,6 +153,8 @@ export function useAppStateManager() {
             velocityLimit: storedState?.apiConfig?.velocityLimit || 50,
             velocityWindow: storedState?.apiConfig?.velocityWindow || 10,
             protocolGenerationMode: storedState?.apiConfig?.protocolGenerationMode || 'script',
+            disablePersistence: storedState?.apiConfig?.disablePersistence || false,
+            immersiveMode: storedState?.apiConfig?.immersiveMode ?? false, // Load preference or default to false
         }));
 
         if (storedState?.apiConfig?.googleAIAPIKey) {
@@ -218,25 +222,28 @@ export function useAppStateManager() {
 
     // Effect to persist apiConfig state whenever it changes
     useEffect(() => {
-        const configToSave: APIConfig = {
-            googleAIAPIKey: apiConfig.googleAIAPIKey,
-            openAIAPIKey: apiConfig.openAIAPIKey,
-            openAIBaseUrl: apiConfig.openAIBaseUrl,
-            openAICustomModel: apiConfig.openAICustomModel,
-            deepSeekAPIKey: apiConfig.deepSeekAPIKey,
-            deepSeekBaseUrl: apiConfig.deepSeekBaseUrl,
-            ollamaHost: apiConfig.ollamaHost,
-            useQuantumSDR: apiConfig.useQuantumSDR,
-            computeBackend: apiConfig.computeBackend,
-            autoRestoreSession: apiConfig.autoRestoreSession,
-            velocityLimit: apiConfig.velocityLimit,
-            velocityWindow: apiConfig.velocityWindow,
-            protocolGenerationMode: apiConfig.protocolGenerationMode,
-        };
+        // ALWAYS save API config even if "Data Persistence" is off, because API keys are annoying to re-type.
+        // But we respect the flag for heavy data. 
+        // Actually, if the user says "Disable Persistence", they usually mean "Don't save my work", but keeping keys is standard.
+        // However, to be safe and strict: if disablePersistence is TRUE, we only save the flag itself.
+        
+        let configToSave = { ...apiConfig };
+        
+        if (apiConfig.disablePersistence) {
+             // Only save the flag so it persists across reloads
+             configToSave = { 
+                 disablePersistence: true,
+                 googleAIAPIKey: '', openAIAPIKey: '', deepSeekAPIKey: '', // Scrub keys
+                 defaultWifiSSID: '', defaultWifiPassword: ''
+             };
+        }
+
         saveStateToStorage({ apiConfig: configToSave });
     }, [apiConfig]);
 
     useEffect(() => {
+        if (apiConfig.disablePersistence) return; // Do not save heavy map data if persistence is disabled
+
         saveMapStateToStorage({
             allSources,
             validatedSources,
@@ -246,7 +253,7 @@ export function useAppStateManager() {
             liveFeed,
             taskPrompt,
         }, logEvent);
-    }, [allSources, validatedSources, mapData, pcaModel, mapNormalization, liveFeed, taskPrompt, logEvent]);
+    }, [allSources, validatedSources, mapData, pcaModel, mapNormalization, liveFeed, taskPrompt, logEvent, apiConfig.disablePersistence]);
 
 
     return {

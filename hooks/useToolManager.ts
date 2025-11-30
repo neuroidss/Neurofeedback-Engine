@@ -1,9 +1,10 @@
+
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { CORE_TOOLS } from '../constants';
 import { BOOTSTRAP_TOOL_PAYLOADS } from '../bootstrap';
-import { loadStateFromStorage } from '../versioning';
+import { loadStateFromStorage, saveStateToStorage } from '../versioning';
 import type { LLMTool, ToolCreatorPayload } from '../types';
 
 export const generateMachineReadableId = (name: string, existingTools: LLMTool[]): string => {
@@ -56,27 +57,7 @@ export const initializeTools = (): LLMTool[] => {
     return allCreatedTools;
 };
 
-// Helper function to perform a deep comparison of tool definitions.
-const isToolDefinitionChanged = (freshTool: LLMTool, storedTool: LLMTool): boolean => {
-    // Compare essential properties that define the tool's behavior and interface.
-    // We ignore properties that are expected to change or be stable (id, dates).
-    const propsToCompare: (keyof Omit<LLMTool, 'id'|'createdAt'|'updatedAt'>)[] = [
-        'name', 'description', 'category', 'executionEnvironment', 'purpose', 'implementationCode'
-    ];
-    for (const prop of propsToCompare) {
-        if (freshTool[prop] !== storedTool[prop]) return true;
-    }
-
-    // Deep compare parameters array, as it's a critical part of the tool's interface.
-    if (JSON.stringify(freshTool.parameters) !== JSON.stringify(storedTool.parameters)) {
-        return true;
-    }
-
-    return false;
-};
-
-
-export const useToolManager = ({ logEvent }: { logEvent: (message: string) => void }) => {
+export const useToolManager = ({ logEvent, disablePersistence = false }: { logEvent: (message: string) => void, disablePersistence?: boolean }) => {
     const [tools, setTools] = useState<LLMTool[]>([]);
     
     // State for server tools and connection status
@@ -86,10 +67,17 @@ export const useToolManager = ({ logEvent }: { logEvent: (message: string) => vo
     const initialServerCheckCompleted = useRef(false);
     isServerConnectedRef.current = isServerConnected;
 
+    // Load Tools Effect
     useEffect(() => {
         const freshBootstrapTools = initializeTools();
-        const freshBootstrapToolsMap = new Map(freshBootstrapTools.map(t => [t.name, t]));
         
+        // If persistence is disabled, we just load bootstrap tools and exit.
+        if (disablePersistence) {
+            setTools(freshBootstrapTools);
+            logEvent('[SYSTEM] Tool persistence disabled. Loaded bootstrap tools only.');
+            return;
+        }
+
         const storedState = loadStateFromStorage();
         const storedTools = storedState ? storedState.tools : [];
 
@@ -101,55 +89,41 @@ export const useToolManager = ({ logEvent }: { logEvent: (message: string) => vo
 
         const updatedTools: LLMTool[] = [];
         const processedStoredToolNames = new Set<string>();
-        let versionUpdateCount = 0;
-        let codeUpdateCount = 0;
-        let definitionUpdateCount = 0;
-        let preservedUserToolsCount = 0;
+        
+        // CACHE POLICY: HARD REFRESH FOR BOOTSTRAP TOOLS
+        // To ensure debugging updates are always applied, we prefer the 'fresh' version 
+        // of any bootstrap tool over the 'stored' version, effectively disabling caching 
+        // for the core app logic while preserving user-created tools.
+        
+        let updatesCount = 0;
 
-        for (const storedTool of storedTools) {
-            processedStoredToolNames.add(storedTool.name);
-            const freshTool = freshBootstrapToolsMap.get(storedTool.name);
-
-            if (freshTool) {
-                const definitionChanged = isToolDefinitionChanged(freshTool, storedTool);
-                
-                if (freshTool.version > storedTool.version) {
-                    updatedTools.push({ ...freshTool, id: storedTool.id, createdAt: storedTool.createdAt });
-                    versionUpdateCount++;
-                } else if (freshTool.version === storedTool.version && definitionChanged) {
-                     updatedTools.push({ ...freshTool, id: storedTool.id, createdAt: storedTool.createdAt });
-                    if (freshTool.implementationCode !== storedTool.implementationCode) {
-                        codeUpdateCount++;
-                    } else {
-                        definitionUpdateCount++;
-                    }
-                } else {
-                    updatedTools.push(storedTool);
-                }
-            } else {
-                updatedTools.push(storedTool);
-                preservedUserToolsCount++;
-            }
-        }
-
-        let newToolsCount = 0;
+        // 1. Load all FRESH bootstrap tools first (Code is Truth)
         for (const freshTool of freshBootstrapTools) {
-            if (!processedStoredToolNames.has(freshTool.name)) {
-                updatedTools.push(freshTool);
-                newToolsCount++;
+            updatedTools.push(freshTool);
+            processedStoredToolNames.add(freshTool.name); // Mark as processed
+        }
+
+        // 2. Load USER tools (preserving those that are NOT in bootstrap)
+        for (const storedTool of storedTools) {
+            if (!processedStoredToolNames.has(storedTool.name)) {
+                updatedTools.push(storedTool);
+            } else {
+                updatesCount++;
             }
         }
         
-        const totalUpdates = versionUpdateCount + codeUpdateCount + definitionUpdateCount;
-        if (totalUpdates > 0 || newToolsCount > 0) {
-            logEvent(`[SYSTEM] Tools auto-updated: ${versionUpdateCount} by version, ${codeUpdateCount} by code, ${definitionUpdateCount} by definition change. ${newToolsCount} new tools added. Preserved ${preservedUserToolsCount} user-generated tools.`);
-        } else {
-            logEvent(`[SYSTEM] Tools are up to date. Loaded ${storedTools.length} tools from storage.`);
-        }
-        
+        logEvent(`[SYSTEM] Tool Manager: Forced update of ${freshBootstrapTools.length} core tools from source. Preserved ${updatedTools.length - freshBootstrapTools.length} user tools.`);
         setTools(updatedTools);
 
-    }, []); // Run only once on mount
+    }, []); // Run only once on mount (persistence toggle requires reload or manual save trigger currently)
+
+    // Save Tools Effect
+    useEffect(() => {
+        if (disablePersistence) return;
+        if (tools.length === 0) return;
+
+        saveStateToStorage({ tools });
+    }, [tools, disablePersistence]);
 
     const forceRefreshServerTools = useCallback(async () => {
         try {
@@ -176,7 +150,6 @@ export const useToolManager = ({ logEvent }: { logEvent: (message: string) => vo
                 setIsServerConnected(false);
                 logEvent('[WARN] ⚠️ Server connection lost during refresh.');
             }
-            // Return a failure state instead of throwing, making it more resilient.
             return { success: false, error: (error as Error).message };
         }
     }, [logEvent]);

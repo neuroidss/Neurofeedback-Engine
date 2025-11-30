@@ -1,140 +1,66 @@
+
 [
   {
-    "id": "start_node_process",
-    "name": "Start Node Process",
-    "description": "Starts a managed Node.js process on the server from a given script file.",
+    "id": "write_file",
+    "name": "Server File Writer",
+    "description": "Writes code or data to the server filesystem.",
     "category": "Server",
     "version": 1,
     "parameters": [
-      {
-        "name": "processId",
-        "type": "string",
-        "description": "A unique ID for the process (e.g., \"aetherium_shard_1\").",
-        "required": true
-      },
-      {
-        "name": "scriptPath",
-        "type": "string",
-        "description": "The path to the Node.js script to run, relative to the server's 'scripts' directory (e.g., \"aetherium_server.ts\").",
-        "required": true
-      }
+      { "name": "filePath", "type": "string", "description": "Relative path (e.g. 'my_mcp.ts')", "required": true },
+      { "name": "content", "type": "string", "description": "File content", "required": true },
+      { "name": "baseDir", "type": "string", "description": "'scripts' or 'assets'", "required": false }
     ],
-    "purpose": "To dynamically launch and manage server-side Node.js processes like game worlds or APIs.",
+    "implementationCode": "write_file",
+    "executionEnvironment": "Server"
+  },
+  {
+    "id": "start_node_process",
+    "name": "Start Node Process",
+    "description": "Spawns a Node.js MCP.",
+    "category": "Server",
+    "version": 1,
+    "parameters": [
+      { "name": "processId", "type": "string", "description": "Unique ID", "required": true },
+      { "name": "scriptPath", "type": "string", "description": "Path in scripts/", "required": true }
+    ],
     "implementationCode": "start_node_process",
-    "createdAt": "2024-08-01T10:00:00.000Z",
-    "updatedAt": "2024-08-01T10:00:00.000Z",
     "executionEnvironment": "Server"
   },
   {
     "id": "start_python_process",
     "name": "Start Python Process",
-    "description": "Starts a managed Python process on the server from a given script file, using the server's virtual environment.",
+    "description": "Spawns a Python MCP.",
     "category": "Server",
     "version": 1,
     "parameters": [
-      {
-        "name": "processId",
-        "type": "string",
-        "description": "A unique ID for the process (e.g., \"gazebo_service\").",
-        "required": true
-      },
-      {
-        "name": "scriptPath",
-        "type": "string",
-        "description": "The path to the Python script to run, relative to the server's 'scripts' directory (e.g., \"gazebo_service.py\").",
-        "required": true
-      }
+      { "name": "processId", "type": "string", "description": "Unique ID", "required": true },
+      { "name": "scriptPath", "type": "string", "description": "Path in scripts/", "required": true },
+      { "name": "venv", "type": "string", "description": "Optional: Name of virtual environment folder (e.g. 'venv_audio').", "required": false }
     ],
-    "purpose": "To dynamically launch and manage server-side Python processes like the Gazebo service or other automation scripts.",
     "implementationCode": "start_python_process",
-    "createdAt": "2024-08-01T10:00:00.000Z",
-    "updatedAt": "2024-08-01T10:00:00.000Z",
     "executionEnvironment": "Server"
   },
   {
     "id": "stop_process",
     "name": "Stop Process",
-    "description": "Stops a managed Node.js or Python process by its unique ID.",
+    "description": "Kills an MCP.",
     "category": "Server",
     "version": 1,
     "parameters": [
-      {
-        "name": "processId",
-        "type": "string",
-        "description": "The ID of the process to stop.",
-        "required": true
-      }
+      { "name": "processId", "type": "string", "description": "ID to stop", "required": true }
     ],
-    "purpose": "To terminate any running server-side process.",
     "implementationCode": "stop_process",
-    "createdAt": "2024-08-01T10:00:00.000Z",
-    "updatedAt": "2024-08-01T10:00:00.000Z",
     "executionEnvironment": "Server"
   },
   {
     "id": "list_managed_processes",
     "name": "List Managed Processes",
-    "description": "Lists all currently managed Node.js and Python processes running on the server.",
+    "description": "Shows running MCPs.",
     "category": "Server",
     "version": 1,
     "parameters": [],
-    "purpose": "To monitor and get the status of all running server-side processes.",
     "implementationCode": "list_managed_processes",
-    "createdAt": "2024-08-01T10:00:00.000Z",
-    "updatedAt": "2024-08-01T10:00:00.000Z",
-    "executionEnvironment": "Server"
-  },
-  {
-    "id": "compile_esp32_firmware",
-    "name": "Compile ESP32 Firmware",
-    "description": "Compiles Arduino source code for an ESP32-S3 board using a server-side process. This is a simulation and requires arduino-cli to be configured on the server.",
-    "category": "Server",
-    "version": 1,
-    "parameters": [
-      {
-        "name": "firmwareCode",
-        "type": "string",
-        "description": "The complete Arduino source code to be compiled.",
-        "required": true
-      },
-      {
-        "name": "boardFQBN",
-        "type": "string",
-        "description": "The fully qualified board name (FQBN) for the target device (e.g., \"esp32:esp32:esp32s3\").",
-        "required": false,
-        "defaultValue": "esp32:esp32:esp32s3"
-      }
-    ],
-    "purpose": "To validate and prepare firmware for over-the-air (OTA) updates by compiling it on the server.",
-    "implementationCode": "compile_firmware",
-    "createdAt": "2024-08-01T10:00:00.000Z",
-    "updatedAt": "2024-08-01T10:00:00.000Z",
-    "executionEnvironment": "Server"
-  },
-  {
-    "id": "flash_esp32_firmware_ota",
-    "name": "Flash ESP32 Firmware (OTA)",
-    "description": "Flashes a compiled firmware binary to an ESP32 device over the air. This is a simulation and requires a Python OTA script on the server.",
-    "category": "Server",
-    "version": 1,
-    "parameters": [
-      {
-        "name": "firmwarePath",
-        "type": "string",
-        "description": "The path to the compiled firmware binary on the server (e.g., \"/tmp/build/firmware.bin\").",
-        "required": true
-      },
-      {
-        "name": "deviceIp",
-        "type": "string",
-        "description": "The IP address of the target ESP32 device on the local network.",
-        "required": true
-      }
-    ],
-    "purpose": "To deploy new firmware to a remote ESP32 device without a physical connection.",
-    "implementationCode": "flash_firmware_ota",
-    "createdAt": "2024-08-01T10:00:00.000Z",
-    "updatedAt": "2024-08-01T10:00:00.000Z",
     "executionEnvironment": "Server"
   }
 ]
