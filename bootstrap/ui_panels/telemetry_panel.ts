@@ -28,7 +28,8 @@ export const TELEMETRY_PANEL_CODE = `
                        <button onClick={() => setShowProvisioning(!showProvisioning)} className="text-[10px] bg-slate-700 text-slate-300 px-2 py-0.5 rounded hover:bg-slate-600 transition-colors" title="Provision WiFi">Config WiFi</button>
                        <button onClick={deviceManager.handleAddBleDevice} disabled={!!deviceManager.bluetoothAvailabilityError} className="text-[10px] bg-cyan-900/50 text-cyan-400 px-2 py-0.5 rounded hover:bg-cyan-900 transition-colors">ADD BLE</button>
                        <button onClick={deviceManager.handleAddSerialDevice} className="text-[10px] bg-orange-900/50 text-orange-400 px-2 py-0.5 rounded hover:bg-orange-900 transition-colors" title="Connect via USB Serial">ADD USB</button>
-                       <button onClick={deviceManager.handleAddCamera} className="text-[10px] bg-purple-900/50 text-purple-400 px-2 py-0.5 rounded hover:bg-purple-900 transition-colors" title="Add System Webcam">ADD CAM</button>
+                       <button onClick={deviceManager.handleAddCamera} className="text-[10px] bg-purple-900/50 text-purple-400 px-2 py-0.5 rounded hover:bg-purple-900 transition-colors" title="Add System Webcam">REAL CAM</button>
+                       <button onClick={deviceManager.handleAddRealMicrophone} className="text-[10px] bg-yellow-900/50 text-yellow-400 px-2 py-0.5 rounded hover:bg-yellow-900 transition-colors" title="Add System Microphone">REAL MIC</button>
                   </div>
               </div>
               <div className="p-2 space-y-1 overflow-y-auto custom-scrollbar">

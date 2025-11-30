@@ -31,6 +31,12 @@ const [isDonghuaMode, setIsDonghuaMode] = useState(false);
 const [enablePrebuffering, setEnablePrebuffering] = useState(true);
 const [isRecording, setIsRecording] = useState(false);
 
+// --- DREAM STREAM STATE ---
+const [isDreamStreaming, setIsDreamStreaming] = useState(false);
+const [dreamFps, setDreamFps] = useState(0);
+const lastDreamFrameRef = useRef(null); // Stores the base64 of the last frame
+const dreamLoopActiveRef = useRef(false);
+
 const [targetLanguage, setTargetLanguage] = useState('English');
 const LANGUAGES = ['English', 'Russian', 'Spanish', 'Japanese', 'Chinese', 'French', 'German'];
 
@@ -57,6 +63,89 @@ const blobToBase64 = (blob) => {
     reader.readAsDataURL(blob);
   });
 };
+
+// --- DREAM STREAM ENGINE (Real-Time Video) ---
+useEffect(() => {
+    if (isDreamStreaming && !dreamLoopActiveRef.current) {
+        dreamLoopActiveRef.current = true;
+        let lastFrameTime = Date.now();
+        let frameCount = 0;
+        
+        const loop = async () => {
+            if (!dreamLoopActiveRef.current) return;
+            
+            // 1. Prepare Inputs based on Neurofeedback
+            // Low Lucidity = High Hallucination (High Strength)
+            // High Lucidity = Stable Reality (Low Strength)
+            const instability = Math.max(0.15, 1.0 - lucidity); 
+            const strength = Math.min(0.65, Math.max(0.15, instability * 0.7));
+            
+            // Construct dynamic prompt
+            let currentScene = gameState.worldGraph?.currentLocation?.description || "Abstract void";
+            if (activeBiases.length > 0) {
+                currentScene += ", " + activeBiases.join(", ") + " visual distortion";
+            }
+            const prompt = currentScene + ", masterpiece, 8k, cinematic lighting";
+            
+            // Image source: Previous frame OR current static image OR black
+            const initImage = lastDreamFrameRef.current || gameState.imageUrl;
+            
+            if (!initImage) {
+                // If no image to start with, wait or skip
+                await new Promise(r => setTimeout(r, 100));
+                if (dreamLoopActiveRef.current) requestAnimationFrame(loop);
+                return;
+            }
+
+            try {
+                const t0 = performance.now();
+                const res = await fetch('http://localhost:8006/img2img', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        image: initImage,
+                        strength: strength, // Dynamic neurofeedback parameter
+                        steps: 2, // Turbo speed
+                        guidance: 1.0 // LCM requires low guidance
+                    })
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.image) {
+                        lastDreamFrameRef.current = data.image;
+                        // Update UI directly (bypassing full state render for speed if possible, but state is fine for < 15fps)
+                        setGameState(prev => ({ ...prev, imageUrl: data.image }));
+                        
+                        // FPS Calc
+                        frameCount++;
+                        if (Date.now() - lastFrameTime > 1000) {
+                            setDreamFps(frameCount);
+                            frameCount = 0;
+                            lastFrameTime = Date.now();
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn("Dream Stream Error (Cortex Offline?):", e);
+                setIsDreamStreaming(false); // Auto-stop on error
+            }
+            
+            if (dreamLoopActiveRef.current) {
+                // Throttle slightly to save GPU if needed, otherwise run flat out
+                requestAnimationFrame(loop);
+            }
+        };
+        
+        loop();
+    } else if (!isDreamStreaming) {
+        dreamLoopActiveRef.current = false;
+    }
+    
+    return () => { dreamLoopActiveRef.current = false; };
+}, [isDreamStreaming, lucidity, activeBiases, gameState.worldGraph, gameState.imageUrl]);
+
 
 // --- Playback Logic ---
 const playPcmAudio = useCallback(async (base64String) => {
@@ -168,6 +257,9 @@ useEffect(() => {
 }, [lucidity, musicEnabled]);
 
 const generateScene = useCallback(async (actionTextOrAudio, audioBase64 = null) => {
+    // If dreaming, capture current frame as context for the narrative? 
+    // Ideally we send the description, but for now we stick to the narrative loop.
+    
     const result = await runtime.tools.run('Generate_Scene_Quantum_V2', {
         worldGraph: gameState.worldGraph,
         lucidityLevel: lucidity, 
@@ -206,10 +298,18 @@ const triggerNextScene = useCallback(async (actionTextOrAudio, isAuto = false, a
                 ...prev,
                 narrative: result.narrative,
                 history: [...prev.history, { source: 'Game Master', text: result.narrative, type: result.gmRuling }],
-                imageUrl: result.imageUrl,
+                // Only update static image if NOT dreaming (or if dream loop is stuck)
+                imageUrl: isDreamStreaming ? prev.imageUrl : result.imageUrl, 
                 audioUrl: result.audioUrl,
                 worldGraph: { ...prev.worldGraph, ...result.debugData.graphUpdates }
             }));
+            
+            // If dreaming, update the seed frame reference without breaking the loop
+            if (result.imageUrl && isDreamStreaming) {
+                // Optionally inject the high-quality static frame into the dream stream to "ground" it
+                // lastDreamFrameRef.current = result.imageUrl; 
+            }
+            
             setSuggestedActions(result.suggestedActions || []);
             setDebugInfo(result.debugData);
         }
@@ -222,7 +322,7 @@ const triggerNextScene = useCallback(async (actionTextOrAudio, isAuto = false, a
     } finally {
         setIsWaitingForAI(false);
     }
-}, [generateScene, isWaitingForAI]);
+}, [generateScene, isWaitingForAI, isDreamStreaming]);
 
 const generateNextSceneSilent = useCallback(async () => {
     if (nextSceneBuffer) return;
@@ -260,7 +360,7 @@ useEffect(() => {
                 ...prev,
                 narrative: nextSceneBuffer.narrative,
                 history: [...prev.history, { source: 'Game Master (Auto)', text: nextSceneBuffer.narrative, type: nextSceneBuffer.gmRuling }],
-                imageUrl: nextSceneBuffer.imageUrl,
+                imageUrl: isDreamStreaming ? prev.imageUrl : nextSceneBuffer.imageUrl,
                 audioUrl: nextSceneBuffer.audioUrl,
                 worldGraph: { ...prev.worldGraph, ...nextSceneBuffer.debugData.graphUpdates }
             }));
@@ -274,7 +374,7 @@ useEffect(() => {
         }, 100);
         return () => clearTimeout(timer);
     }
-}, [isDonghuaMode, isAudioPlaying, nextSceneBuffer, isWaitingForAI, isRecording]);
+}, [isDonghuaMode, isAudioPlaying, nextSceneBuffer, isWaitingForAI, isRecording, isDreamStreaming]);
 
 const toggleRecording = useCallback(async (e) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
@@ -366,6 +466,16 @@ return (
                 )}
             </div>
             <div className="flex items-center gap-2">
+                 {/* DREAM STREAM TOGGLE */}
+                 <button 
+                    type="button"
+                    onClick={() => setIsDreamStreaming(!isDreamStreaming)}
+                    className={'px-2 py-1 rounded text-[9px] font-bold border transition-colors flex items-center gap-1 ' + (isDreamStreaming ? 'bg-pink-900/50 border-pink-500 text-pink-300 animate-pulse' : 'bg-slate-800 border-slate-600 text-slate-500')}
+                    title="Real-Time Generative Video Feedback (Requires Local SD Cortex)"
+                 >
+                    {isDreamStreaming ? \`DREAMING \${dreamFps}FPS\` : 'DREAM: OFF'}
+                 </button>
+
                  <select 
                     value={targetLanguage} 
                     onChange={(e) => setTargetLanguage(e.target.value)}
@@ -397,13 +507,6 @@ return (
                  >
                     {isDonghuaMode ? 'DONGHUA: ON' : 'DONGHUA: OFF'}
                  </button>
-                 <button 
-                    type="button"
-                    onClick={() => setShowGmScreen(!showGmScreen)}
-                    className={'px-2 py-1 rounded text-[9px] font-bold border transition-colors ' + (showGmScreen ? 'bg-green-900/30 border-green-500 text-green-400' : 'bg-slate-800 border-slate-600 text-slate-400 hover:text-white')}
-                >
-                    GM DEBUG
-                </button>
             </div>
         </div>
 
@@ -413,7 +516,7 @@ return (
              
              <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-10 bg-[length:100%_2px,3px_100%]"></div>
 
-             {isWaitingForAI && !nextSceneBuffer && (
+             {isWaitingForAI && !nextSceneBuffer && !isDreamStreaming && (
                  <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 backdrop-blur-sm">
                      <div className="flex flex-col items-center gap-2">
                          <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
@@ -500,4 +603,4 @@ return (
         </div>
     </div>
 );
-`;
+`

@@ -107,6 +107,44 @@ export const SETTINGS_MODAL_CODE = `
                           </div>
                       </div>
 
+                      {/* Data & Storage Section */}
+                      <div className="space-y-3">
+                          <h3 className="text-xs font-bold text-red-400 uppercase tracking-widest border-b border-slate-800/60 pb-2">
+                              Data & Storage
+                          </h3>
+                          <div className="grid gap-3">
+                              <div className="flex items-center justify-between bg-slate-900/40 p-3 rounded-lg border border-slate-800">
+                                  <div>
+                                      <div className="text-sm font-bold text-white">Persist App State</div>
+                                      <div className="text-xs text-slate-500">Save settings & generated tools to LocalStorage</div>
+                                  </div>
+                                  <input 
+                                    type="checkbox" 
+                                    checked={!apiConfig.disablePersistence} 
+                                    onChange={e => setApiConfig({...apiConfig, disablePersistence: !e.target.checked})} 
+                                    className="accent-green-500 h-4 w-4 cursor-pointer"
+                                  />
+                              </div>
+                              
+                              <div className="flex items-center justify-between bg-slate-900/40 p-3 rounded-lg border border-slate-800">
+                                  <div>
+                                      <div className="text-sm font-bold text-red-300">Clear Cache & Reset</div>
+                                      <div className="text-xs text-slate-500">Wipe all local data (Factory Reset)</div>
+                                  </div>
+                                  <button 
+                                    onClick={async () => {
+                                        if (confirm("This will permanently delete all saved tools, settings, and data. Continue?")) {
+                                            await runtime.tools.run('Factory Reset Protocols', {});
+                                        }
+                                    }}
+                                    className="px-3 py-1.5 bg-red-900/50 hover:bg-red-800 border border-red-700 text-red-200 text-xs font-bold rounded transition-colors"
+                                  >
+                                      Clear Data
+                                  </button>
+                              </div>
+                          </div>
+                      </div>
+
                       {/* AI Providers Section */}
                       <div className="space-y-3">
                           <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-widest border-b border-slate-800/60 pb-2">

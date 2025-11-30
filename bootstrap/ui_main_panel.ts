@@ -3,6 +3,7 @@ import { USE_DEVICE_MANAGER_CODE } from './ui_panels/hooks/useDeviceManager';
 import { USE_PROTOCOL_RUNNER_CODE } from './ui_panels/hooks/useProtocolRunner';
 import { USE_PROVISIONING_CODE } from './ui_panels/hooks/useProvisioning';
 import { USE_FIRMWARE_MANAGER_CODE } from './ui_panels/hooks/useFirmwareManager';
+import { USE_SERVER_MANAGER_CODE } from './ui_panels/hooks/useServerManager';
 import { RENDER_FUNCTIONS_CODE } from './ui_panels/render_functions';
 import { PLAYER_DISPLAY_CODE } from './ui_panels/player/PlayerDisplay';
 import { UNIVERSAL_CANVAS_CODE } from './ui_panels/UniversalCanvas';
@@ -20,13 +21,15 @@ export const MAIN_PANEL_CODE = `
   
   ${USE_FIRMWARE_MANAGER_CODE}
 
+  ${USE_SERVER_MANAGER_CODE}
+
   ${USE_STREAM_ENGINE_CODE}
   
   ${UNIVERSAL_CANVAS_CODE}
   ${PLAYER_DISPLAY_CODE}
 
   // --- State ---
-  const [leftTab, setLeftTab] = useState('research');
+  const [leftTab, setLeftTab] = useState('library'); // Set default tab to Library
   const [rightTab, setRightTab] = useState('telemetry');
   const [activeAppIdLocal, setActiveAppIdLocal] = useState(null);
   const [showProvisioning, setShowProvisioning] = useState(false);
@@ -48,7 +51,7 @@ export const MAIN_PANEL_CODE = `
   const [visionState, setVisionState] = useState({ active: false, lastUpdate: 0, data: null });
 
   // --- Immersive Mode State ---
-  const isImmersive = apiConfig.immersiveMode !== false; // Default to true
+  const isImmersive = !!apiConfig.immersiveMode; // Default false if undefined
   const [panelVisibility, setPanelVisibility] = useState({ left: false, right: false });
   const hoverTimers = useRef({ left: null, right: null });
 
@@ -90,13 +93,31 @@ export const MAIN_PANEL_CODE = `
   const totalApiCalls = Object.values(apiCallCount || {}).reduce((a, b) => a + b, 0);
 
   const protocolLibrary = useMemo(() => {
-    return runtime.tools.list().filter(tool => 
+    const list = runtime.tools.list().filter(tool => 
       tool.category === 'UI Component' && tool.name !== 'Neurofeedback Engine Main UI' && tool.name !== 'Debug Log View'
     );
+    // Sort to pin "Neuro Quest" tools to the top
+    return list.sort((a, b) => {
+        const aIsQuest = a.name.toLowerCase().includes('neuro quest');
+        const bIsQuest = b.name.toLowerCase().includes('neuro quest');
+        if (aIsQuest && !bIsQuest) return -1;
+        if (!aIsQuest && bIsQuest) return 1;
+        return 0; // Default sort order otherwise (preserves creation order)
+    });
   }, [runtime.tools.list()]);
   
   const deviceManager = useDeviceManager({ runtime });
   const streamEngineManager = useStreamEngine({ runtime });
+  const serverManager = useServerManager({ runtime });
+  
+  // --- HOISTED SERVER PANEL HOOKS ---
+  // These must be top-level to avoid Conditional Hook Error #310 when switching tabs
+  const terminalEndRef = useRef(null);
+  useEffect(() => {
+      if (serverManager.autoScroll && serverManager.selectedConsoleId && terminalEndRef.current) {
+          terminalEndRef.current.scrollIntoView({ behavior: "smooth" });
+      }
+  }, [serverManager.processes, serverManager.selectedConsoleId, serverManager.autoScroll]);
   
   const selectedDevicesForFirmware = useMemo(() => {
       return deviceManager.connectedDevices.filter(d => deviceManager.activeDataSourceIds.includes(d.id));
@@ -465,14 +486,17 @@ export const MAIN_PANEL_CODE = `
                         className={\`p-1.5 rounded hover:bg-slate-800 \${genesisMode ? 'text-purple-400 border border-purple-500' : 'text-slate-600'}\`} 
                         title="Launch Vibecoder Genesis Mode"
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547a2 2 0 00-.547 1.806l.443 2.387a6 6 0 00.517 3.86l.158.318a6 6 0 00.517 3.86l.477 2.387zM12 6V4m0 2a2 2 0 012 2v1H10V8a2 2 0 012-2z" /></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547a2 2 0 00-.547 1.806l.443 2.387a6 6 0 00.517 3.86l.158.318a6 6 0 00.517 3.86l.477 2.387a2 2 0 00.547 1.022a2 2 0 001.806.547l2.387-.443a6 6 0 003.86-.517l.318-.158a6 6 0 013.86-.517l2.387.477a2 2 0 001.806-.547a2 2 0 00.547-1.806l-.443-2.387a6 6 0 00-.517-3.86l-.158-.318a6 6 0 00-.517-3.86l-.477-2.387zM12 6V4m0 2a2 2 0 012 2v1H10V8a2 2 0 012-2z" /></svg>
                     </button>
-                    <button onClick={() => setRightTab('telemetry')} className={\`p-1.5 rounded hover:bg-slate-800 \${rightTab === 'telemetry' ? 'text-cyan-400' : 'text-slate-600'}\`}><DeviceIcon className="h-4 w-4"/></button>
-                    <button onClick={() => setRightTab('logs')} className={\`p-1.5 rounded hover:bg-slate-800 \${rightTab === 'logs' ? 'text-cyan-400' : 'text-slate-600'}\`}><TerminalIcon className="h-4 w-4"/></button>
+                    <button onClick={() => setRightTab('telemetry')} className={\`p-1.5 rounded hover:bg-slate-800 \${rightTab === 'telemetry' ? 'text-cyan-400' : 'text-slate-600'}\`} title="Devices"><DeviceIcon className="h-4 w-4"/></button>
+                    <button onClick={() => setRightTab('servers')} className={\`p-1.5 rounded hover:bg-slate-800 \${rightTab === 'servers' ? 'text-cyan-400' : 'text-slate-600'}\`} title="Servers (MCP)"><AutomationIcon className="h-4 w-4"/></button>
+                    <button onClick={() => setRightTab('logs')} className={\`p-1.5 rounded hover:bg-slate-800 \${rightTab === 'logs' ? 'text-cyan-400' : 'text-slate-600'}\`} title="Logs"><TerminalIcon className="h-4 w-4"/></button>
                 </div>
             </div>
             <div className="flex-grow p-4 min-h-0 overflow-hidden flex flex-col">
-                {rightTab === 'telemetry' ? renderTelemetryPanel() : (
+                {rightTab === 'telemetry' && renderTelemetryPanel()}
+                {rightTab === 'servers' && renderServerPanel()}
+                {rightTab === 'logs' && (
                      <div className="h-full flex flex-col">
                         <div className="flex-grow overflow-y-auto font-mono text-[10px] text-slate-400 space-y-1 custom-scrollbar">
                              {runtime.getState().eventLog.map((log, i) => <div key={i} className="break-words border-b border-slate-800/50 pb-0.5">{log}</div>)}

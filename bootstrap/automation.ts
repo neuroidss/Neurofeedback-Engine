@@ -1,4 +1,10 @@
 
+
+
+
+
+
+
 // framework/automation.ts
 import type { ToolCreatorPayload } from '../types';
 
@@ -27,9 +33,11 @@ Your task is to design a JSON dataflow graph to achieve the user's goal.
    - REQUIRED field: "jsLogic". The string MUST be the function body.
    - Example: \`"jsLogic": "const val = inputs[0]; return { output: Math.pow(val, 3) };"\`.
 
-4. **Sink** (Tool: 'Bind_To_Visuals'):
-   - **CRITICAL RULE:** Each 'Bind_To_Visuals' node should map ONE input to ONE parameter.
-   - Parameters: "globalColor", "intensity", "geometryMode", "textOverlay".
+4. **Sink / Output:**
+   - Tool: 'Bind_To_Visuals'. **CRITICAL:** maps ONE input to ONE parameter (globalColor, intensity, geometryMode, textOverlay).
+   - Tool: 'Create_MusicGen_Node'. ID: "musicgen_sink". **Use for AI Music.** 
+     - Inputs: ["matrix_processor"] (for EEG attention bias) and/or ["text_source"] (for prompts).
+     - Config: { "prompt": "ambient focus, 120bpm" }.
 
 **CRITICAL JSON RULES:**
 1. **'inputs' MUST be an Array of Strings.** Example: \`"inputs": ["node_id_1"]\`.
@@ -170,6 +178,7 @@ const GRAPH_TOPOLOGY_PROMPT = `You are a Stream Graph Architect. Design a JSON g
 - 'Create_Vision_Source': Output {smile, eyeOpen}. ID: 'vision_source_1'.
 - 'Create_EEG_Source': Output { <Channel>: value }. ID: 'eeg_source_1'. Use this for brainwaves/focus.
 - 'Create_Standard_Node': Type 'Math_Multiply', 'Signal_Smooth', 'Math_Threshold', 'Logic_IfElse', 'Math_Divide', 'Signal_Oscillator', 'Math_BandPower', 'Math_Clamp'.
+- 'Create_MusicGen_Node': Generative Audio. Inputs: ["matrix_processor"] (to sync with brain coherence). Config: { "prompt": "style" }. ID: 'musicgen_sink'.
 - 'Bind_To_Visuals': Inputs -> {globalColor, intensity, geometryMode, textOverlay}.
 
 **CRITICAL:** 
@@ -251,6 +260,13 @@ const GRAPH_WRAPPER_TEMPLATE = `
                             nodeId: node.id, 
                             channel: node.config?.channel || 'Cz',
                             config: node.config // Pass full config for simulation params
+                        });
+                    }
+                    else if (toolName === 'Create_MusicGen_Node') {
+                        await runtime.tools.run('Create_MusicGen_Node', {
+                            nodeId: node.id,
+                            prompt: node.config?.prompt || 'ambient drone',
+                            inputs: node.inputs // Connect to EEG/Text sources
                         });
                     }
                     else if (toolName === 'Create_Standard_Node') {
@@ -459,6 +475,12 @@ const GENERATE_GRAPH_TOPOLOGY: ToolCreatorPayload = {
                     await runtime.tools.run('Create_EEG_Source', { 
                         nodeId: node.id, 
                         channel: node.config?.channel || 'Cz' 
+                    });
+                } else if (node.toolName === 'Create_MusicGen_Node') {
+                    await runtime.tools.run('Create_MusicGen_Node', {
+                        nodeId: node.id,
+                        prompt: node.config?.prompt,
+                        inputs: node.inputs // Pass inputs (matrix, text, etc.)
                     });
                 } else if (node.toolName === 'Create_Standard_Node') {
                     

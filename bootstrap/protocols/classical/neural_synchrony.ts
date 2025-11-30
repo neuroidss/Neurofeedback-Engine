@@ -1,274 +1,329 @@
 
-
-
 // bootstrap/protocols/classical/neural_synchrony.ts
 import type { ToolCreatorPayload } from '../../../types';
+import { 
+    AGGREGATOR_SOURCE_IMPL, 
+    MATRIX_PROCESSOR_IMPL, 
+    COLOR_MAPPER_IMPL, 
+    INTENSITY_MAPPER_IMPL 
+} from '../../common_node_impls';
 
-export const NEURAL_SYNCHRONY_PROTOCOL: ToolCreatorPayload = {
-    name: "Neural Synchrony",
-    description: "Measures overall neural synchrony (ciPLV) across all available channels from the selected devices. It does not require specific 10-20 locations, making it ideal for flexible hardware setups like FreeEEG8. The visualization adapts to show local coherence (for a single device) or group synchrony (for multiple devices).",
-    category: 'UI Component',
-    executionEnvironment: 'Client',
-    purpose: "To provide a robust, single protocol for training either focused concentration (local coherence) or creative/problem-solving states (inter-hemispheric synchrony), adapting to the user's hardware setup automatically.",
-    parameters: [
-        { name: 'processedData', type: 'object', description: 'Real-time data containing the coherence mode and value.', required: true },
-        { name: 'runtime', type: 'object', description: 'The application runtime API.', required: false }
-    ],
-    dataRequirements: { 
-        type: 'eeg',
-        channels: [], 
-        metrics: ['value', 'engine', 'deviceCount', 'matrix', 'debugLog'] 
-    },
-    processingCode: `
-(runtime) => {
-    // This is an async factory, so we return an object with an async update method.
-    return {
-        update: async (eegData, sampleRate) => {
-            // --- ALIAS FILTERING ---
-            // The runtime provides both specific keys ("Device:Channel") and aliased keys ("Channel") 
-            // for compatibility. We must filter out the aliases to avoid double-counting.
-            let channelNames = Object.keys(eegData);
-            const hasPrefixes = channelNames.some(ch => ch.includes(':'));
-            
-            let activeData = eegData;
-            if (hasPrefixes) {
-                activeData = {};
-                channelNames.forEach(key => {
-                    // If specific keys exist, only use them. Ignore simple aliases.
-                    if (key.includes(':')) activeData[key] = eegData[key];
-                });
-                channelNames = Object.keys(activeData);
-            }
-
-            if (channelNames.length < 2) {
-                return { 
-                    value: 0, 
-                    matrix: {}, 
-                    engine: 'N/A', 
-                    deviceCount: channelNames.length, 
-                    debugLog: ['[DSP] Error: Not enough channels to process. Received ' + channelNames.length + ', need at least 2.'] 
-                };
-            }
-            
-            // Infer number of devices from channel name prefixes (e.g., 'simulator-1:Cz')
-            const numDevices = hasPrefixes
-                ? new Set(channelNames.map(ch => ch.split(':')[0])).size
-                : 1;
-
-            try {
-                const result = await runtime.tools.run('Calculate_Coherence_Matrix_Optimized', {
-                    eegData: activeData,
-                    sampleRate: sampleRate,
-                    freqRange: [8, 12] // Alpha band
-                });
-
-                if (result.success === false) { // Handle graceful failure from DSP tool
-                    return { value: 0, matrix: {}, engine: 'Error', deviceCount: numDevices, debugLog: result.debugLog || ['DSP tool failed.'] };
-                }
-                
-                return { 
-                    value: result.avg_coherence, 
-                    matrix: result.coherence_matrix,
-                    engine: result.engine,
-                    deviceCount: numDevices,
-                    debugLog: result.debugLog
-                };
-            } catch (e) {
-                return { value: 0, matrix: {}, engine: 'Error', deviceCount: numDevices, debugLog: [e.message] };
-            }
-        }
-    };
-}
-    `,
-    implementationCode: `
-    const { useState, useMemo } = React;
-    const { value, deviceCount, engine, matrix, debugLog } = processedData || {};
-    const [isDebugVisible, setIsDebugVisible] = useState(false);
-    const coherence = typeof value === 'number' ? value : 0;
-    const isMultiDevice = deviceCount > 1;
-
-    // --- NEW: Coherence Circle Visualization ---
-    const CoherenceCircle = ({ matrix, isMultiDevice }) => {
-        const size = 250;
-        const radius = size / 2 - 20;
+const GRAPH_UI_IMPL = `
+    const { useState, useEffect, useRef, useMemo } = React;
+    
+    // --- 1. Graph Lifecycle ---
+    useEffect(() => {
+        if (!runtime.streamEngine) return;
+        runtime.logEvent('[Graph V2] Deploying GPU-Accelerated Neural Synchrony Graph...');
         
-        if (!matrix || Object.keys(matrix).length === 0) {
-            return (
-                <div style={{
-                    width: size, height: size, borderRadius: '50%', border: '1px dashed #444',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#666', fontSize: '12px'
-                }}>
-                    Calculating...
-                </div>
-            );
-        }
-
-        const allChannels = useMemo(() => {
-            const channelSet = new Set();
-            Object.keys(matrix).forEach(key => {
-                // Robust parsing: Supports 'ch1__ch2' (standard) and 'ch1-ch2' (legacy/mock)
-                let parts = key.split('__');
-                if (parts.length < 2 && key.includes('-')) {
-                     // Basic fallback for dash, but ignore if it looks like a UUID or Simulator ID
-                     const dashParts = key.split('-');
-                     // Heuristic: If exactly 2 parts, treat as pair. 
-                     if (dashParts.length === 2) parts = dashParts;
-                }
-                
-                const [ch1, ch2] = parts;
-                if (ch1) channelSet.add(ch1);
-                if (ch2) channelSet.add(ch2);
+        const deploy = async () => {
+            runtime.streamEngine.stop();
+            runtime.streamEngine.loadGraph({ id: 'neural_sync_v2', nodes: {}, edges: [] });
+            
+            // 1. Aggregator (Custom)
+            await runtime.tools.run('Create_Custom_Node', {
+                nodeId: 'eeg_aggregator',
+                jsLogic: ${JSON.stringify(AGGREGATOR_SOURCE_IMPL)},
+                inputs: [],
+                config: {}
             });
-            return Array.from(channelSet).sort();
-        }, [matrix]);
-
-        const channelPositions = useMemo(() => {
-            const positions = {};
-            const angleStep = (2 * Math.PI) / allChannels.length;
-            allChannels.forEach((channel, i) => {
-                positions[channel] = {
-                    x: size / 2 + radius * Math.cos(angleStep * i - Math.PI / 2),
-                    y: size / 2 + radius * Math.sin(angleStep * i - Math.PI / 2),
-                };
+            
+            // 2. Matrix Processor (Custom GPU Logic)
+            await runtime.tools.run('Create_Custom_Node', {
+                nodeId: 'matrix_processor',
+                jsLogic: ${JSON.stringify(MATRIX_PROCESSOR_IMPL)},
+                inputs: ['eeg_aggregator'],
+                config: {}
             });
-            return positions;
-        }, [allChannels]);
-
-        const connections = useMemo(() => {
-            return Object.entries(matrix)
-                .map(([key, value]) => {
-                    if (value < 0.1) return null; // Threshold
-                    
-                    // Re-apply robust parsing to match the channel extraction logic
-                    let parts = key.split('__');
-                    if (parts.length < 2 && key.includes('-')) {
-                         const dashParts = key.split('-');
-                         if (dashParts.length === 2) parts = dashParts;
-                    }
-                    const [ch1, ch2] = parts;
-
-                    if (!channelPositions[ch1] || !channelPositions[ch2]) return null;
-                    return {
-                        p1: channelPositions[ch1],
-                        p2: channelPositions[ch2],
-                        value
-                    };
-                })
-                .filter(Boolean);
-        }, [matrix, channelPositions]);
-
-        const getLineColor = (value) => {
-            const hue = 20 + value * 40; // orange to yellow
-            const lightness = 50 + value * 20;
-            return \`hsl(\${hue}, 100%, \${lightness}%)\`;
+            
+            // 3. Mappers (Custom)
+            await runtime.tools.run('Create_Custom_Node', {
+                nodeId: 'map_color',
+                jsLogic: ${JSON.stringify(COLOR_MAPPER_IMPL)},
+                inputs: ['matrix_processor']
+            });
+            await runtime.tools.run('Create_Custom_Node', {
+                nodeId: 'map_intensity',
+                jsLogic: ${JSON.stringify(INTENSITY_MAPPER_IMPL)},
+                inputs: ['matrix_processor']
+            });
+            
+            // Connections (Implicit in inputs, but explicit connect ensures graph update)
+            runtime.streamEngine.connectNodes('eeg_aggregator', 'matrix_processor');
+            runtime.streamEngine.connectNodes('matrix_processor', 'map_color');
+            runtime.streamEngine.connectNodes('matrix_processor', 'map_intensity');
+            
+            runtime.streamEngine.start();
         };
         
-        const getLabel = (channel) => {
-             // Simple, direct display of the channel ID as provided by the system.
-             // No artificial renaming.
-             const parts = channel.split(':');
-             if (parts.length < 2) return channel; 
-             
-             const devId = parts[0];
-             const chName = parts[1];
-             return devId + ':' + chName;
+        deploy();
+        
+        return () => { runtime.streamEngine.stop(); };
+    }, []);
+
+    // --- 2. Data Polling ---
+    const [graphState, setGraphState] = useState(null);
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (runtime.streamEngine && runtime.streamEngine.getDebugState) {
+                // Find the matrix processor node output
+                const debug = runtime.streamEngine.getDebugState();
+                const matrixNode = debug.nodes.find(n => n.id === 'matrix_processor');
+                if (matrixNode && matrixNode.value) {
+                    setGraphState(matrixNode.value);
+                }
+            }
+        }, 50);
+        return () => clearInterval(interval);
+    }, []);
+
+    // --- 3. R3F Visuals ---
+    const R3F = window.ReactThreeFiber;
+    const Drei = window.ReactThreeDrei;
+    const THREE = window.THREE;
+    if (!R3F || !Drei || !THREE) return <div>Loading 3D...</div>;
+    const { Canvas, useFrame } = R3F;
+    const { Sphere, Text, OrbitControls, Stars } = Drei;
+
+    // --- Force-Directed Graph Visualization ---
+    const Constellation = useMemo(() => ({ matrixData }) => {
+        const { matrix, globalSync } = matrixData || { matrix: {}, globalSync: 0 };
+        
+        // State refs for physics
+        const nodesRef = useRef({}); // Map<ID, {pos: Vector3, vel: Vector3, mesh: Object3D}>
+        const linesRef = useRef();   // Reference to LineSegments
+        const groupRef = useRef();   // Container for rotation
+        
+        // Identify Unique Nodes
+        const nodesList = useMemo(() => {
+            const set = new Set();
+            Object.keys(matrix).forEach(k => {
+                let parts = k.split('__');
+                if (parts.length < 2) parts = k.split('::');
+                if (parts.length < 2) parts = k.split('-');
+                if(parts[0]) set.add(parts[0]);
+                if(parts[1]) set.add(parts[1]);
+            });
+            return Array.from(set).sort();
+        }, [JSON.stringify(Object.keys(matrix))]);
+
+        // Initialize/Cleanup Nodes in Physics World
+        useEffect(() => {
+            // Add new nodes
+            nodesList.forEach(id => {
+                if (!nodesRef.current[id]) {
+                    // Spawn in random sphere position
+                    const vec = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize().multiplyScalar(3);
+                    nodesRef.current[id] = {
+                        pos: vec,
+                        vel: new THREE.Vector3(0,0,0),
+                        id: id
+                    };
+                }
+            });
+            // Remove old nodes
+            Object.keys(nodesRef.current).forEach(id => {
+                if (!nodesList.includes(id)) delete nodesRef.current[id];
+            });
+        }, [nodesList]);
+
+        // --- PHYSICS LOOP (60fps) ---
+        useFrame((state, delta) => {
+            const activeNodes = Object.values(nodesRef.current);
+            const nodeCount = activeNodes.length;
+            if (nodeCount === 0) return;
+
+            // --- 1. Auto Rotation ---
+            if (groupRef.current) {
+                groupRef.current.rotation.y += delta * (0.05 + globalSync * 0.2);
+            }
+
+            // --- 2. Apply Forces ---
+            const REPULSION = 0.5;
+            const ATTRACTION = 1.0; // Base spring strength
+            const CENTER_GRAVITY = 0.05;
+            const DAMPING = 0.9;
+            const DT = Math.min(delta, 0.1); // Clamp delta time
+
+            // A. Repulsion (N^2) - Coulombs Law
+            for (let i = 0; i < nodeCount; i++) {
+                const n1 = activeNodes[i];
+                for (let j = i + 1; j < nodeCount; j++) {
+                    const n2 = activeNodes[j];
+                    const dir = new THREE.Vector3().subVectors(n1.pos, n2.pos);
+                    let dist = dir.length();
+                    if (dist < 0.01) dist = 0.01; // Avoid singularity
+                    
+                    const force = dir.normalize().multiplyScalar(REPULSION / (dist * dist));
+                    n1.vel.add(force.multiplyScalar(DT));
+                    n2.vel.sub(force.multiplyScalar(DT));
+                }
+            }
+
+            // B. Attraction (Edges) - Hooke's Law
+            // Iterate over matrix keys (edges)
+            Object.entries(matrix).forEach(([key, coherence]) => {
+                if (coherence < 0.1) return; // Ignore weak links
+                
+                let parts = key.split('__');
+                if (parts.length < 2) parts = key.split('::');
+                if (parts.length < 2) parts = key.split('-');
+                
+                const n1 = nodesRef.current[parts[0]];
+                const n2 = nodesRef.current[parts[1]];
+                
+                if (n1 && n2) {
+                    const dir = new THREE.Vector3().subVectors(n2.pos, n1.pos);
+                    const dist = dir.length();
+                    
+                    // Target distance decreases as coherence increases
+                    const targetDist = 4.0 - (coherence * 3.5);
+                    
+                    const displacement = dist - targetDist;
+                    const force = dir.normalize().multiplyScalar(displacement * ATTRACTION * coherence);
+                    
+                    n1.vel.add(force.multiplyScalar(DT));
+                    n2.vel.sub(force.multiplyScalar(DT));
+                }
+            });
+
+            // C. Centering Gravity (Keep graph in view)
+            activeNodes.forEach(n => {
+                const force = n.pos.clone().negate().multiplyScalar(CENTER_GRAVITY);
+                n.vel.add(force.multiplyScalar(DT));
+            });
+
+            // D. Integration & Damping
+            activeNodes.forEach(n => {
+                n.vel.multiplyScalar(DAMPING);
+                n.pos.add(n.vel.clone().multiplyScalar(DT));
+                
+                // Update visual mesh position
+                if (n.mesh) n.mesh.position.copy(n.pos);
+            });
+
+            // --- 3. Update Lines Geometry ---
+            if (linesRef.current) {
+                const points = [];
+                const colors = [];
+                
+                // Re-iterate matrix to draw lines
+                Object.entries(matrix).forEach(([key, coherence]) => {
+                    if (coherence < 0.25) return; // Culling threshold for drawing
+                    
+                    let parts = key.split('__');
+                    if (parts.length < 2) parts = key.split('::');
+                    if (parts.length < 2) parts = key.split('-');
+                    
+                    const n1 = nodesRef.current[parts[0]];
+                    const n2 = nodesRef.current[parts[1]];
+                    
+                    if (n1 && n2) {
+                        points.push(n1.pos.x, n1.pos.y, n1.pos.z);
+                        points.push(n2.pos.x, n2.pos.y, n2.pos.z);
+                        
+                        // Color based on coherence strength
+                        const hue = 220 - (coherence * 180); // Blue -> Gold
+                        const col = new THREE.Color().setHSL(hue / 360, 1.0, 0.5);
+                        colors.push(col.r, col.g, col.b);
+                        colors.push(col.r, col.g, col.b);
+                    }
+                });
+                
+                const geo = linesRef.current.geometry;
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+                geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                geo.attributes.position.needsUpdate = true;
+                geo.attributes.color.needsUpdate = true;
+                
+                // Update bounding sphere for frustum culling
+                geo.computeBoundingSphere();
+            }
+        });
+
+        const getLabel = (nodeId) => {
+             const parts = nodeId.split(':');
+             return parts.length > 1 ? parts[1] : nodeId;
         };
 
         return (
-            <svg width={size} height={size} viewBox={\`0 0 \${size} \${size}\`}>
-                {/* Connections */}
-                {connections.map((conn, i) => (
-                    <line
-                        key={i}
-                        x1={conn.p1.x} y1={conn.p1.y}
-                        x2={conn.p2.x} y2={conn.p2.y}
-                        stroke={getLineColor(conn.value)}
-                        strokeWidth={0.5 + conn.value * 2}
-                        strokeOpacity={0.4 + conn.value * 0.6}
-                    />
-                ))}
+            <group ref={groupRef}>
                 {/* Nodes */}
-                {allChannels.map(channel => {
-                    const pos = channelPositions[channel];
-                    return (
-                        <g key={channel}>
-                            <circle cx={pos.x} cy={pos.y} r="8" fill="#0D9488" stroke="#14b8a6" strokeWidth="1" />
-                            <text x={pos.x} y={pos.y} dy="3" textAnchor="middle" fontSize="7" fill="white" fontWeight="bold">
-                                {getLabel(channel)}
-                            </text>
-                        </g>
-                    );
-                })}
-            </svg>
+                {nodesList.map(nodeId => (
+                    <group key={nodeId} ref={el => { if(el && nodesRef.current[nodeId]) nodesRef.current[nodeId].mesh = el; }}>
+                        <Sphere args={[0.2, 16, 16]}>
+                            <meshStandardMaterial 
+                                color={globalSync > 0.6 ? "#fbbf24" : "#22d3ee"} 
+                                emissive={globalSync > 0.6 ? "#fbbf24" : "#22d3ee"}
+                                emissiveIntensity={0.5 + globalSync}
+                            />
+                        </Sphere>
+                        <Text 
+                            position={[0, 0.35, 0]} 
+                            fontSize={0.2} 
+                            color="white" 
+                            anchorX="center" 
+                            anchorY="middle"
+                            outlineWidth={0.02}
+                            outlineColor="#000000"
+                        >
+                            {getLabel(nodeId)}
+                        </Text>
+                    </group>
+                ))}
+                
+                {/* Efficient Line Segments */}
+                <lineSegments ref={linesRef}>
+                    <bufferGeometry />
+                    <lineBasicMaterial vertexColors={true} transparent opacity={0.6} blending={THREE.AdditiveBlending} />
+                </lineSegments>
+            </group>
         );
-    };
+    }, []); // Stable definition
 
-    const containerStyle = {
-        width: '100%', height: '100%',
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        position: 'relative',
-        backgroundColor: '#0a0a10',
-        fontFamily: 'sans-serif',
-        color: 'white',
-        overflow: 'hidden'
-    };
-
-    if (!processedData) {
-        return <div style={containerStyle}>Waiting for EEG data...</div>;
-    }
-
-    const title = isMultiDevice ? 'Group Synchrony (' + deviceCount + ')' : 'Local Coherence';
-    
     return (
-        <div style={containerStyle}>
-            <div style={{ zIndex: 10, textAlign: 'center', position: 'absolute', top: '20px' }}>
-                <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', textShadow: '0 0 5px #000' }}>
-                    {title}
-                </h2>
+        <div className="w-full h-full bg-black relative">
+            {/* Stats Overlay */}
+            <div className="absolute top-4 left-4 z-10 bg-black/50 p-2 rounded border border-white/20 text-[10px] text-white font-mono pointer-events-none">
+                <div className="text-green-400 font-bold mb-1">FORCE-DIRECTED GRAPH</div>
+                <div>NODES: {graphState?.matrix ? (new Set(Object.keys(graphState.matrix).flatMap(k=>k.split('__'))).size) : 0}</div>
+                <div>SYNC: {((graphState?.globalSync || 0) * 100).toFixed(1)}%</div>
+                <div style={{color: '#888', marginTop: 2}}>Engine: {graphState?.engine || 'Init'}</div>
             </div>
 
-            <CoherenceCircle matrix={matrix} isMultiDevice={isMultiDevice} />
-            
-            <div style={{ zIndex: 10, textAlign: 'center', position: 'absolute', bottom: '20px' }}>
-                <p style={{ fontSize: '1rem', color: '#aaa' }}>Average Coherence</p>
-                <p style={{ fontSize: '2.5rem', fontWeight: '200', margin: '5px 0', textShadow: '0 0 10px #000' }}>
-                    { (coherence * 100).toFixed(1) }%
-                </p>
-            </div>
-            
-            {isDebugVisible && (
-                <div style={{
-                    position: 'absolute', bottom: 30, left: 10, right: 10, zIndex: 20,
-                    maxHeight: '35%', overflowY: 'auto',
-                    background: 'rgba(0,0,0,0.6)',
-                    padding: '5px', borderRadius: '4px',
-                    fontSize: '9px', fontFamily: 'monospace', color: '#999',
-                    border: '1px solid #333'
-                }}>
-                    <p style={{margin: 0, paddingBottom: '3px', borderBottom: '1px solid #444', color: '#ccc'}}>DSP Debug Log</p>
-                    {(debugLog || ['No log data.']).map((line, i) => <p key={i} style={{margin: 0, whiteSpace: 'pre-wrap'}}>{line}</p>)}
-                </div>
-            )}
-            
-            <div style={{ position: 'absolute', bottom: 10, right: 10, fontSize: '10px', color: '#666', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span>DSP Engine: {engine}</span>
-                 <button 
-                    onClick={() => setIsDebugVisible(!isDebugVisible)}
-                    style={{
-                        background: 'rgba(100,100,100,0.2)',
-                        border: '1px solid #555',
-                        color: '#aaa',
-                        padding: '2px 6px',
-                        borderRadius: '3px',
-                        cursor: 'pointer'
-                    }}
-                >
-                    {isDebugVisible ? 'Hide Debug' : 'Show Debug'}
-                </button>
-            </div>
+            <Canvas camera={{ position: [0, 0, 12], fov: 50 }}>
+                <color attach="background" args={['#050505']} />
+                <ambientLight intensity={0.5} />
+                <pointLight position={[10, 10, 10]} intensity={1} />
+                <Stars radius={60} count={2000} factor={4} saturation={0} fade />
+                
+                <Constellation matrixData={graphState} />
+                
+                <OrbitControls autoRotate autoRotateSpeed={0.2} enablePan={false} />
+            </Canvas>
         </div>
     );
-    `
+`;
+
+export const NEURAL_SYNCHRONY_PROTOCOL: ToolCreatorPayload = {
+    name: "Neural Synchrony (Graph)",
+    description: "Measures overall neural synchrony (ciPLV) across all available channels. Uses the Stream Engine and GPU acceleration for O(N²) matrix calculation.",
+    category: 'UI Component',
+    executionEnvironment: 'Client',
+    purpose: "To provide a robust, single protocol for training network coherence.",
+    parameters: [
+        { name: 'processedData', type: 'object', description: 'N/A', required: false },
+        { name: 'runtime', type: 'object', description: 'Runtime API', required: true }
+    ],
+    scientificDossier: {
+        title: "Dynamic Multi-Source Coherence Mapping",
+        hypothesis: "Global network synchrony across arbitrary electrode montages reflects integrated information processing.",
+        mechanism: "Real-time ciPLV (Corrected Imaginary Phase Locking Value) via GPU acceleration.",
+        targetNeuralState: "High Global Synchrony (Integration).",
+        citations: ["Fries, P. (2005). A mechanism for cognitive dynamics: neuronal communication through neuronal coherence."],
+        relatedKeywords: ["Graph Theory", "Coherence", "Hyper-scanning", "Dynamic Topology", "GPU Acceleration"]
+    },
+    dataRequirements: { type: 'eeg', channels: [], metrics: [] },
+    processingCode: `(d,r)=>({})`,
+    implementationCode: GRAPH_UI_IMPL
 };

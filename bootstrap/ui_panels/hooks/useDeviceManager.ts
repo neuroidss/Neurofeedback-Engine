@@ -5,14 +5,12 @@ const useDeviceManager = ({ runtime }) => {
   const [connectedDevices, setConnectedDevices] = useState(() => {
       try {
           const savedDevices = localStorage.getItem('neurofeedback-devices');
-          // NEW DEFAULT: Consistent naming with handleAddSimulator
-          const defaultDevice = { id: 'free8-1', name: 'FreeEEG8 Sim #1', status: 'Active', ip: null, mode: 'simulator', deviceType: 'FreeEEG8', channelCount: 8, useWss: false };
+          let initialDevices = [];
           
           if (savedDevices) {
               let parsedDevices = JSON.parse(savedDevices);
               
               // --- MIGRATION: Fix inconsistent naming from previous versions ---
-              // Rename 'simulator-free8-1' to 'free8-1' to match the 'free8-N' pattern of added devices.
               let modified = false;
               parsedDevices = parsedDevices.map(d => {
                   if (d.id === 'simulator-free8-1') {
@@ -31,16 +29,42 @@ const useDeviceManager = ({ runtime }) => {
                 .filter(d => d.mode !== 'simulator')
                 .map(d => ({ ...d, status: 'Offline', error: null, useWss: d.useWss || false })); // Hardware starts offline
               
-              // Find simulators in saved data or use default
               const savedSimulators = parsedDevices.filter(d => d.mode === 'simulator');
-              const simulators = savedSimulators.length > 0 ? savedSimulators : [defaultDevice];
-              
-              return [...simulators, ...loadedHardware];
+              initialDevices = [...savedSimulators, ...loadedHardware];
           }
-          return [defaultDevice];
+          
+          // --- DEFAULT SIMULATOR INJECTION ---
+          // Ensure at least one simulator exists so protocols don't crash on empty input
+          if (initialDevices.length === 0) {
+              initialDevices.push({
+                  id: 'free8-1',
+                  name: 'FreeEEG8 Sim #1',
+                  status: 'Active',
+                  ip: null,
+                  mode: 'simulator',
+                  deviceType: 'FreeEEG8',
+                  channelCount: 8,
+                  error: null,
+                  useWss: false
+              });
+              runtime.logEvent('[System] Auto-created default simulator to ensure system readiness.');
+          }
+          
+          return initialDevices;
       } catch (e) {
           runtime.logEvent('[System] Error loading saved devices: ' + e.message);
-          return [{ id: 'free8-1', name: 'FreeEEG8 Sim #1', status: 'Active', ip: null, mode: 'simulator', deviceType: 'FreeEEG8', channelCount: 8, useWss: false }];
+          // Fallback if localstorage is corrupt
+          return [{
+              id: 'free8-1',
+              name: 'FreeEEG8 Sim #1',
+              status: 'Active',
+              ip: null,
+              mode: 'simulator',
+              deviceType: 'FreeEEG8',
+              channelCount: 8,
+              error: null,
+              useWss: false
+          }];
       }
   });
 
@@ -49,14 +73,11 @@ const useDeviceManager = ({ runtime }) => {
           const savedActiveIds = localStorage.getItem('neurofeedback-active-device-ids');
           if (savedActiveIds) {
               let parsed = JSON.parse(savedActiveIds);
-              if (!Array.isArray(parsed)) parsed = ['free8-1'];
-              
-              // --- MIGRATION for IDs in selection list ---
+              if (!Array.isArray(parsed)) parsed = [];
               parsed = parsed.map(id => id === 'simulator-free8-1' ? 'free8-1' : id);
-              // -------------------------------------------
-              
               return parsed;
           }
+          // Default to the simulator ID we know we created
           return ['free8-1'];
       } catch (e) {
           return ['free8-1'];
@@ -162,8 +183,38 @@ const useDeviceManager = ({ runtime }) => {
       }
   };
 
+  const handleAddRealMicrophone = async () => {
+      try {
+          // Request permission to ensure user allows it, then stop stream (Logic node handles actual stream)
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach(t => t.stop());
+          
+          const id = 'sys-mic-' + (connectedDevices.filter(d => d.deviceType === 'Microphone').length + 1);
+          const newDevice = {
+              id: id,
+              name: 'System Mic',
+              status: 'Ready',
+              ip: 'local',
+              mode: 'local',
+              deviceType: 'Microphone',
+              channelCount: 0,
+              error: null,
+              useWss: false
+          };
+          
+          if (!connectedDevices.find(d => d.id === id)) {
+              setConnectedDevices(prev => [...prev, newDevice]);
+              setActiveDataSourceIds(prev => [...prev, id]);
+              runtime.logEvent('[Device] Added Real Microphone entry.');
+          }
+      } catch (e) {
+          runtime.logEvent('[Device] Mic Access Denied: ' + e.message);
+          alert('Could not access microphone. Please allow permissions.');
+      }
+  };
+
   const handleRemoveDevice = (deviceId) => {
-    if(connectedDevices.length <= 1) return;
+    // Allow removing even the last device if desired
     setActiveDataSourceIds(prev => prev.filter(id => id !== deviceId));
     setConnectedDevices(prev => prev.filter(d => d.id !== deviceId));
     runtime.logEvent('[Device] Removed device: ' + deviceId);
@@ -262,7 +313,7 @@ const useDeviceManager = ({ runtime }) => {
     setActiveDataSourceIds(prev => {
         const isSelected = prev.includes(deviceId);
         if (isSelected) {
-            return prev.length > 1 ? prev.filter(id => id !== deviceId) : prev;
+            return prev.filter(id => id !== deviceId); // Allow deselecting last
         } else {
             return [...prev, deviceId];
         }
@@ -289,6 +340,7 @@ const useDeviceManager = ({ runtime }) => {
     onDeviceProvisioned,
     handleAddSimulator,
     handleAddCamera,
+    handleAddRealMicrophone,
     handleRemoveDevice,
     handleAddBleDevice,
     handleAddSerialDevice,
@@ -296,4 +348,4 @@ const useDeviceManager = ({ runtime }) => {
     handleToggleWss
   };
 };
-`
+`;

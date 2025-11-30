@@ -56,7 +56,7 @@ If the player's action implies interaction with a hallucination (e.g., attacking
         "currentLocation": { "name": "...", "description": "..." },
         "newNodes": []
     },
-    "imagePrompt": "Basic visual description of the objective scene...",
+    "imagePrompt": "Basic visual description of the objective scene, comma separated tags, visual style...",
     "suggestedDuration": 3
 }`;
 
@@ -113,27 +113,21 @@ const DEPLOY_LSL_AGGREGATOR: ToolCreatorPayload = {
         const { streamName, expectedDeviceCount } = args;
         runtime.logEvent(\`[DevOps] 🏗️ Generating LSL Aggregator for \${expectedDeviceCount} devices...\`);
 
-        // Template literal is safe here as it is generating Python code, not another JS template
         const pythonScript = \`
 import time
 import sys
 import random
 import json
-# Note: In a real deployment, 'pylsl' would be imported.
-# from pylsl import StreamInfo, StreamOutlet
 
 def run_aggregator():
     print(f"[LSL Relay] Starting stream aggregation for '\${streamName}'...")
     print(f"[LSL Relay] Listening for up to \${expectedDeviceCount} devices on local subnets...")
     
-    # Simulation of a high-performance aggregation loop
     active_devices = 0
     while True:
-        # Simulate device discovery
         if active_devices < \${expectedDeviceCount} and random.random() > 0.8:
             active_devices += 1
             print(f"[LSL Relay] New device discovered. Total active: {active_devices}")
-        
         time.sleep(1)
         sys.stdout.flush()
 
@@ -253,10 +247,31 @@ const GENERATE_SCENE_QUANTUM_V2: ToolCreatorPayload = {
             finalImagePrompt += ". Style: Hyper-realistic, clear, objective photography.";
         }
 
-        const imagePromise = runtime.ai.generateImage(finalImagePrompt); 
+        // --- HYBRID GENERATION STRATEGY ---
+        // 1. Try Local SD Cortex (Free, Fast, Private)
+        let imageUrl = null;
+        try {
+            if (runtime.isServerConnected()) {
+                const res = await fetch('http://localhost:8006/txt2img', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ prompt: finalImagePrompt, width: 512, height: 384 })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    imageUrl = data.image;
+                    // runtime.logEvent('[GM] Generated scene via Local Cortex (GPU).');
+                }
+            }
+        } catch(e) { /* Fallback to cloud if local offline */ }
+
+        // 2. Fallback to Cloud (Costly)
+        if (!imageUrl) {
+            imageUrl = await runtime.ai.generateImage(finalImagePrompt); 
+        }
+
         const audioPromise = runtime.ai.generateSpeech(finalNarrative, lucidityLevel < 0.5 ? 'Fenrir' : 'Zephyr');
-        
-        const [imageUrl, audioUrl] = await Promise.all([imagePromise, audioPromise]);
+        const audioUrl = await audioPromise;
         
         return { 
             success: true, 
@@ -276,7 +291,7 @@ const GENERATE_SCENE_QUANTUM_V2: ToolCreatorPayload = {
 
 const PSYCHOANALYTIC_ROGUELIKE: ToolCreatorPayload = {
     name: 'Psychoanalytic Generative Roguelike',
-    description: 'V3.1: "The Mirror Stage". A game where the environment is an objective reality, but the user\'s perception is distorted by their neural state (EEG). The goal is to achieve Lucidity (synchrony) to see the world as it is.',
+    description: 'V3.3: "The Dream Stream". A game where objective reality is distorted by neural state. Features Real-Time Generative Video if Local Cortex is active.',
     category: 'UI Component',
     executionEnvironment: 'Client',
     purpose: 'To demonstrate the psychoanalytic concept of the Imaginary vs. the Real using neurofeedback as the bridge.',
