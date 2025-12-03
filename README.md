@@ -1,59 +1,72 @@
-# Neurofeedback Engine: Generative Neuro-Reality System
+# Neurofeedback Engine: The Neuro-Spatial OS
 
 **Live Demo:** [https://neuroidss.github.io/Neurofeedback-Engine/](https://neuroidss.github.io/Neurofeedback-Engine/)
 
-The **Neurofeedback Engine** is a platform for **Generative Neuro-Reality**. It merges real-time brain-computer interfaces (BCI) with generative AI (Stable Diffusion, MusicGen, LLMs) to create immersive experiences that adapt to your neural state.
+The **Neurofeedback Engine** is a foundational operating system for **Generative Mixed Reality (MR)** and **Embodied AI Interaction**.
 
-It is designed not just for gaming, but as a tool for **Digital Psychedelic Therapy** and **Cyber-Shamanism**, enabling users to externalize their subconscious and "crystallize" mental order out of chaos.
+It moves beyond passive screens to create a "Reality Player One" experience. By merging BCI (Brain-Computer Interfaces) with Generative AI (Cosmos/Genie) and Spatial Computing (AR), it allows users to **see the future intent of machines** and **control reality through attentive prediction**.
 
-## 🚀 Core Modules
+![Neuro-Spatial Concept](https://github.com/neuroidss/Neurofeedback-Engine/blob/main/docs/assets/neuro_quest_screenshot.png?raw=true)
 
-### ⚔️ Neuro Quest (Native V99)
-A high-performance, generative Action-RPG running on a hybrid engine (Native Python Renderer + Web Telemetry).
-*   **The "Trip" (Generative Stream):** The world is rendered in real-time using **Latent Consistency Models (LCM)**. It flows and mutates based on your neural entropy (Lucidity).
-*   **The "Integration" (Psychic Anchors):** A therapeutic mechanic inspired by psychedelic integration. Use high-focus states to **"Manifest"** permanent order. Pressing the Manifest trigger locks the generative chaos, creating a permanent "Anchor" in the world database that persists across sessions.
-*   **Elemental Combat:** Genshin-style reaction system (Fire, Water, Lightning, Wind) controlled via Gamepad.
-*   **Native Performance:** Runs a dedicated Python process for direct GPU access and high-FPS video streaming to the browser.
+## 🔮 Core Concepts
 
-### 🎵 MusicGen Coherence (Neuro-Adaptive Audio)
-A specialized pipeline for AI music generation that listens to your brain.
-*   **Attention Masking:** Uses real-time **EEG Coherence Matrices (ciPLV)** to modulate the Self-Attention layers of the **MusicGen** model. High brain synchrony = highly structured, long-context music. Low synchrony = chaotic, short-context jazz.
-*   **Infinite Stream:** Adaptive buffering system ensures gapless, endless playback.
+### 1. Phantom UI (Generative Predictive Control)
+*The system doesn't just react; it predicts.*
+*   **Concept:** Using Generative Video Models (like Genie/Cosmos), the engine predicts the next probable frames of reality (e.g., "The user wants to pick up the cup").
+*   **The Phantom:** A holographic "ghost" of the action appears in AR over the real object.
+*   **Neuro-Confirmation:** If the user focuses on this phantom (High SMR/Beta), the BCI validates the intent, and the command is sent to a robot/smart home to execute it.
+*   **Result:** "Telekinetic" control without gestures. You see the future you want, and the system makes it real.
 
-### 🌌 Vibecoder Genesis (Stream Engine)
-The reactive nervous system of the platform.
-*   **Node-Based Logic:** A visual programming environment where signals flows from Sources (EEG, Vision) -> Transforms (Math, Filters) -> Sinks (Visuals, Audio).
-*   **Hot-Swappable:** The AI agent can re-wire the graph in real-time to create new biofeedback protocols on the fly.
+### 2. Machine Theory of Mind (Robot Telepathy)
+*See what the machines are thinking.*
+*   **AR Overlay:** When looking at drones or androids, the system projects their internal state, path planning, and logic into the user's field of view.
+*   **Bi-Directional Sync:** The user's emotional state (Stress/Focus from BCI) is broadcast to the robot swarm. If you are anxious, the drones slow down and turn blue. If you are focused, they execute complex maneuvers.
 
-### 🧠 Neuro-Akashic Engine (Alpha / Roadmap)
-A "Digital Hippocampus" for the generative world.
-*   **Architecture:** Combines **GraphRAG** (Long-term structure), **HippoRAG** (Associative retrieval), and **A-MEM** (Working memory).
-*   **Goal:** To remember not just *what* happened, but *how it felt*. If you encounter a "Cave" and feel "Fear" (Beta spikes), the engine links these concepts globally, tailoring future hallucinations to therapeutic needs.
+### 3. Attentive Modeling (Generative CAD Lite)
+*Where attention goes, reality flows.*
+*   **Gaze-Driven Creation:** Stare at an empty space. The "Vibecoder" agent detects your fixation and spawns a generative tool (MCP) to fill that void—whether it's a virtual window to a forest or a dashboard for data analysis.
+*   **MCP Creates MCP:** The system is recursive. You don't write code; you manifest tools that write code for you, live in the spatial environment.
 
-## 🛠️ Hardware Support ("Tri-Link")
+---
 
-Compatible with **FreeEEG8** and standard LSL devices.
-1.  **Web Bluetooth (BLE):** Zero-install wireless connection.
-2.  **WiFi (UDP/WSS):** High-bandwidth streaming over local networks.
-3.  **USB Serial:** Hardwired telemetry for ultra-low latency.
+## 🚀 The Stack
 
-**Simulators:** Includes built-in physics-based simulators for EEG, Camera (Face Tracking), and Microphone input.
+### 👁️ Visual Cortex: Neuro Quest V99 (Hybrid Reality)
+A high-performance Python backend for **Latent Consistency Rendering**.
+*   **Mixed Reality Mode:** Instead of generating a full VR world, V99 can take a camera feed (Passthrough) and apply a "Neuro-Filter".
+*   **Effect:** Transform your room into a "Cyberpunk Bunker" or "Mycelial Forest" in real-time. The stability of the filter depends on your **Lucidity** (Neural Entropy).
 
-## 📦 Installation (Full Stack)
+### 🌌 Vibecoder Genesis (Spatial Stream Engine)
+The reactive nervous system connecting Sensors, AI, and Actuators.
+*   **Node-Based Logic:** Connects `Vision_Source` (AR Glasses) -> `Predictive_Model` -> `Robot_Actuator`.
+*   **WebXR Ready:** Designed to render graph outputs directly into 3D space using `react-three-fiber` / `@react-three/xr`.
 
-This project uses a **Hybrid Architecture**. The Client (React) orchestrates the Server (Python/Node), which manages heavy AI processes (MCPs).
+### 🎵 MusicGen Coherence (Adaptive Soundtrack)
+An auditory cortex that ensures the "vibe" matches the reality.
+*   **Semantic Conductor:** Uses **CLAP/ImageBind** to listen to the generated audio and compare it with the visual context. If the AR shows a "Horror" scene, the music shifts to dissonant strings.
+
+---
+
+## 🛠️ Hardware Ecosystem
+
+The OS is designed to be hardware-agnostic but optimized for the "Tri-Link" setup:
+
+1.  **Neural Link:** **FreeEEG8** (or any LSL device) for intent and state detection.
+2.  **Visual Link:** **AR Glasses** (XREAL, Quest 3 Passthrough) for the Phantom UI overlay.
+3.  **Physical Link:** **ROS 2 Bridge** for communicating with drones, arms, and rovers.
+
+## 📦 Installation
+
+This is a **Hybrid Architecture**. The Web Client acts as the Spatial Interface, while the Local Server acts as the AI Kernel.
 
 ### 1. Server Setup (The Kernel)
-The server manages isolated virtual environments to prevent dependency conflicts (e.g., MusicGen's old numpy vs. Stable Diffusion's new torch).
+Manages heavy compute (Stable Diffusion, MusicGen, ROS 2 Bridge).
 
 ```bash
 git clone https://github.com/neuroidss/Neurofeedback-Engine.git
 cd Neurofeedback-Engine/server
 
-# Creates 3 environments:
-# 1. venv (Base System)
-# 2. venv_audio (MusicGen / AudioCraft)
-# 3. venv_vision (Neuro World / Diffusers)
+# Creates isolated environments for Audio, Vision, and Base logic
 chmod +x install.sh
 ./install.sh
 
@@ -61,22 +74,27 @@ chmod +x install.sh
 ./start.sh
 ```
 
-### 2. Client Setup (The UI)
+### 2. Client Setup (The Spatial UI)
 ```bash
-cd .. # Go back to root
+cd .. 
 npm install
 npm run dev
 ```
 Open `http://localhost:5173`.
 
-## 🎮 Controls (Neuro Quest)
+## 🎮 Interaction Model
 
-*   **Left Stick:** Move
-*   **Right Stick:** Camera Pan
-*   **Left Trigger (L2):** **Lucidity Dampener** (Relax to destabilize world / Focus to stabilize).
-*   **Left Bumper (L1):** **MANIFEST** (Create Psychic Anchor). Requires High Focus.
-*   **Face Buttons:** Elemental Combat (Fire, Water, etc).
+*   **Gaze:** Select object / Define context.
+*   **Focus (BCI):** Confirm "Phantom" prediction / Crystallize object / Execute command.
+*   **Relax (BCI):** Dismiss prediction / dissolve AR filter.
+*   **Manifest (L1 Trigger):** Force-spawn a generative tool at gaze location.
+
+## Roadmap & Market
+
+*   **Current:** PC/Browser-based Generative Neuro-Game.
+*   **Next:** WebXR integration for AR Glasses support.
+*   **Future:** ROS 2 Integration for controlling physical drone swarms via "Phantom UI".
 
 ## License
 
-**AGPLv3**. This ensures that all improvements to the engine, the agents, and the neuro-reality protocols remain free and open source.
+**AGPLv3**. The foundation for the open Neuro-Spatial Web.
