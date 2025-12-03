@@ -6,8 +6,6 @@ The **Neurofeedback Engine** is a foundational operating system for **Generative
 
 It moves beyond passive screens to create a "Reality Player One" experience. By merging BCI (Brain-Computer Interfaces) with Generative AI (Cosmos/Genie) and Spatial Computing (AR), it allows users to **see the future intent of machines** and **control reality through attentive prediction**.
 
-![Neuro-Spatial Concept](https://github.com/neuroidss/Neurofeedback-Engine/blob/main/docs/assets/neuro_quest_screenshot.png?raw=true)
-
 ## 🔮 Core Concepts
 
 ### 1. Phantom UI (Generative Predictive Control)
@@ -94,6 +92,21 @@ Open `http://localhost:5173`.
 *   **Current:** PC/Browser-based Generative Neuro-Game.
 *   **Next:** WebXR integration for AR Glasses support.
 *   **Future:** ROS 2 Integration for controlling physical drone swarms via "Phantom UI".
+
+## 🛡️ Competitive Advantage: Beyond World Models
+
+While state-of-the-art World Models like **Google Genie** or **NVIDIA Cosmos** simulate visual physics perfectly, they lack **Semantic Permanence** and **Real-World Agency**. They are brilliant hallucinations that forget details once they leave the context window.
+
+The **Neurofeedback Engine** wraps these models in a **Cognitive Architecture**:
+
+| Feature | Raw World Model (Genie/Cosmos) | Neurofeedback Engine (The OS) |
+| :--- | :--- | :--- |
+| **Memory** | Pixel Consistency (Short-term) | **Knowledge Graph (Long-term)**. Remembers *facts* and *logic* across sessions using GraphRAG. |
+| **Input** | Keyboard / Joystick | **Neuro-Implicit**. Controlled by Gaze, Focus, and Stress levels (BCI). |
+| **Output** | Video on Screen | **Physical Action**. Translates generative predictions into **ROS 2 commands** for real robots. |
+| **Use Case** | Playing a Video Game | **Directing Reality**. Using hallucinations to control smart environments and drone swarms. |
+
+We don't build the renderer. We build the **Brain** that directs the renderer and connects it to the physical world.
 
 ## License
 
