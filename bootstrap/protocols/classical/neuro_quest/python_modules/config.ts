@@ -18,7 +18,7 @@ import re
 import queue
 from typing import List, Dict, Optional
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from PIL import Image
@@ -35,6 +35,7 @@ diffusers_logging.set_verbosity_error()
 
 # --- CONFIG ---
 HEADLESS = False 
+VERSION = "V104"
 
 MODEL_PATH = os.environ.get("MODEL_PATH", "")
 MODEL_ID = MODEL_PATH if MODEL_PATH else "SimianLuo/LCM_Dreamshaper_v7"

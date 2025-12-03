@@ -27,11 +27,18 @@ class GameMaster:
         
     def set_context(self, biome_desc):
         with self.lock:
+            if len(biome_desc) > 250:
+                log(f"[GM] REJECTED Biome: Too long ({len(biome_desc)} chars).", "ERR")
+                return
             self.biome_context = biome_desc
             self.focus_obj = "" 
-            
+
     def update_focus(self, text):
-        with self.lock: self.focus_obj = text.strip()[:100]
+        with self.lock: 
+            if len(text) > 150:
+                log(f"[GM] REJECTED Focus: Too long ({len(text)} chars).", "ERR")
+                return
+            self.focus_obj = text.strip()
 
     def trigger_fx(self, text, duration=2.0):
         with self.lock:
@@ -40,15 +47,32 @@ class GameMaster:
         
     def get_prompt(self):
         with self.lock: 
-            p = self.biome_context
-            if self.focus_obj and len(self.focus_obj) > 3:
-                p += f", {self.focus_obj}"
+            # Construct strictly based on GM State (Symbolic Layer)
+            parts = []
             
+            # 1. FX (Temporary Glitches/Actions)
             is_fx_active = time.time() < self.action_expiry
             if is_fx_active:
-                p += f", {self.action_fx}"
+                parts.append(f"({self.action_fx}:1.2)")
+
+            # 2. FOCUS (The GM's current attention/description)
+            if self.focus_obj:
+                parts.append(f"({self.focus_obj}:1.1)")
                 
-            return f"{p}, masterpiece, 8k, raw photo, cinematic lighting", is_fx_active
+            # 3. BIOME (Background Context)
+            parts.append(self.biome_context)
+            
+            # Style tags
+            style = "masterpiece, 8k, raw photo, cinematic lighting"
+            
+            # Assemble
+            base_p = ", ".join(parts)
+            full_p = f"{base_p}, {style}"
+            
+            if len(full_p) > 350:
+                full_p = full_p[:350]
+                
+            return full_p, is_fx_active
 
 class VisionCortex(threading.Thread):
     def __init__(self, gm, ctrl, status, engine_ref):
@@ -65,10 +89,9 @@ class VisionCortex(threading.Thread):
         with self.lock:
             small = pil_image.resize((256, 192), Image.NEAREST)
             self.frame_buffer.append(small)
-            if len(self.frame_buffer) > 2: self.frame_buffer.pop(0)
+            if len(self.frame_buffer) > 3: self.frame_buffer.pop(0)
             
     def queue_action(self, action_text):
-        """Buffers an action from the main loop to ensure it is caught by the slower vision loop"""
         with self.lock:
             self.action_queue.append(action_text)
             
@@ -80,8 +103,8 @@ class VisionCortex(threading.Thread):
         except: pass
 
     def run(self):
-        log("Vision Cortex warming up... (10s)", "EYE")
-        time.sleep(10)
+        log("Vision Cortex warming up... (5s)", "EYE")
+        time.sleep(5)
         log("Vision Cortex Active.", "EYE")
         
         while True: 
@@ -89,26 +112,42 @@ class VisionCortex(threading.Thread):
                 time.sleep(1)
                 continue
 
-            if time.time() - self.last_log > 10:
-                self.last_log = time.time()
-                if not tool_agent.configured:
-                    log("Waiting for LLM Configuration...", "EYE")
-                else:
-                    log("Vision Cortex Monitoring...", "EYE")
-
             frames_to_send = []
             with self.lock:
-                if len(self.frame_buffer) >= 1: frames_to_send = [self.frame_buffer[-1]]
+                if len(self.frame_buffer) >= 1: 
+                    frames_to_send = list(self.frame_buffer)
             
-            # --- ACTION CONSUMPTION (LATCH) ---
+            if not frames_to_send:
+                time.sleep(0.5)
+                continue
+            
+            # --- REALITY CHECK: QUEST CONSISTENCY ---
+            active_quests = []
+            quest_instructions = ""
+            
+            if self.engine.quest_mgr and self.engine.nav:
+                active_quests = self.engine.quest_mgr.get_active_quests(self.engine.nav.current_biome['id'])
+                if active_quests:
+                    q = active_quests[0]
+                    # What did the GM imagine in the Imagination Deck?
+                    target_visual = q.get('manifestation_visuals', q.get('concrete_solution', q['text']))
+                    
+                    # PROMPT INJECTION: Inform GM of the discrepancy
+                    quest_instructions = f"""
+**MASTER'S ARBITRARINESS REQUIRED:**
+Active Quest Goal: "{target_visual}"
+Observe the image. Is this object clearly visible?
+- IF NO: You MUST use 'describe_scene' to force it into reality immediately. Describe it appearing.
+- IF YES: You may proceed normally.
+"""
+
+            # --- ACTION CONSUMPTION ---
             player_action = None
             with self.lock:
                 if self.action_queue:
-                    # Take the latest action, clear the queue
                     player_action = self.action_queue.pop(0)
-                    self.action_queue.clear() # One action per vision cycle is enough
+                    self.action_queue.clear()
             
-            # Fallback to controller polling if no latched action (e.g. holding a button)
             if not player_action:
                 state = self.ctrl.get_state()
                 if state["actions"]:
@@ -121,91 +160,100 @@ class VisionCortex(threading.Thread):
             
             if frames_to_send and tool_agent.configured:
                 
-                buf = io.BytesIO()
-                frames_to_send[0].save(buf, format="JPEG")
-                b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                image_payload = []
+                for i, frame in enumerate(frames_to_send):
+                    buf = io.BytesIO()
+                    frame.save(buf, format="JPEG")
+                    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                    image_payload.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
                 
-                # --- ENHANCED CONTEXT INJECTION ---
-                active_quests = []
-                if self.engine.quest_mgr and self.engine.nav:
-                    active_quests = self.engine.quest_mgr.get_active_quests(self.engine.nav.current_biome['id'])
+                is_autopilot = self.ctrl.autopilot.active
                 
                 # Inject Bio-Metrics
                 focus = self.engine.bio_metrics.get('focus', 0.5)
-                neural_ctx = f"PLAYER LUCIDITY: {int(focus*100)}%."
+                neural_ctx = f"LUCIDITY: {int(focus*100)}%."
                 
-                quest_hint = ""
-                if active_quests:
-                    quest_hint = f"ACTIVE QUEST: {active_quests[0]['text']}."
+                director_instruction = ""
+                if is_autopilot:
+                    director_instruction = " DIRECTOR MODE ACTIVE. Is the target visible? If not, use 'direct_cinematography' to pan/scan."
 
-                content = [
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                    {"type": "text", "text": f"Describe the scene briefly. {quest_hint} {neural_ctx}"}
-                ]
+                content = image_payload + [{"type": "text", "text": f"Analyze visual. {quest_instructions} {neural_ctx} {director_instruction}"}]
                 
                 if player_action:
-                    # --- HANDLING MANIFESTATION (FORCE QUEST OBJECT) ---
+                    # --- HANDLING MANIFESTATION ---
                     if player_action == "REQ_MANIFEST":
-                        log(f"🔮 MANIFESTATION INVOKED: Forcing quest target to appear.", "GM")
+                        log(f"🔮 MANIFESTATION INVOKED.", "GM")
                         if active_quests:
-                            target = active_quests[0]['text']
-                            content.append({"type": "text", "text": f"SYSTEM OVERRIDE: The player invokes Game Master power. Rewrite the scene to explicitly feature the target of this quest: '{target}'. Ensure it is center frame."})
-                            
+                            content.append({"type": "text", "text": f"EVENT: Player uses FORCE OF WILL to manifest the quest object. You MUST describe it appearing immediately using 'describe_scene'."})
                             try:
                                 args = tool_agent.process("GM (Manifest)", content, allowed_tools=['describe_scene'])
                                 if args and 'description' in args:
                                     scene_desc = args['description']
-                                    log(f"Manifested Scene: {scene_desc}", "GM")
-                                    # Force update the prompt immediately
+                                    log(f"Manifested: {scene_desc}", "GM")
                                     self.gm.update_focus(scene_desc)
-                                    self.engine.quest_mgr.evaluate_visual_context(scene_desc, self.engine.nav.current_biome['id'], self.engine.bio_metrics)
+                                    # PASS VISUAL CONTEXT
+                                    self.engine.quest_mgr.evaluate_visual_context(scene_desc, self.engine.nav.current_biome['id'], self.engine.bio_metrics, visual_context=image_payload)
                             except Exception as e:
-                                log(f"Manifestation Error: {e}", "ERR")
+                                log(f"Manifest Error: {e}", "ERR")
                         else:
-                            log(f"Manifestation Failed: No active quest.", "GM")
+                            log(f"No active quest to manifest.", "GM")
 
                     else:
                         # --- NORMAL ACTION ---
-                        log(f"⚔️ TRIGGER: Player Action Detected: {player_action}", "GM")
-                        context_msg = f"Context: Player used {player_action}. {quest_hint} Describe result."
+                        log(f"⚔️ ACTION: {player_action}", "GM")
+                        context_msg = f"Player used {player_action}. Did they hit the target?"
                         content.append({"type": "text", "text": context_msg})
                         
                         try:
-                            args = tool_agent.process("Vision (Action)", content, allowed_tools=['describe_scene'])
-                            if args and 'description' in args:
-                                scene_desc = args['description']
-                                log(f"Action Result Scene: {scene_desc}", "GM")
-                                self.gm.update_focus(scene_desc)
-                                
-                                # Always pass through Judge if interacting
-                                if "INTERACT" in player_action or "ATTACK" in player_action:
-                                    result = self.engine.quest_mgr.evaluate_combat_action(scene_desc, player_action, active_quests, self.engine.nav.current_biome['id'])
-                                    if isinstance(result, dict) and result.get("type") == "ITEM_FOUND":
-                                        item = result["item"]
-                                        log(f"🎁 LOOT: {item['item_name']}", "GAME")
-                                        self.engine.trigger_artifact_event(item['item_name'], item['visual_description'])
-                                    elif result == "COMPLETE":
-                                        log(f"✅ Quest logic signal received.", "GAME")
-                                else:
-                                    self.engine.quest_mgr.evaluate_combat_action(scene_desc, player_action, active_quests, self.engine.nav.current_biome['id'])
+                            # We allow 'complete_quest_action' here so combat can trigger success
+                            args = tool_agent.process("Vision (Action)", content, allowed_tools=['describe_scene', 'complete_quest_action', 'update_quest_progress'])
+                            
+                            if args:
+                                tool_name = args.get('_tool_name')
+                                if tool_name == 'complete_quest_action':
+                                    self.engine.quest_mgr.complete_quest(self.engine.nav.current_biome['id'], args.get('quest_id'), args.get('outcome_summary'))
+                                elif tool_name == 'update_quest_progress':
+                                    self.engine.quest_mgr.db.update_quest_progress(self.engine.nav.current_biome['id'], args['quest_id'], args['progress_report'])
+                                elif tool_name == 'describe_scene' and 'description' in args:
+                                    scene_desc = args['description']
+                                    log(f"Result: {scene_desc}", "GM")
+                                    self.gm.update_focus(scene_desc)
+                                    # Double check logic
+                                    self.engine.quest_mgr.evaluate_combat_action(scene_desc, player_action, active_quests, self.engine.nav.current_biome['id'], visual_context=image_payload)
                         except Exception as e:
-                            log(f"Error processing action: {e}", "ERR")
+                            log(f"Action Error: {e}", "ERR")
                         
                 else:
-                    # Passive Observation
-                    try:
-                        args = tool_agent.process("Vision (Passive)", content, allowed_tools=['describe_scene'])
-                        if args and 'description' in args:
-                            text = args['description']
-                            self.gm.update_focus(text)
-                            self.status["thought"] = text[:40]
+                    # Passive Observation (~5s)
+                    if time.time() - self.last_log > 5:
+                        try:
+                            allowed = ['describe_scene', 'complete_quest_action', 'update_quest_progress']
+                            if is_autopilot: allowed.append('direct_cinematography')
                             
-                            # --- RAG / PASSIVE CHECK ---
-                            if self.engine.quest_mgr and self.engine.nav:
-                                self.engine.quest_mgr.evaluate_visual_context(text, self.engine.nav.current_biome['id'], self.engine.bio_metrics)
-                                
-                    except Exception as e:
-                        log(f"Error in passive vision: {e}", "ERR")
+                            args = tool_agent.process("Vision (Passive)", content, allowed_tools=allowed)
+                            
+                            if args:
+                                tool_name = args.get('_tool_name')
+                                if tool_name == 'describe_scene' and 'description' in args:
+                                    text = args['description']
+                                    self.gm.update_focus(text) # Update Global Context
+                                    self.status["thought"] = text[:40]
+                                    if self.engine.quest_mgr and self.engine.nav:
+                                        self.engine.quest_mgr.evaluate_visual_context(text, self.engine.nav.current_biome['id'], self.engine.bio_metrics, visual_context=image_payload)
+                                        
+                                elif tool_name == 'direct_cinematography' and self.engine.ctrl.autopilot:
+                                    self.engine.ctrl.autopilot.set_cinematography(
+                                        args.get('movement'), 
+                                        args.get('duration', 3.0),
+                                        args.get('intensity', 0.5),
+                                        args.get('_thought', 'Directing...')
+                                    )
+                                elif tool_name == 'complete_quest_action':
+                                    self.engine.quest_mgr.complete_quest(self.engine.nav.current_biome['id'], args.get('quest_id'), args.get('outcome_summary'))
+                                    
+                        except Exception as e:
+                            log(f"Passive Error: {e}", "ERR")
+                        self.last_log = time.time()
             
-            time.sleep(1.5)
+            time.sleep(0.5)
 `;

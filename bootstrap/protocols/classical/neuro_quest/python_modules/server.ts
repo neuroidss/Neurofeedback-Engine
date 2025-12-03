@@ -12,8 +12,17 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 def start_engine():
     global engine
     engine = NeuroEngine()
-    log("Engine started. Waiting for session selection...", "SYS")
+    
+    # TTS Disabled by user request
+    # if not neural_voice.is_alive():
+    #    neural_voice.start()
+        
+    log(f"Engine started (Version: {VERSION}). Waiting for session selection...", "SYS")
     threading.Thread(target=engine.render_loop, daemon=True).start()
+
+@app.get("/")
+def read_root():
+    return {"status": f"Neuro World {VERSION} Online", "version": VERSION}
 
 @app.get("/video_feed")
 def video_feed():
@@ -60,6 +69,23 @@ def toggle_hud_endpoint():
         return {"status": "ok", "hud_visible": engine.show_hud}
     return {"status": "error", "message": "Engine not running"}
 
+@app.post("/action/toggle_autopilot")
+def toggle_autopilot_endpoint():
+    if engine:
+        if engine.ctrl.autopilot.active:
+            engine.ctrl.autopilot.disengage()
+            log("Autopilot Disengaged.", "SYS")
+        else:
+            engine.ctrl.autopilot.engage()
+            log("Autopilot Engaged.", "SYS")
+        return {"status": "ok", "autopilot": engine.ctrl.autopilot.active}
+    return {"status": "error", "message": "Engine not running"}
+
+@app.post("/action/speak")
+async def action_speak(request: Request):
+    # Stubbed endpoint
+    return {"status": "disabled"}
+
 @app.post("/ingest/bio")
 async def ingest_bio(request: Request):
     try:
@@ -72,6 +98,44 @@ async def ingest_bio(request: Request):
 @app.get("/presets/lore")
 def get_lore_presets():
     return LORE_PRESETS
+
+# --- GAME STATE & IMAGINATION ENDPOINTS ---
+
+@app.get("/session/state")
+def get_session_state():
+    if not engine or not engine.db: return {"status": "inactive"}
+    
+    biome = engine.nav.current_biome if engine.nav else {}
+    quests = []
+    
+    # We iterate manually to check for file existence
+    if biome:
+        for q in biome.get('quests', []):
+            if q['status'] == 'active':
+                q_id = q['id']
+                sess_id = engine.active_session_id
+                img_path = f"sessions/{sess_id}/quests/{q_id}/fantasy_vision.jpg"
+                has_img = os.path.exists(img_path)
+                quests.append({
+                    "id": q_id,
+                    "text": q['text'],
+                    "visual": q.get('manifestation_visuals', ''),
+                    "has_image": has_img
+                })
+    
+    return {
+        "status": "active",
+        "biome": biome.get("description", ""),
+        "quests": quests,
+        "session_id": engine.active_session_id
+    }
+
+@app.get("/sessions/{session_id}/quests/{quest_id}/image")
+def get_quest_image(session_id: str, quest_id: str):
+    path = f"sessions/{session_id}/quests/{quest_id}/fantasy_vision.jpg"
+    if os.path.exists(path):
+        return FileResponse(path)
+    return JSONResponse(status_code=404, content={"error": "Image not found"})
 
 def run_server():
     port = int(os.environ.get("PORT", 8006))

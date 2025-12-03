@@ -15,24 +15,50 @@ export const NEURO_QUEST_UI_IMPL = `
     const [useCustomLore, setUseCustomLore] = useState(false);
     
     // Entropy / Bio-Feedback Settings
-    // 'EEG' sends real data. 'Manual' sends nothing (backend handles it via Left Trigger).
-    // UPDATE: Defaults to 'Manual' as requested for easier onboarding/testing.
-    const [entropySource, setEntropySource] = useState('Manual'); 
+    const [entropySource, setEntropySource] = useState('Manual');
+    const [autopilotActive, setAutopilotActive] = useState(true);
+    
+    // --- IMAGINATION DECK STATE ---
+    const [imaginationOpen, setImaginationOpen] = useState(false);
+    const [liveState, setLiveState] = useState(null);
 
     const PROCESS_ID = 'neuro_quest_v1';
+    const TARGET_VERSION = "V104"; // Current React Version
     
+    // --- LIVE STATE POLLING (Quest Images) ---
+    useEffect(() => {
+        if (status === "RUNNING" && serverUrl) {
+            const interval = setInterval(() => {
+                fetch(serverUrl + '/session/state')
+                    .then(r => r.json())
+                    .then(data => {
+                        setLiveState(data);
+                    })
+                    .catch(e => {
+                        console.warn("[NQ] Session state poll failed", e);
+                    });
+            }, 2000);
+            return () => clearInterval(interval);
+        }
+    }, [status, serverUrl]);
+
+    // Debug Log when Imagination Toggles
+    useEffect(() => {
+        if (imaginationOpen) {
+            console.log("[NQ] Imagination Deck OPENED. Live State:", liveState);
+            runtime.logEvent("[NQ] 👁️ Imagination Deck Opened.");
+        }
+    }, [imaginationOpen]);
+
     // --- BIO BRIDGE: Stream React EEG State to Python ---
     useEffect(() => {
         if (!serverUrl || status !== "RUNNING") return;
         
         // --- REAL EEG MODE ---
-        // Only active if entropySource is 'EEG'
         if (entropySource !== 'EEG') return;
 
         const unsub = runtime.neuroBus.subscribe(frame => {
             if (frame.type === 'EEG') {
-                // Determine 'Focus' metric roughly from signal stability/variance
-                // Low variance = High Focus (Alpha desync/Beta)
                 let focus = 0.5;
                 const payload = frame.payload;
                 if (payload) {
@@ -50,7 +76,6 @@ export const NEURO_QUEST_UI_IMPL = `
                     
                     if (count > 0) {
                         const avgVar = totalVar / count;
-                        // Map variance 0-1000 to Focus 1.0-0.0
                         focus = Math.max(0, Math.min(1, 1.0 - (avgVar / 200)));
                     }
                 }
@@ -79,14 +104,23 @@ export const NEURO_QUEST_UI_IMPL = `
                 const url = 'http://localhost:' + proc.port;
                 if (url !== serverUrl) {
                     setServerUrl(url);
-                    // Fetch presets once connected
-                    fetch(url + '/presets/lore').then(r => r.json()).then(setLorePresets).catch(()=>{});
-                    // Force refresh sessions immediately on connect
-                    fetchSessions(url); 
+                    
+                    // --- VERSION CHECK ---
+                    fetch(url + '/').then(r => r.json()).then(data => {
+                        if (data.version !== TARGET_VERSION) {
+                            console.warn("Version Mismatch. Redeploying...", data.version, TARGET_VERSION);
+                            runtime.logEvent("[NQ] ⚠️ Old Version Detected (" + (data.version||'Unknown') + "). Redeploying...");
+                            runtime.tools.run('Stop Process', { processId: PROCESS_ID }).then(() => {
+                                setTimeout(deployAndLaunch, 1000);
+                            });
+                        } else {
+                            fetch(url + '/presets/lore').then(r => r.json()).then(setLorePresets).catch(()=>{});
+                            fetchSessions(url); 
+                        }
+                    }).catch(()=>{});
                 }
                 setStatus("RUNNING");
                 
-                // Parse logs
                 const lines = proc.logs || [];
                 setLogs(lines.slice(-10));
             } else {
@@ -98,7 +132,6 @@ export const NEURO_QUEST_UI_IMPL = `
         } catch(e) {}
     };
     
-    // Modified to accept optional explicit URL for faster first-load
     const fetchSessions = async (explicitUrl = null) => {
         const targetUrl = explicitUrl || serverUrl;
         if (!targetUrl) return;
@@ -110,13 +143,10 @@ export const NEURO_QUEST_UI_IMPL = `
                 const data = await res.json();
                 setSessions(data);
             }
-        } catch(e) {
-            // Suppress errors during boot-up
-        }
+        } catch(e) {}
         setIsLoadingSessions(false);
     };
 
-    // Poll for sessions if running
     useEffect(() => {
         if (status === "RUNNING" && serverUrl) {
             fetchSessions();
@@ -134,7 +164,6 @@ export const NEURO_QUEST_UI_IMPL = `
     const deployAndLaunch = async () => {
         if (!runtime.isServerConnected()) return;
         setStatus("Deploying...");
-        // This variable is injected via string replacement in the parent definition
         const codeContent = %%PYTHON_CODE%%;
         
         await runtime.tools.run('Server File Writer', { 
@@ -166,12 +195,15 @@ export const NEURO_QUEST_UI_IMPL = `
                 const data = await res.json();
                 setActiveSessionId(data.id);
                 fetchSessions();
-            } else {
-                console.warn("Session creation status:", res.status);
-            }
-        } catch(e) { 
-            console.error("Session creation error:", e);
-        }
+                setTimeout(() => {
+                    fetch(serverUrl + '/action/speak', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: "Welcome to Neuro Quest.", voice: "af_sarah" })
+                    }).catch(()=>{});
+                }, 2000);
+            } 
+        } catch(e) { console.error(e); }
     };
     
     const handleLoadGame = async (sid) => {
@@ -186,11 +218,8 @@ export const NEURO_QUEST_UI_IMPL = `
         if (!serverUrl) return;
         setStatus("Saving...");
         try {
-            // 1. Force Summary Generation & Save
             await fetch(serverUrl + '/action/save_and_quit', { method: 'POST' });
-            // 2. Give it a moment to write to disk
             await new Promise(r => setTimeout(r, 1000));
-            // 3. Kill process
             await runtime.tools.run('Stop Process', { processId: PROCESS_ID });
             setStatus("Stopped");
             setSessions([]);
@@ -200,8 +229,17 @@ export const NEURO_QUEST_UI_IMPL = `
     
     const handleToggleHud = async () => {
         if (!serverUrl) return;
+        try { await fetch(serverUrl + '/action/toggle_hud', { method: 'POST' }); } catch(e) {}
+    };
+
+    const handleToggleAutopilot = async () => {
+        if (!serverUrl) return;
         try {
-            await fetch(serverUrl + '/action/toggle_hud', { method: 'POST' });
+            const res = await fetch(serverUrl + '/action/toggle_autopilot', { method: 'POST' });
+            if (res.ok) {
+                const data = await res.json();
+                setAutopilotActive(data.autopilot);
+            }
         } catch(e) {}
     };
 
@@ -214,6 +252,59 @@ export const NEURO_QUEST_UI_IMPL = `
                 <p className="text-slate-400">Generative RPG // Elemental Combat Engine</p>
             </div>
             
+            {/* IMAGINATION DECK (FLOATING WINDOW) */}
+            {/* Using Fixed positioning to break out of overflow containers */}
+            {imaginationOpen && (
+                <div 
+                    className="fixed top-20 right-20 w-80 bg-slate-900/95 border-2 border-purple-500 rounded-lg shadow-[0_0_50px_rgba(168,85,247,0.3)] p-4 flex flex-col max-h-[70vh] overflow-hidden animate-fade-in-scale"
+                    style={{ zIndex: 9999 }}
+                >
+                    <div className="flex justify-between items-center mb-4 border-b border-purple-700 pb-2">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xl">👁️</span>
+                            <h3 className="font-bold text-purple-300 text-sm">GM IMAGINATION</h3>
+                        </div>
+                        <button onClick={() => setImaginationOpen(false)} className="text-slate-400 hover:text-white font-bold">✕</button>
+                    </div>
+                    
+                    {/* Debug Status */}
+                    <div className="text-[9px] text-slate-500 mb-2 font-mono border-b border-slate-800 pb-1">
+                        SESS: {liveState?.session_id || 'Connecting...'} | QUESTS: {liveState?.quests?.length || 0}
+                    </div>
+
+                    <div className="flex-grow overflow-y-auto custom-scrollbar space-y-4 pr-1">
+                        {liveState?.quests?.map(q => (
+                            <div key={q.id} className="bg-black/50 rounded border border-slate-700 overflow-hidden relative group">
+                                {q.has_image ? (
+                                    <div className="relative group cursor-pointer">
+                                        <img 
+                                            src={serverUrl + '/sessions/' + liveState.session_id + '/quests/' + q.id + '/image?t=' + Date.now()} 
+                                            className="w-full h-40 object-cover"
+                                            alt="Quest Visualization"
+                                            onError={(e) => { e.target.style.display = 'none'; }}
+                                        />
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent opacity-60"></div>
+                                    </div>
+                                ) : (
+                                    <div className="w-full h-24 flex flex-col items-center justify-center bg-slate-800 text-slate-600 text-xs italic gap-1">
+                                        <span className="animate-pulse">🌀 Dreaming...</span>
+                                    </div>
+                                )}
+                                <div className="p-3 relative">
+                                    <div className="font-bold text-xs text-white mb-1 leading-tight">{q.text}</div>
+                                    <div className="text-[10px] text-purple-400 italic line-clamp-2">"{q.visual}"</div>
+                                </div>
+                            </div>
+                        ))}
+                        {(!liveState?.quests || liveState.quests.length === 0) && (
+                            <div className="text-center text-slate-500 text-xs py-10 border-2 border-dashed border-slate-800 rounded">
+                                The Game Master is silent.<br/>No active projections.
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             <div className="bg-black/50 p-6 rounded-lg border border-slate-700 w-full max-w-4xl flex flex-col gap-4 min-h-[500px]">
                 <div className="flex justify-between items-center border-b border-slate-700 pb-2">
                     <div>
@@ -246,43 +337,54 @@ export const NEURO_QUEST_UI_IMPL = `
                     </div>
                 ) : (
                     <div className="flex-grow flex flex-col gap-6">
-                        
                         {/* ACTIVE SESSION CARD */}
                         {activeSessionId ? (
                             <div className="bg-purple-900/20 border border-purple-500 rounded-lg p-6 text-center animate-fade-in">
                                 <h2 className="text-xl font-bold text-purple-300 mb-2">SESSION ACTIVE</h2>
                                 <div className="text-2xl font-mono text-white mb-4">{activeSessionId}</div>
-                                <p className="text-slate-400 text-sm mb-4">The game is running in the native window.</p>
                                 
-                                <div className="flex justify-center gap-4 items-center">
+                                <div className="flex justify-center gap-4 items-center flex-wrap">
                                     <div className="inline-block px-3 py-1 bg-purple-800/50 rounded text-xs border border-purple-600 animate-pulse">
                                         LIVE TELEMETRY ON
                                     </div>
                                     
-                                    {/* ENTROPY TOGGLE */}
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[10px] text-slate-400">LUCIDITY CONTROL:</span>
                                         <button 
                                             onClick={() => setEntropySource(entropySource === 'EEG' ? 'Manual' : 'EEG')}
                                             className={"px-2 py-0.5 rounded text-[10px] font-bold border transition-colors " + (entropySource === 'EEG' ? "bg-cyan-900/50 text-cyan-300 border-cyan-700" : "bg-slate-700 text-slate-300 border-slate-500")}
-                                            title="Toggle between real EEG data or Manual Left-Trigger control."
                                         >
-                                            {entropySource === 'EEG' ? 'NEURAL LINK (EEG)' : 'MANUAL (LT)'}
+                                            {entropySource === 'EEG' ? '🧠 LINKED' : '🎛️ MANUAL'}
                                         </button>
                                     </div>
                                     
-                                    {/* HUD TOGGLE */}
                                     <button
                                         onClick={handleToggleHud}
                                         className="px-2 py-0.5 rounded text-[10px] font-bold border bg-slate-800 hover:bg-slate-700 text-yellow-300 border-yellow-700 transition-colors"
-                                        title="Toggle on-screen HUD for immersive mode."
                                     >
-                                        TOGGLE HUD
+                                        HUD
+                                    </button>
+
+                                    <button
+                                        onClick={handleToggleAutopilot}
+                                        className={"px-2 py-0.5 rounded text-[10px] font-bold border transition-colors " + (autopilotActive ? "bg-pink-900/50 text-pink-300 border-pink-700 animate-pulse" : "bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-600")}
+                                    >
+                                        {autopilotActive ? "🎥 MOVIE" : "🎥 MANUAL"}
+                                    </button>
+                                    
+                                    {/* IMAGINATION TOGGLE */}
+                                    <button
+                                        onClick={() => {
+                                            console.log("Toggle Clicked. Current:", imaginationOpen);
+                                            runtime.logEvent("[UI] Toggle Imagination Deck: " + (!imaginationOpen));
+                                            setImaginationOpen(!imaginationOpen);
+                                        }}
+                                        className={"px-2 py-0.5 rounded text-[10px] font-bold border transition-colors flex items-center gap-1 " + (imaginationOpen ? "bg-purple-600 text-white border-purple-400 shadow-[0_0_10px_purple]" : "bg-slate-800 text-purple-400 border-purple-900/50")}
+                                    >
+                                        👁️ IMAGINATION
                                     </button>
                                 </div>
                             </div>
                         ) : (
-                            // SELECTION MENU
                             <div className="flex-grow flex flex-col gap-4">
                                 <div className="flex justify-between items-end">
                                     <div>
@@ -295,11 +397,8 @@ export const NEURO_QUEST_UI_IMPL = `
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow overflow-y-auto custom-scrollbar p-1">
-                                    
-                                    {/* NEW GAME CARD */}
                                     <div className="flex flex-col p-4 bg-slate-800/50 border-2 border-dashed border-slate-600 hover:border-green-500 rounded-lg transition-all h-64">
                                         <div className="text-lg font-bold text-slate-300 mb-2">+ NEW GAME</div>
-                                        
                                         <div className="flex-grow flex flex-col gap-2">
                                             <div className="flex items-center justify-between text-xs">
                                                 <span className="text-slate-400">Lore Source</span>
@@ -307,7 +406,6 @@ export const NEURO_QUEST_UI_IMPL = `
                                                     {useCustomLore ? "Use Preset" : "Custom"}
                                                 </button>
                                             </div>
-                                            
                                             {useCustomLore ? (
                                                 <textarea 
                                                     value={customLore}
@@ -318,31 +416,19 @@ export const NEURO_QUEST_UI_IMPL = `
                                             ) : (
                                                 <div className="space-y-1 overflow-y-auto h-24 pr-1 custom-scrollbar bg-black/20 rounded p-1">
                                                     {Object.keys(lorePresets).map(key => (
-                                                        <button
-                                                            key={key}
-                                                            onClick={() => setSelectedLoreKey(key)}
-                                                            className={"w-full text-left px-2 py-1.5 rounded text-xs transition-colors " + (selectedLoreKey === key ? "bg-green-900/50 text-green-300 border border-green-700" : "hover:bg-slate-700 text-slate-400")}
-                                                        >
+                                                        <button key={key} onClick={() => setSelectedLoreKey(key)} className={"w-full text-left px-2 py-1.5 rounded text-xs transition-colors " + (selectedLoreKey === key ? "bg-green-900/50 text-green-300 border border-green-700" : "hover:bg-slate-700 text-slate-400")}>
                                                             {key}
                                                         </button>
                                                     ))}
                                                 </div>
                                             )}
-                                            
                                             <div className="text-[10px] text-slate-500 italic line-clamp-2 h-8">
                                                 {useCustomLore ? "Custom World" : lorePresets[selectedLoreKey]}
                                             </div>
                                         </div>
-
-                                        <button 
-                                            onClick={handleNewGame}
-                                            className="mt-2 w-full py-2 bg-slate-700 hover:bg-green-700 text-white font-bold rounded transition-colors"
-                                        >
-                                            START
-                                        </button>
+                                        <button onClick={handleNewGame} className="mt-2 w-full py-2 bg-slate-700 hover:bg-green-700 text-white font-bold rounded transition-colors">START</button>
                                     </div>
 
-                                    {/* SESSION CARDS */}
                                     <div className="space-y-2 overflow-y-auto h-64 custom-scrollbar pr-1">
                                         {sessions.map(sess => (
                                             <div key={sess.id} className="bg-slate-800 border border-slate-700 p-3 rounded-lg flex flex-col justify-between hover:border-cyan-500 transition-colors relative group">
@@ -355,18 +441,10 @@ export const NEURO_QUEST_UI_IMPL = `
                                                     <div className="text-[10px] text-slate-400 line-clamp-2 italic mt-1">"{sess.summary}"</div>
                                                 </div>
                                                 <div className="flex justify-end mt-2">
-                                                    <button 
-                                                        onClick={() => handleLoadGame(sess.id)}
-                                                        className="px-3 py-1 bg-cyan-900 hover:bg-cyan-700 text-cyan-200 text-[10px] font-bold rounded border border-cyan-800 transition-colors"
-                                                    >
-                                                        RESUME
-                                                    </button>
+                                                    <button onClick={() => handleLoadGame(sess.id)} className="px-3 py-1 bg-cyan-900 hover:bg-cyan-700 text-cyan-200 text-[10px] font-bold rounded border border-cyan-800 transition-colors">RESUME</button>
                                                 </div>
                                             </div>
                                         ))}
-                                        {sessions.length === 0 && (
-                                            <div className="text-center text-slate-600 text-xs py-10">No saved sessions found.</div>
-                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -374,7 +452,6 @@ export const NEURO_QUEST_UI_IMPL = `
                     </div>
                 )}
                 
-                {/* LOGS FOOTER */}
                 <div className="bg-black p-2 rounded text-[10px] text-slate-500 font-mono h-24 overflow-y-auto border border-slate-800 custom-scrollbar">
                     {logs.map((l, i) => <div key={i}>{l}</div>)}
                 </div>
@@ -389,7 +466,7 @@ export const NEURO_QUEST_UI_IMPL = `
                     <span>RT: Skill</span>
                     <span>BTN Y: Burst</span>
                     <span>R-STICK: Camera</span>
-                    <span className="text-purple-400 font-bold">LB: MANIFEST QUEST (Force)</span>
+                    <span className="text-purple-400 font-bold">LB: MANIFEST QUEST</span>
                     <span>LT: Lucidity Dampener</span>
                 </div>
             </div>

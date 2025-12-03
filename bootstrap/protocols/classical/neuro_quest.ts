@@ -5,7 +5,7 @@ import { NEURO_QUEST_UI_IMPL } from './neuro_quest/frontend';
 
 // We inject the python code into the UI string at runtime construction
 // Double escape backticks for the Python code inside the JS string
-const SAFE_PYTHON_CODE = JSON.stringify(NEURO_QUEST_PYTHON_CODE).replace(/`/g, '\\\\`');
+const SAFE_PYTHON_CODE = JSON.stringify(NEURO_QUEST_PYTHON_CODE).replace(/`/g, '\\`');
 const FINAL_UI_CODE = NEURO_QUEST_UI_IMPL.replace('%%PYTHON_CODE%%', SAFE_PYTHON_CODE);
 
 const DEPLOY_QUEST_SERVER: ToolCreatorPayload = {
