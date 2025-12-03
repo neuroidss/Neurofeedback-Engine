@@ -12,3 +12,8 @@ accelerate
 numpy
 requests
 sentence-transformers
+faster-whisper
+kokoro-onnx
+sounddevice
+timm
+einops

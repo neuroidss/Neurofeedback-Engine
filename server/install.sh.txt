@@ -20,7 +20,7 @@ deactivate
 echo ""
 echo "--- 🎵 Creating AUDIO Environment (venv_audio) ---"
 echo "    (numpy < 2.0 for MusicGen/AudioCraft)"
-python3 -m venv venv_audio
+python3.9 -m venv venv_audio
 source venv_audio/bin/activate
 pip install --upgrade pip
 pip install -r requirements_audio.txt

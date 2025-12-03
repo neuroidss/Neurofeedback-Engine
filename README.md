@@ -1,138 +1,82 @@
-
-# Neurofeedback Engine & Neuro Quest: Generative Reality System
+# Neurofeedback Engine: Generative Neuro-Reality System
 
 **Live Demo:** [https://neuroidss.github.io/Neurofeedback-Engine/](https://neuroidss.github.io/Neurofeedback-Engine/)
 
-**A Browser-First Platform for Autonomous Neurotechnology & Generative Reality.**
+The **Neurofeedback Engine** is a platform for **Generative Neuro-Reality**. It merges real-time brain-computer interfaces (BCI) with generative AI (Stable Diffusion, MusicGen, LLMs) to create immersive experiences that adapt to your neural state.
 
-The **Neurofeedback Engine** is not just a dashboard; it is a **Swarm Intelligence System** capable of conducting neuroscience research, writing its own code, and compiling executable neurofeedback protocols in real-time.
-
-It powers **Neuro Quest**, a hybrid Action-RPG where the game world, narrative, and music adapt to your real-time neural state (Lucidity, Focus, Coherence).
-
----
+It is designed not just for gaming, but as a tool for **Digital Psychedelic Therapy** and **Cyber-Shamanism**, enabling users to externalize their subconscious and "crystallize" mental order out of chaos.
 
 ## 🚀 Core Modules
 
-### ⚔️ Neuro Quest (Generative RPG)
-A hybrid application that offloads heavy rendering to a native Python window while maintaining control via the Web UI.
-*   **The "Dream Stream":** Uses **Latent Consistency Models (LCM)** to render the world at 10+ FPS based on the Game Master's narrative and your neural stability.
-*   **Psychoanalytic AI Game Master:** An autonomous agent that distinguishes between the "Symbolic" (World State) and the "Imaginary" (User Perception), creating hallucinations when your neural focus drops.
-*   **Elemental Combat:** A fully playable Action-RPG system with Genshin-style elemental reactions (Fire, Water, Lightning, Wind), playable via Gamepad or Keyboard.
+### ⚔️ Neuro Quest (Native V99)
+A high-performance, generative Action-RPG running on a hybrid engine (Native Python Renderer + Web Telemetry).
+*   **The "Trip" (Generative Stream):** The world is rendered in real-time using **Latent Consistency Models (LCM)**. It flows and mutates based on your neural entropy (Lucidity).
+*   **The "Integration" (Psychic Anchors):** A therapeutic mechanic inspired by psychedelic integration. Use high-focus states to **"Manifest"** permanent order. Pressing the Manifest trigger locks the generative chaos, creating a permanent "Anchor" in the world database that persists across sessions.
+*   **Elemental Combat:** Genshin-style reaction system (Fire, Water, Lightning, Wind) controlled via Gamepad.
+*   **Native Performance:** Runs a dedicated Python process for direct GPU access and high-FPS video streaming to the browser.
 
-### 🎵 MusicGen Adaptive (Neuro-Link)
-A dedicated generative audio pipeline for creating "Neuro-Adaptive Music".
-*   **Direct Neuro-Link:** Maps real-time **EEG Coherence (ciPLV)** directly to the Attention Masks of the **MusicGen** Transformer model. High brain connectivity = High musical structural integrity.
-*   **Zero-Gap Playback:** A custom Python engine that manages context windows to generate infinite, seamless audio on consumer GPUs.
-*   **Isolated Environment:** Runs in a dedicated `venv_audio` environment to prevent dependency conflicts.
+### 🎵 MusicGen Coherence (Neuro-Adaptive Audio)
+A specialized pipeline for AI music generation that listens to your brain.
+*   **Attention Masking:** Uses real-time **EEG Coherence Matrices (ciPLV)** to modulate the Self-Attention layers of the **MusicGen** model. High brain synchrony = highly structured, long-context music. Low synchrony = chaotic, short-context jazz.
+*   **Infinite Stream:** Adaptive buffering system ensures gapless, endless playback.
 
 ### 🌌 Vibecoder Genesis (Stream Engine)
-A reactive dataflow graph system inspired by visual programming languages.
-*   **Hot-Swappable Topology:** The AI agent can re-wire the signal processing graph in real-time without reloading the page.
-*   **Universal Canvas:** A shared 3D visualization layer (React Three Fiber) controlled by graph outputs.
-*   **Cross-Modal:** Nodes can process EEG, Computer Vision (Face/Gaze), and Audio data simultaneously.
+The reactive nervous system of the platform.
+*   **Node-Based Logic:** A visual programming environment where signals flows from Sources (EEG, Vision) -> Transforms (Math, Filters) -> Sinks (Visuals, Audio).
+*   **Hot-Swappable:** The AI agent can re-wire the graph in real-time to create new biofeedback protocols on the fly.
 
-### 🔬 Neuro-Audio Studio
-A professional-grade auditory entrainment suite running entirely in the browser.
-*   **Sonic Shield:** Uses microphone input to detect ambient noise and automatically masks it with generative colored noise to prevent the "Startle Response".
-*   **Bio-Harmony:** Uses computer vision to detect emotional valence and adjusts musical scales (Lydian vs. Dorian) instantly.
+### 🧠 Neuro-Akashic Engine (Alpha / Roadmap)
+A "Digital Hippocampus" for the generative world.
+*   **Architecture:** Combines **GraphRAG** (Long-term structure), **HippoRAG** (Associative retrieval), and **A-MEM** (Working memory).
+*   **Goal:** To remember not just *what* happened, but *how it felt*. If you encounter a "Cave" and feel "Fear" (Beta spikes), the engine links these concepts globally, tailoring future hallucinations to therapeutic needs.
 
----
+## 🛠️ Hardware Support ("Tri-Link")
 
-## 🏗️ Architecture: The Universal Kernel
+Compatible with **FreeEEG8** and standard LSL devices.
+1.  **Web Bluetooth (BLE):** Zero-install wireless connection.
+2.  **WiFi (UDP/WSS):** High-bandwidth streaming over local networks.
+3.  **USB Serial:** Hardwired telemetry for ultra-low latency.
 
-The system uses a **Client-Server-Swarm** architecture:
+**Simulators:** Includes built-in physics-based simulators for EEG, Camera (Face Tracking), and Microphone input.
 
-1.  **React Client (The UI):** Handles visualization, state management, and the Agent Swarm.
-2.  **Universal Kernel (Node.js):** A process orchestrator (MCP) running on port `3001`. It spawns and manages Python microservices.
-3.  **Python Shards:** Specialized, isolated environments for heavy lifting:
-    *   `venv`: General purpose.
-    *   `venv_vision`: Stable Diffusion / Neuro Quest (Torch + Diffusers).
-    *   `venv_audio`: MusicGen (Torch + AudioCraft + Numpy < 2.0).
+## 📦 Installation (Full Stack)
 
----
+This project uses a **Hybrid Architecture**. The Client (React) orchestrates the Server (Python/Node), which manages heavy AI processes (MCPs).
 
-## 📦 Installation
-
-This project requires **Node.js (v18+)** and **Python 3.10+**.
-
-### 1. Backend Setup (The Kernel)
-The backend manages multiple virtual environments to handle conflicting dependencies between MusicGen and Stable Diffusion.
+### 1. Server Setup (The Kernel)
+The server manages isolated virtual environments to prevent dependency conflicts (e.g., MusicGen's old numpy vs. Stable Diffusion's new torch).
 
 ```bash
-git clone https://github.com/your-username/Neurofeedback-Engine.git
+git clone https://github.com/neuroidss/Neurofeedback-Engine.git
 cd Neurofeedback-Engine/server
 
-# Make the installer executable
+# Creates 3 environments:
+# 1. venv (Base System)
+# 2. venv_audio (MusicGen / AudioCraft)
+# 3. venv_vision (Neuro World / Diffusers)
 chmod +x install.sh
-
-# Run the installer. 
-# This will create 'venv', 'venv_audio', and 'venv_vision'.
-# Grab a coffee, this downloads PyTorch multiple times.
 ./install.sh
-```
 
-### 2. Frontend Setup
-```bash
-# Go back to root
-cd ..
-
-# Install React dependencies
-npm install
-```
-
----
-
-## 🕹️ Usage
-
-### 1. Start the Universal Kernel
-You must keep this terminal open. It acts as the bridge between the Web UI and the Python AI models.
-
-```bash
-cd server
+# Start the Universal Kernel (Port 3001)
 ./start.sh
 ```
-*The server will listen on port 3001.*
 
-### 2. Launch the Web Client
-Open a new terminal.
-
+### 2. Client Setup (The UI)
 ```bash
+cd .. # Go back to root
+npm install
 npm run dev
 ```
-*Open `http://localhost:5173` in your browser.*
+Open `http://localhost:5173`.
 
-### 3. Configuration (API Keys)
-1.  Click the **Gear Icon** in the top-right corner of the Web UI.
-2.  **Google Gemini:** Required for the Agent Swarm (Reasoning).
-3.  **DeepSeek / OpenAI (Optional):** For alternative reasoning models.
-4.  **Local Ollama (Optional):** For fully offline text generation.
+## 🎮 Controls (Neuro Quest)
 
----
+*   **Left Stick:** Move
+*   **Right Stick:** Camera Pan
+*   **Left Trigger (L2):** **Lucidity Dampener** (Relax to destabilize world / Focus to stabilize).
+*   **Left Bumper (L1):** **MANIFEST** (Create Psychic Anchor). Requires High Focus.
+*   **Face Buttons:** Elemental Combat (Fire, Water, etc).
 
-## 🧠 Hardware Support ("Tri-Link")
+## License
 
-The platform supports the custom **FreeEEG8 Firmware v3.1**, enabling robust connectivity via three simultaneous channels:
-
-*   **Web Bluetooth (BLE):** Zero-install wireless connection.
-*   **WiFi (WebSocket/WSS):** High-bandwidth streaming over local networks.
-*   **USB Serial:** Hardwired telemetry for ultra-low latency.
-
-**No Hardware? No Problem.**
-The system includes high-fidelity **Simulators** for EEG, Camera, and Microphone data. You can develop and test protocols without a BCI headset.
-
----
-
-## 🤝 Contributing
-
-We welcome "Vibecoders" – developers who want to push the boundaries of BCI and Generative AI.
-
-1.  Fork the repository.
-2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3.  Commit your changes.
-4.  Push to the branch.
-5.  Open a Pull Request.
-
-## 📄 License
-
-**AGPLv3**. This project is open-source. All improvements to the engine and the agents within it must remain free and open.
-
+**AGPLv3**. This ensures that all improvements to the engine, the agents, and the neuro-reality protocols remain free and open source.
