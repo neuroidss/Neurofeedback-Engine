@@ -1,566 +1,395 @@
 
 export const NQ_ENGINE_PY = `
-# ==================================================================================
-# ⚙️ MAIN ENGINE (ADVERBIAL + CHAOS ENABLED)
-# ==================================================================================
+import time
+import math
+import cv2
+import numpy as np
+import torch
+import os
+import threading
+from PIL import Image, ImageDraw, ImageFont
+from diffusers import StableDiffusionImg2ImgPipeline, LCMScheduler
+# from config import save_debug_image, log # REMOVED for Monolith Build
 
-# --- ASYNC IMAGE WRITER ---
-class ImageWriter(threading.Thread):
-    def __init__(self):
-        super().__init__(daemon=True)
-        self.queue = queue.Queue()
-        self.start()
-        
-    def save(self, img, session_id, frame_num, context_obj):
-        self.queue.put((img.copy(), session_id, frame_num, context_obj))
-        
-    def run(self):
-        while True:
-            img, sess_id, num, ctx = self.queue.get()
-            try:
-                if sess_id:
-                    path_dir = f"sessions/{sess_id}/logs/images"
-                    os.makedirs(path_dir, exist_ok=True)
-                    filename = f"frame_{num:06d}.jpg"
-                    full_path = f"{path_dir}/{filename}"
-                    img.save(full_path, quality=90, subsampling=0)
-                    # log(f"SAVED {filename}", "IMG") # LOGGING DISABLED TO REDUCE SPAM
-            except Exception as e:
-                print(f"[NQ] Image Save Error: {e}")
-            self.queue.task_done()
-
-image_writer = ImageWriter()
-
-def draw_hud(img, state, engine):
-    if not engine.show_hud: return
-
-    h, w = img.shape[:2]
-    def put_text(txt, x, y, size=0.5, color=(255,255,255), thickness=1):
-        cv2.putText(img, txt, (x+1, y+1), cv2.FONT_HERSHEY_SIMPLEX, size, (0,0,0), thickness+1)
-        cv2.putText(img, txt, (x, y), cv2.FONT_HERSHEY_SIMPLEX, size, color, thickness)
-
-    if not engine.active_session_id:
-        overlay = img.copy()
-        cv2.rectangle(overlay, (0, h//2-40), (w, h//2+40), (0,0,0), -1)
-        cv2.addWeighted(overlay, 0.7, img, 0.3, 0, img)
-        cv2.putText(img, "NEURO LINK ESTABLISHED", (w//2-180, h//2-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,255), 2)
-        if int(time.time() * 2) % 2:
-            cv2.putText(img, "AWAITING SESSION DATA...", (w//2-140, h//2+25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200,200,200), 1)
-        return
-
-    # --- AUTOPILOT INDICATOR ---
-    if state.get("is_autopilot", False):
-        cv2.rectangle(img, (w//2-80, 10), (w//2+80, 40), (0,0,0), -1)
-        cv2.rectangle(img, (w//2-80, 10), (w//2+80, 40), (255, 0, 255), 2)
-        
-        # Show what the director is doing
-        status_text = "DIRECTING"
-        if engine.ctrl.autopilot.state == "APPROACH": status_text = "APPROACHING"
-        elif engine.ctrl.autopilot.state == "ACT": status_text = "ACTING"
-        
-        put_text(status_text, w//2-50, 30, 0.6, (255, 255, 255), 2)
-        
-        # DEBUG REASON
-        reason = state.get("debug_reason", "")
-        if reason:
-            put_text(reason, w//2-100, 50, 0.4, (200, 200, 255), 1)
-
-    # --- BIOME ---
-    biome_desc = engine.nav.current_biome['description'].split('.')[0][:40]
-    put_text(biome_desc, 10, 25, 0.6, (0, 255, 255))
-    
-    # --- QUESTS ---
-    current_ctx = engine.gm.focus_obj + " " + engine.nav.current_biome['description']
-    engine.quest_mgr.update_relevance(current_ctx, engine.nav.current_biome['id'])
-    quests = engine.quest_mgr.get_active_quests(engine.nav.current_biome['id'])
-    quests.sort(key=lambda x: x.get('relevance', 0), reverse=True)
-    
-    y_off = 70 # Moved down to accommodate autopilot debug
-    show_hints = "REQ_HINT" in state["actions"] or state.get("is_autopilot", False)
-
-    for q in quests:
-        rel = q.get('relevance', 0.5)
-        if rel < 0.15: continue
-        text_color = (int(100*rel), int(200*rel), int(255*rel))
-        put_text(" * " + q['text'][:45], 10, y_off, 0.5, text_color)
-        y_off += 20
-        
-        # --- PROGRESS REPORT DISPLAY ---
-        report = q.get('progress_report')
-        if report:
-             put_text(f"   > {report[:55]}", 15, y_off, 0.4, (220, 220, 255))
-             y_off += 15
-        
-        if rel > 0.4 or show_hints:
-            logic = q.get('concrete_solution') if show_hints else q.get('verification_logic', 'Dream Logic')
-            if not logic: logic = q.get('verification_logic', 'Dream Logic')
-            
-            logic_short = logic[:60] + "..." if len(logic) > 60 else logic
-            label = "SOLUTION" if show_hints else "INTENT"
-            
-            put_text(f"   [{label}]: {logic_short}", 15, y_off, 0.4, (200, 100, 255))
-            y_off += 20
-    
-    # --- ACTION FEEDBACK ---
-    if engine.last_action_time > 0 and (time.time() - engine.last_action_time < 1.5):
-        action_txt = f"ACTION: {engine.last_action_text}"
-        text_size = cv2.getTextSize(action_txt, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
-        put_text(action_txt, (w - text_size[0]) // 2, h // 2 - 50, 0.8, (0, 255, 0), 2)
-
-    # --- BIO HUD ---
-    focus_pct = int(engine.current_lucidity * 100)
-    color_f = (0, 255, 0) if focus_pct > 70 else ((0, 255, 255) if focus_pct > 40 else (0, 0, 255))
-    put_text(f"LUCIDITY: {focus_pct}%", 10, h-80, 0.5, color_f)
-    
-    arousal = state.get("adverbs", {}).get("arousal", 0.0)
-    intent = state.get("adverbs", {}).get("intent", "")
-    if arousal > 0.1:
-        put_text(f"ENTROPY: {int(arousal*100)}%", 10, h-95, 0.4, (0, 0, 255))
-    if intent:
-        put_text(f"VOICE: {intent}", 10, h-110, 0.4, (255, 0, 255))
-
-    # --- ELEMENTAL BARS ---
-    bar_w = w // 4
-    elements = ["FIRE", "WATER", "LIGHTNING", "WIND"]
-    colors = [(0, 0, 255), (255, 0, 0), (0, 255, 0), (200, 200, 200)] 
-    
-    for i, el in enumerate(elements):
-        x = i * bar_w
-        energy = state["energies"][el]
-        cv2.rectangle(img, (x, h-20), (x+bar_w, h), (30,30,30), -1)
-        fill_w = int((energy / 100.0) * bar_w)
-        cv2.rectangle(img, (x, h-20), (x+fill_w, h), colors[i], -1)
-        if el == state["active_element"]:
-            cv2.rectangle(img, (x, h-20), (x+bar_w, h), (255,255,255), 2)
-            put_text(el, x+5, h-5, 0.4, (255,255,255))
-        else:
-            cv2.rectangle(img, (x, h-20), (x+bar_w, h), (50,50,50), 1)
-            put_text(el, x+5, h-5, 0.4, (150,150,150))
+MODEL_ID = os.environ.get("MODEL_PATH", "SimianLuo/LCM_Dreamshaper_v7")
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 class NeuroEngine:
     def __init__(self):
-        log(f"Init NeuroEngine Wrapper...")
+        print("[Engine] ⚙️ Initializing Semantic Engine...", flush=True)
+        
         self.pipe = None
-        self.dream_pipe = None # Specialized Imagination Pipeline (Text2Img)
-        self.is_ready = False
-        self.loading_status = "INITIALIZING BOOT SEQUENCE..."
-        self.loading_progress = 0.0
-        self.show_hud = True 
-        
-        # GPU Resource Lock to prevent render clashes between Main Loop and Fantasy Gen
+        self.model_ready = False # CRITICAL: Prevents race conditions during load
+        self.current_frame = Image.new('RGB', (512, 384), (0,0,0))
         self.render_lock = threading.Lock()
+        self.ip_adapter_active = False
         
-        self.needs_compile = (DEVICE == 'cuda')
-        self.loader_thread = threading.Thread(target=self._async_load, daemon=True)
-        self.loader_thread.start()
-        
-        self.active_session_id = None
-        self.db = None; self.quest_mgr = None; self.nav = None
-        
-        self.ctrl = Controller()
-        self.gm = GameMaster()
-        self.current_img = Image.new('RGB', (GEN_H, GEN_W), (0,0,0)) 
-        self.status = {"thought": "Init"}
-        self.brain = VisionCortex(self.gm, self.ctrl, self.status, self)
-        self.brain.start()
-        
-        self.audio_sense = None
-        # self.audio_sense = AudioSense(self.ctrl.spirit)
-        # if not HEADLESS: self.audio_sense.start()
-        
-        self.bio_metrics = {"focus": 1.0}
-        self.last_bio_update = 0
-        self.current_lucidity = 1.0
-        self.bio_mode = 'manual' 
-        
-        self.last_action_text = ""; self.last_action_time = 0
-        self.artifact_queue = []; self.artifact_active = None; self.artifact_timer = 0
-        self.last_music_prompt = ""
-        
-        # Stagnation Monitor (GM Invocation)
-        self.last_quest_progress = time.time()
-
-    def update_bio_metrics(self, data):
-        if 'focus' in data: 
-            self.bio_metrics['focus'] = float(data['focus'])
-            self.last_bio_update = time.time()
-            if self.ctrl.spirit:
-                self.ctrl.spirit.update_metrics(focus=self.bio_metrics['focus'])
-
-    def _async_load(self):
+        # 1. Semantic Core
         try:
-            self.loading_status = "LOADING DIFFUSION PIPELINE..."
-            self.loading_progress = 0.1
-            time.sleep(0.1) 
+            from sentence_transformers import SentenceTransformer
+            embedder = SentenceTransformer('all-MiniLM-L6-v2')
+            self.embed = embedder.encode
+        except:
+            print("[Engine] WARN: No Embedder. Using Random Vectors.", flush=True)
+            self.embed = lambda x: np.random.rand(384)
             
-            # 1. LOAD MAIN PIPE (Img2Img)
+        self.physics = SemanticPhysicsEngine(self.embed)
+        self.brain = NeuralBrain(self)
+        
+        # 2. Inputs
+        self.gamepad = VirtualGamepad()
+        self.fusion = NeuroInputFusion(384)
+        self.fusion.init_vectors(self.embed)
+        self.ghost = GhostPlayer(self.physics)
+        
+        # 3. State
+        self.active_session_id = None 
+        self.show_hud = True
+        self.current_asset_filename = None 
+        
+        self.latest_game_stats = {}
+        self.gm = GameMaster() 
+        self.music = None 
+        
+        # Initialize default DB placeholder (Using Central Path)
+        try:
+            # Use global SESSIONS_DIR if available
+            root = globals().get("SESSIONS_DIR", "sessions")
+            default_path = os.path.join(root, "world_db.json")
+            
+            self.db = WorldDatabase(default_path) 
+            self.nav = BiomeNavigator(self.db)
+            self.quest_mgr = QuestManager(self.db)
+            self.quest_mgr.attach_engine(self)
+            if tool_agent: tool_agent.attach_engine(self)
+        except Exception as e:
+            print(f"[Engine] World/Quest Init Error: {e}", flush=True)
+
+        threading.Thread(target=self._load_lcm, daemon=True).start()
+        self.brain.start()
+
+    def _load_lcm(self):
+        try:
+            print(f"[Engine] Loading LCM from: {MODEL_ID}", flush=True)
             if os.path.isfile(MODEL_ID) or MODEL_ID.endswith(".safetensors"):
-                self.pipe = StableDiffusionImg2ImgPipeline.from_single_file(MODEL_ID, torch_dtype=torch.float16, safety_checker=None).to(DEVICE)
+                self.pipe = StableDiffusionImg2ImgPipeline.from_single_file(MODEL_ID, torch_dtype=torch.float16, safety_checker=None, load_safety_checker=False).to(DEVICE)
             else:
                 self.pipe = StableDiffusionImg2ImgPipeline.from_pretrained(MODEL_ID, torch_dtype=torch.float16, safety_checker=None).to(DEVICE)
-            
-            self.loading_status = "CONFIGURING SCHEDULER..."
-            self.loading_progress = 0.5
-            self.pipe.scheduler = LCMScheduler.from_config(self.pipe.scheduler.config)
+        except Exception as e:
+            print(f"[Engine] ❌ Load Failed: {e}", flush=True)
+            return
+
+        if self.pipe:
+            if hasattr(self.pipe, 'safety_checker'): self.pipe.safety_checker = None
+            if hasattr(self.pipe, 'feature_extractor'): self.pipe.feature_extractor = None
+            self.pipe.requires_safety_checker = False
+            try: self.pipe.scheduler = LCMScheduler.from_config(self.pipe.scheduler.config)
+            except: self.pipe.scheduler = LCMScheduler()
             self.pipe.set_progress_bar_config(disable=True)
             
-            # 2. INIT IMAGINATION ENGINE (Txt2Img)
-            # Sharing components to save VRAM, but providing a dedicated pipeline interface
-            # so the Game Master can imagine things from scratch without input images.
-            from diffusers import StableDiffusionPipeline
-            
-            self.loading_status = "INITIALIZING IMAGINATION ENGINE..."
-            self.dream_pipe = StableDiffusionPipeline(
-                vae=self.pipe.vae,
-                text_encoder=self.pipe.text_encoder,
-                tokenizer=self.pipe.tokenizer,
-                unet=self.pipe.unet,
-                scheduler=self.pipe.scheduler,
-                safety_checker=None,
-                feature_extractor=None,
-                requires_safety_checker=False
-            ).to(DEVICE)
-            
-            self.loading_status = "NEURO ENGINE READY."
-            self.loading_progress = 1.0
-            time.sleep(0.5)
-            self.is_ready = True
-            log("Engine Load Complete (Main + Imagination).", "SYS")
-            
-        except Exception as e:
-            self.loading_status = f"FATAL ERROR: {str(e)[:50]}..."
-            log(f"SD Init Failed: {e}", "ERR")
-            self.pipe = None 
+            # --- IP-ADAPTER LOADING (CONSISTENCY LAYER) ---
+            try:
+                print("[Engine] 🔌 Loading IP-Adapter for Consistency...", flush=True)
+                self.pipe.load_ip_adapter("h94/IP-Adapter", subfolder="models", weight_name="ip-adapter_sd15.bin")
+                self.pipe.set_ip_adapter_scale(0.6) 
+                self.ip_adapter_active = True
+                print("[Engine] ✅ Identity Core Active (IP-Adapter).", flush=True)
+            except Exception as e:
+                print(f"[Engine] ⚠️ IP-Adapter Warning: {e}. Running in pure text mode.", flush=True)
+                self.ip_adapter_active = False
+
+            self.model_ready = True # Signal that rendering can start
+            print("[Engine] ✨ LCM Ready (Uncensored).", flush=True)
 
     def load_session(self, session_id):
-        log(f"📥 Loading Session: {session_id}", "SYS")
-        path = os.path.join(session_manager.root_dir, f"{session_id}.json")
-        self.db = WorldDatabase(path)
-        self.quest_mgr = QuestManager(self.db)
-        self.quest_mgr.attach_engine(self) # ATTACH ENGINE for Fantasy Renders
-        self.nav = BiomeNavigator(self.db)
-        biome_desc = self.nav.current_biome['description']
-        self.gm.set_context(biome_desc)
         self.active_session_id = session_id
-        self.last_quest_progress = time.time()
+        set_current_session(session_id)
         
-        # --- RESTORE ACTIVE QUEST OVERLAY ---
-        # If we load a game with an active quest, we must re-inject the visual 
-        # so the world doesn't look blank.
-        active_quests = self.quest_mgr.get_active_quests(self.nav.current_biome['id'])
-        if active_quests:
-            q = active_quests[0]
-            visuals = q.get('manifestation_visuals', q.get('concrete_solution', q['text']))
-            self.gm.set_quest_overlay(visuals)
-            log(f"Restored Active Quest Overlay: {visuals}", "SYS")
+        # Use Central Path
+        root = globals().get("SESSIONS_DIR", "sessions")
+        session_path = os.path.join(root, f"{session_id}.json")
         
-        log(f"✅ Session Loaded. Biome: {biome_desc}", "SYS")
-        
-    def save_and_quit(self):
-        if self.db:
-            log("💾 Auto-saving...", "SYS")
-            self.db.update_summary()
-            self.db.save_db()
-        self.active_session_id = None
-        log("⏹️ Session Closed.", "SYS")
-        
-    def trigger_artifact_event(self, name, desc):
-        log(f"💎 Triggering Artifact Event: {name}", "GAME")
-        self.artifact_queue.append({"name": name, "desc": desc})
-        self.last_quest_progress = time.time() # Reset Stagnation Timer
-        
-    def trigger_music_update(self, prompt):
-        if prompt == self.last_music_prompt: return
-        self.last_music_prompt = prompt
-        
-        # --- REMOTE MUSIC CONTROL ---
-        def _call_music():
-            try:
-                log(f"🎵 Tuning Orchestra: {prompt}", "MUSIC")
-                # MusicGen microservice typically on port 8000
-                requests.post("http://localhost:8000/control/start", json={"prompt": prompt}, timeout=1.0)
-            except:
-                log("MusicGen Offline (Port 8000).", "WARN")
-        threading.Thread(target=_call_music, daemon=True).start()
-
-    @torch.inference_mode()
-    def render(self, image_input, prompt, strength, blocking=True):
-        """
-        Main Render method. Supports non-blocking mode for the main loop
-        to avoid freezing when background threads (Quest Generation) are using the GPU.
-        """
-        if not self.pipe: return image_input
-        if self.needs_compile:
-            log("Compiling UNet in Render Thread...", "SYS")
-            try:
-                self.pipe.unet = torch.compile(self.pipe.unet, mode="reduce-overhead", fullgraph=False)
-                log("Compilation Complete.", "SYS")
-            except Exception as e: log(f"Compile Skipped/Failed: {e}", "WARN")
-            self.needs_compile = False
-
-        min_safe = (1.0 / LCM_STEPS) + 0.02
-        safe_strength = max(strength, min_safe)
-        
-        # --- GPU LOCKING ---
-        # If blocking=False and we can't get the lock, we return input immediately.
-        # This keeps the UI responsive (physics/HUD updates) even if AI is busy.
-        got_lock = self.render_lock.acquire(blocking=blocking)
-        if not got_lock:
-            return image_input # Skip AI render this frame
-            
-        try:
-            result = self.pipe(
-                prompt=prompt,
-                negative_prompt="candle, fire, blur, low quality, distortion, water, bad anatomy, text, watermark",
-                image=image_input,
-                num_inference_steps=LCM_STEPS, 
-                strength=safe_strength,
-                guidance_scale=1.0, 
-                output_type="pil"
-            ).images[0]
-            return result
-        except Exception as e:
-            log(f"Render Error: {e}", "ERR")
-            return image_input
-        finally:
-            self.render_lock.release()
-
-    def render_fantasy(self, prompt, save_path):
-        """
-        Renders a fantasy vision of the quest goal using the IMAGINATION ENGINE.
-        Uses pure Text-to-Image (via dream_pipe) instead of Img2Img to ensure
-        the quest visualization is clean, distinct, and not influenced by current visual noise.
-        """
-        if not self.dream_pipe: 
-            log("Imagination Engine not ready.", "ERR")
+        if not os.path.exists(session_path):
+            log(f"❌ Session file not found: {session_path}", "ERR")
             return
+
+        log(f"📂 Loading Session Database: {session_path}", "ENG")
+        self.db = WorldDatabase(session_path)
+        self.nav = BiomeNavigator(self.db)
+        self.quest_mgr = QuestManager(self.db)
+        self.quest_mgr.attach_engine(self)
         
-        # Ensure we don't crash if called before model is ready
-        if not self.is_ready: 
-            time.sleep(1)
-            if not self.is_ready: return
+        game_config = self.db.config
+        if not game_config:
+            log("⚠️ No config in session DB. Using Default (Rance).", "WARN")
+            if "RANCE_10_MODE" in GAMES:
+                game_config = GAMES["RANCE_10_MODE"]
+            else:
+                game_config = list(GAMES.values())[0] if GAMES else {}
+            
+        self.physics.load_game(game_config)
+        log(f"✅ Session {session_id} Loaded. Mode: {game_config.get('title')}", "ENG")
 
-        log(f"🧙‍♂️ GM IMAGINATION: Rendering '{prompt[:30]}...'", "ART")
+    def set_autopilot(self, enabled):
+        self.gamepad.autopilot_enabled = enabled
+        if enabled:
+            self.gamepad.last_input_time = 0
+            print("[Engine] 🤖 Autopilot ENGAGED via API.", flush=True)
+        else:
+            self.gamepad.last_input_time = time.time()
+            print("[Engine] 🎮 Autopilot DISENGAGED via API.", flush=True)
 
+    def save_and_quit(self):
+        if self.db: self.db.save_db()
+        self.active_session_id = None
+
+    def update_bio_metrics(self, data):
+        focus = data.get("focus", 0.5)
+        balance = data.get("balance", 0.5)
+        if self.ghost: self.ghost.focus_level = focus
+        self.current_bio_balance = balance
+        self.current_bio_focus = focus 
+
+    def queue_narrative(self, text, is_voiceover=False):
+        if self.gm: self.gm.queue_narrative(text, is_voiceover)
+
+    def ensure_asset_exists(self, subject_id, description, asset_path):
+        if not asset_path: return False
+        if os.path.exists(asset_path): return True 
+            
+        print(f"[Asset] 🎨 Forging new asset for {subject_id} at {asset_path}...", flush=True)
         try:
-            # 2. RENDER FANTASY (Using dedicated Txt2Img Pipe)
-            # This will block the main loop's AI render for ~0.5s-1s, but UI remains responsive
-            # because main loop uses blocking=False.
+            prompt = f"Portrait of {description}, white background, high quality, character design, concept art, distinct face"
+            noise = Image.new('RGB', (512, 512), (128,128,128)) 
+            noise_np = np.random.randint(0, 255, (512, 512, 3), dtype=np.uint8)
+            noise_img = Image.fromarray(noise_np)
             
-            # Note: We must acquire the lock manually here since we call pipe directly
-            with self.render_lock:
-                fantasy_img = self.dream_pipe(
-                    prompt=prompt + ", masterpiece, distinct object, glowing, concept art, centered",
-                    negative_prompt="blur, low quality, distortion, watermark, artifacts, ugly",
-                    num_inference_steps=4, # Slightly higher quality for static quest image
-                    guidance_scale=1.5, 
-                    width=GEN_W,
-                    height=GEN_H,
-                    output_type="pil"
-                ).images[0]
-            
-            fantasy_img.save(save_path, quality=95)
-            
-        except Exception as e:
-            # Enhanced Error Logging with Traceback
-            import traceback
-            tb = traceback.format_exc()
-            log(f"Fantasy Render Failed: {e}\\n{tb}", "ERR")
-            raise e
+            kwargs = {
+                "prompt": prompt,
+                "image": noise_img,
+                "strength": 1.0,
+                "num_inference_steps": 4,
+                "guidance_scale": 1.5
+            }
 
-    def snapshot_moment(self, save_path):
-        """
-        Captures the current state of reality to a file.
-        """
-        try:
+            if self.ip_adapter_active:
+                self.pipe.set_ip_adapter_scale(0.0)
+                kwargs["ip_adapter_image"] = Image.new('RGB', (224, 224), (0, 0, 0))
+                
             with self.render_lock:
-                # Copy under lock to prevent tearing
-                snap = self.current_img.copy()
-            snap.save(save_path, quality=95)
+                result = self.pipe(**kwargs).images[0]
+            
+            if self.ip_adapter_active:
+                self.pipe.set_ip_adapter_scale(0.6)
+                
+            os.makedirs(os.path.dirname(asset_path), exist_ok=True)
+            result.save(asset_path)
+            print(f"[Asset] ✅ Saved: {asset_path}", flush=True)
+            return True
         except Exception as e:
-            log(f"Snapshot Failed: {e}", "ERR")
+            print(f"[Asset] ❌ Forge Failed: {e}", flush=True)
+            return False
 
-    def draw_loading_screen(self, frame_num):
-        img = np.zeros((GEN_H, GEN_W, 3), dtype=np.uint8)
-        cv2.putText(img, "NEURO QUEST", (GEN_W//2 - 160, GEN_H//2 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 0, 255), 3)
-        cv2.putText(img, "NEURO QUEST", (GEN_W//2 - 160, GEN_H//2 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 1)
-        cv2.putText(img, self.loading_status, (GEN_W//2 - 200, GEN_H//2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-        return img
+    def _render_standby(self):
+        img = Image.new('RGB', (512, 384), (5, 10, 15))
+        draw = ImageDraw.Draw(img)
+        t = time.time()
+        offset = int((t * 20) % 40)
+        for i in range(0, 512, 40): draw.line([(i, 0), (i, 384)], fill=(0, 30, 40))
+        for i in range(0, 384, 40): y = (i + offset) % 384; draw.line([(0, y), (512, y)], fill=(0, 30, 40))
+        draw.text((180, 150), "NEURO QUEST", fill=(0, 255, 255))
+        blink = int(t * 2) % 2 == 0
+        status_color = (0, 255, 0) if blink else (0, 100, 0)
+        draw.text((155, 170), "AWAITING CARTRIDGE...", fill=status_color)
+        if blink: draw.text((155, 190), "> _", fill=(0, 255, 0))
+        self.current_frame = img
+        stream_manager.update(img)
 
     def render_loop(self):
-        if not HEADLESS: 
-            cv2.namedWindow("NEURO QUEST NATIVE", cv2.WINDOW_NORMAL)
-            cv2.namedWindow("GM IMAGINATION", cv2.WINDOW_NORMAL) # Dedicated window for quests
-            cv2.resizeWindow("GM IMAGINATION", 400, 300)
-
-        self.current_img = Image.fromarray(np.random.randint(50, 100, (GEN_H, GEN_W, 3), dtype=np.uint8))
+        last_time = time.time()
+        self.vision = VisionCortex(self.gm, self.gamepad, None, self)
+        self.vision.start()
+        self.audio = AudioSense(self) 
+        self.audio.start()
         
-        # State for Imagination Window
-        last_imag_path = None
-        imag_img = np.zeros((300, 400, 3), dtype=np.uint8)
-        cv2.putText(imag_img, "WAITING FOR DREAM...", (30, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100,100,100), 1)
+        class MusicLink:
+            def __init__(self): self.active = False; self.port = 8000
+            def set_config(self, p): self.port = p
+            def set_active(self, a): self.active = a
+        self.music = MusicLink()
 
-        frame_count = 0
-        t_last = time.time()
-        
+        print("[Engine] 🟢 Render Loop Started. Waiting for Session.", flush=True)
+
         while True:
-            # --- PHASE 1: LOADING ---
-            if not self.is_ready:
-                loading_frame = self.draw_loading_screen(frame_count)
-                ret, buf = cv2.imencode('.jpg', loading_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-                with stream_manager.lock: stream_manager.latest_jpeg = buf.tobytes()
-                if not HEADLESS:
-                    cv2.imshow("NEURO QUEST NATIVE", loading_frame)
-                    if cv2.waitKey(10) & 0xFF == 27: break
-                frame_count += 1
+            # SAFETY CHECK: Do not touch self.pipe until loader says it's ready
+            if not self.model_ready: 
+                time.sleep(0.5)
                 continue
-
-            # --- PHASE 2: ARTIFACT OVERLAY ---
-            if self.artifact_queue and not self.artifact_active:
-                item = self.artifact_queue.pop(0)
-                if self.pipe:
-                    prompt = f"icon of {item['name']}, {item['desc']}, fantasy rpg item, magical glow, black background, high quality, 8k"
-                    img = self.render(self.current_img, prompt, 0.8, blocking=True) 
-                    self.artifact_active = {"img": img, "name": item['name']}
-                    self.artifact_timer = time.time() + 4.0 
             
-            if self.artifact_active:
-                if time.time() > self.artifact_timer:
-                    self.artifact_active = None
-                else:
-                    img_np = np.array(self.artifact_active["img"])
-                    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-                    h, w = img_bgr.shape[:2]
-                    cv2.rectangle(img_bgr, (0, h-80), (w, h), (0,0,0), -1)
-                    text = f"ACQUIRED: {self.artifact_active['name']}"
-                    text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 2)[0]
-                    cv2.putText(img_bgr, text, ((w - text_size[0]) // 2, h-30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,255,0), 2)
+            if not self.active_session_id:
+                self._render_standby()
+                time.sleep(0.1) 
+                last_time = time.time() 
+                continue
+            
+            dt = time.time() - last_time
+            last_time = time.time()
+
+            # 1. INPUT & AUTOPILOT
+            controls = self.gamepad.update()
+            player_vector = None
+            
+            if self.gamepad.autopilot_enabled:
+                if not self.ghost.active: self.ghost.engage()
+                ghost_data = self.ghost.update(dt)
+                
+                if ghost_data:
+                    # A. Physical Action (Movement/Combat) -> Gamepad Sim
+                    self.gamepad.inject_ai_input({"move": ghost_data["move_vec"][:2], "action": ghost_data["action"]})
                     
-                    if stream_manager.active:
-                        ret, buf = cv2.imencode('.jpg', img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-                        with stream_manager.lock: stream_manager.latest_jpeg = buf.tobytes()
-                    if not HEADLESS:
-                        cv2.imshow("NEURO QUEST NATIVE", img_bgr)
-                        cv2.waitKey(1)
-                    continue 
-
-            # --- PHASE 3: GAME LOOP ---
-            state = self.ctrl.get_state()
-            
-            # --- DIRECTOR BRIDGE ---
-            if state.get("is_autopilot") and self.quest_mgr and self.nav:
-                active_quests = self.quest_mgr.get_active_quests(self.nav.current_biome['id'])
-                if active_quests:
-                    top_quest = active_quests[0]
-                    sol = top_quest.get("concrete_solution")
-                    progress = top_quest.get("progress_report")
-                    if sol:
-                        objective_text = sol
-                        if progress: objective_text += f". STATUS: {progress}"
-                        self.ctrl.autopilot.set_objective(objective_text)
+                    # B. Meta Action (Social/Farm/End Turn) -> Direct Game Logic Call
+                    if ghost_data.get("meta_action"):
+                        action = ghost_data["meta_action"]
                         
-                # --- STAGNATION MONITOR ---
-                if time.time() - self.last_quest_progress > 20.0:
-                    log("⌛ WORLD STAGNANT: Invoking Game Master...", "GM")
-                    self.last_quest_progress = time.time()
-                    if not active_quests:
-                        log("⚠️ No active quests. Forcing Generation...", "GM")
-                        self.quest_mgr.generate_next_in_chain(self.gm.biome_context, self.nav.current_biome['id'])
-                        active_quests = self.quest_mgr.get_active_quests(self.nav.current_biome['id'])
-                    
-                    if active_quests:
-                        self.brain.queue_action("REQ_MANIFEST")
-                        self.gm.trigger_fx("glitch art, reality breaking", 1.0)
-            
-            for act in state["actions"]:
-                self.last_action_text = act
-                self.last_action_time = time.time()
-                self.last_quest_progress = time.time()
-                self.brain.queue_action(act)
-                if "SKILL" in act: self.gm.trigger_fx(f"{state['active_element']} energy burst", 1.5)
-                elif "ULTIMATE" in act: self.gm.trigger_fx(f"massive {state['active_element']} explosion", 3.0)
+                        if self.physics.game_logic:
+                            if action == "social":
+                                inv = self.physics.game_logic.inventory
+                                if inv:
+                                    target = random.choice(inv)
+                                    self.physics.game_logic.trigger_social(target['uid'], 'dinner')
+                            
+                            elif action == "farm":
+                                self.physics.game_logic.trigger_farm()
+                                
+                            elif action == "end_turn":
+                                result = self.physics.game_logic.end_turn()
+                                if result:
+                                    self.physics.current_visual_prompt = result[1] # Update visual prompt
+                                    self.physics.is_new_scene = True
+                            
+                            elif action == "battle":
+                                # Trigger battle using auto-targeting
+                                result = self.physics.game_logic.trigger_battle()
+                                if result:
+                                    self.physics.current_visual_prompt = result[1]
+                                    self.physics.is_new_scene = True
 
-            # Bio-Metrics
-            now = time.time()
-            if now - self.last_bio_update > 2.0:
-                self.bio_mode = 'manual'
-                base_lucidity = 1.0 
+                    player_vector = ghost_data["move_vec"]
+                    self.current_bio_focus = ghost_data["eeg_focus"] 
             else:
-                self.bio_mode = 'eeg'
-                base_lucidity = self.bio_metrics.get('focus', 0.5)
-            
-            lt_val = state.get('lt', 0.0)
-            self.current_lucidity = base_lucidity * (1.0 - lt_val)
-            self.bio_metrics['focus'] = self.current_lucidity
+                if self.ghost.active: self.ghost.disengage()
+                bal = getattr(self, 'current_bio_balance', 0.0)
+                real_eeg_sim = np.array([getattr(self, 'current_bio_focus', 0.5)]) 
+                fused = self.fusion.fuse(real_eeg_sim, controls, balance=bal) 
+                player_vector = fused["vector"] if fused["intensity"] > 0.1 else None
 
-            # --- PHYSICS & RENDER ---
-            input_pil, movement_energy = apply_physics(self.current_img, state)
+            # 2. PHYSICS & LOGIC
+            gaze_target = self.brain.latest_entity_focus.id if (self.brain and self.brain.latest_entity_focus) else None
+            self.physics.tick(player_vector, gaze_target, dt)
             
-            if self.pipe:
-                prompt, is_fx_active = self.gm.get_prompt()
-                
-                if prompt is None:
-                    self.current_img = input_pil
-                else:
-                    strength = 0.28 + (movement_energy * 0.37)
-                    res = self.render(input_pil, prompt, strength, blocking=False)
-                    inertia = 0.0 if is_fx_active else 0.3
-                    self.current_img = match_palette(self.current_img, res, inertia=inertia)
-                
-                if self.active_session_id and frame_count % 2 == 0:
-                    image_writer.save(self.current_img, self.active_session_id, frame_count, self.gm.focus_obj)
+            focus_val = getattr(self, 'current_bio_focus', 0.5)
+            self.physics.advance_game(focus_val, dt, is_autopilot=self.gamepad.autopilot_enabled)
+            
+            if self.physics.game_logic:
+                self.latest_game_stats = {
+                    "resources": self.physics.game_logic.resources,
+                    "event": self.physics.game_logic.current_event,
+                    "logs": self.physics.game_logic.logs,
+                    "territories": self.physics.game_logic.territories,
+                    "inventory": self.physics.game_logic.inventory,
+                    "active_battle": self.physics.game_logic.active_battle # Added to sync battle logs
+                }
 
-                img_np = np.array(self.current_img)
-                img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-                draw_hud(img_bgr, state, self)
+            # 3. RENDER GENERATION
+            current_prompt = self.physics.get_visual_prompt() or "A void" # SAFETY FALLBACK
+            
+            ip_image = None
+            self.current_asset_filename = None
+            subject_id = None
+            
+            if self.ip_adapter_active and self.physics.game_logic:
+                subject_id = self.physics.game_logic.current_subject_id
+                subject_desc = self.physics.game_logic.current_subject_desc
+                asset_path = self.physics.get_active_asset_path()
                 
-                if not HEADLESS:
-                    # Update Imagination Window
-                    target_path = None
-                    if self.quest_mgr and self.nav and hasattr(self.nav, 'current_biome') and self.nav.current_biome:
-                        qs = self.quest_mgr.get_active_quests(self.nav.current_biome['id'])
-                        if qs:
-                            for q in qs:
-                                p = q.get('image_path')
-                                if p and os.path.exists(p):
-                                    target_path = p
-                                    break
+                # Use Global SESSIONS_DIR
+                if not asset_path and subject_id:
+                    root = globals().get("SESSIONS_DIR", "sessions")
+                    safe_id = "".join([c for c in subject_id if c.isalnum() or c in ('_')]).strip()
+                    asset_path = os.path.join(root, self.active_session_id, "assets", f"{safe_id}.png")
+                
+                if asset_path and subject_id:
+                    if not os.path.exists(asset_path) and subject_desc:
+                        self.ensure_asset_exists(subject_id, subject_desc, asset_path)
                     
-                    if target_path != last_imag_path:
-                        last_imag_path = target_path
-                        if target_path:
-                            try:
-                                loaded = cv2.imread(target_path)
-                                if loaded is not None:
-                                    imag_img = loaded
-                            except: pass
+                    if os.path.exists(asset_path):
+                        try:
+                            ip_image = Image.open(asset_path)
+                            self.current_asset_filename = asset_path
+                        except Exception as e:
+                            print(f"[Render] Asset Load Error ({asset_path}): {e}", flush=True)
+
+            if self.physics.is_new_scene:
+                strength = 0.75 
+            else:
+                strength = 0.45 
+            
+            warped, motion = apply_physics(self.current_frame, controls)
+            strength += (motion * 0.1)
+            strength = min(0.95, max(0.1, strength))
+
+            try:
+                with self.render_lock:
+                    kwargs = {
+                        "prompt": current_prompt,
+                        "image": warped,
+                        "strength": strength,
+                        "num_inference_steps": 3,
+                        "guidance_scale": 1.5
+                    }
+                    
+                    if self.ip_adapter_active:
+                        if ip_image:
+                            kwargs["ip_adapter_image"] = ip_image
+                            self.pipe.set_ip_adapter_scale(0.6)
                         else:
-                            imag_img = np.zeros((300, 400, 3), dtype=np.uint8)
-                            cv2.putText(imag_img, "DREAMING...", (30, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100,100,100), 1)
-
-                    cv2.imshow("GM IMAGINATION", imag_img)
-                    cv2.imshow("NEURO QUEST NATIVE", img_bgr)
+                            kwargs["ip_adapter_image"] = Image.new('RGB', (224, 224), (0, 0, 0)) 
+                            self.pipe.set_ip_adapter_scale(0.0)
                     
-                    key = cv2.waitKey(1) & 0xFF
-                    if key == 27: break
-                    self.ctrl.update_keys(key, True)
-                    self.ctrl.keys_pressed = set([key]) if key != 255 else set()
+                    generated_frame = self.pipe(**kwargs).images[0]
+                    self.current_frame = generated_frame
+                    
+                    if self.physics.is_new_scene:
+                        save_debug_image(generated_frame, f"scene_{self.physics.game_logic.current_event}")
+                    elif self.physics.game_logic and "Battle" in self.physics.game_logic.current_event:
+                         if int(time.time() * 10) % 20 == 0: 
+                             save_debug_image(generated_frame, f"battle_{int(time.time())}")
 
-                stream_manager.update(self.current_img)
-                self.brain.see(self.current_img)
+            except Exception as e:
+                print(f"[Engine] 💥 Renderer Error: {e}", flush=True)
+            
+            # 4. DRAW HUD
+            display_frame = self.current_frame.copy()
+            if self.show_hud:
+                draw = ImageDraw.Draw(display_frame)
+                draw.text((10, 10), f"FPS: {1.0/(dt+0.001):.1f}", fill=(0, 255, 0))
+                if ip_image:
+                    draw.text((10, 25), f"IP-ADAPTER: ACTIVE ({subject_id})", fill=(255, 0, 255))
+                else:
+                    draw.text((10, 25), f"IP-ADAPTER: IDLE", fill=(100, 100, 100))
                 
-                dt = time.time() - t_last
-                fps_val = 1.0 / (dt + 0.0001)
-                t_last = time.time()
+                draw.text((10, 360), f"PROMPT: {current_prompt[:60]}...", fill=(255, 255, 255))
 
-                if frame_count % 100 == 0:
-                    try: log(f"STATS::FPS={int(fps_val)}::OBJ={self.gm.focus_obj}", "STATS")
-                    except: pass
-            else: time.sleep(0.1)
+            stream_manager.update(display_frame)
+            if self.vision: self.vision.see(self.current_frame)
             
-            frame_count = (frame_count + 1) % 1000000
-            
-        if not HEADLESS: cv2.destroyAllWindows()
-        pygame.quit()
-        os._exit(0)
-`
+            try:
+                open_cv_image = np.array(display_frame) 
+                open_cv_image = open_cv_image[:, :, ::-1].copy() 
+                cv2.imshow('Neuro Quest Native', open_cv_image)
+                cv2.waitKey(1)
+            except: pass
+
+    def update_audio(self, arousal=0.0, intent=""):
+        pass
+`;

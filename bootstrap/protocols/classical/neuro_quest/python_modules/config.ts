@@ -16,26 +16,99 @@ import base64
 import io
 import re
 import queue
+import heapq
 from typing import List, Dict, Optional
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from PIL import Image
+from PIL import Image, ImageDraw
 from diffusers import StableDiffusionImg2ImgPipeline, LCMScheduler, AutoencoderTiny
 from diffusers.utils import logging as diffusers_logging
 import pygame
 
-# --- FORCE UNBUFFERED OUTPUT ---
-sys.stdout.reconfigure(line_buffering=True)
+# ==================================================================================
+# ☢️ NUCLEAR LOGGING OPTION (BRUTE FORCE V2)
+# ==================================================================================
+# This block runs before anything else. It captures ALL output to a unique .txt file.
 
-# --- SILENCE TQDM & DIFFUSERS ---
+# 1. Determine unique log filename with timestamp
+try:
+    _ts = int(time.time())
+    _log_filename = f"neuro_quest_log_{_ts}.txt"
+    
+    _current_script_path = os.path.abspath(__file__)
+    _script_dir = os.path.dirname(_current_script_path) # server/scripts
+    _server_dir = os.path.dirname(_script_dir)          # server/
+    
+    MASTER_LOG_FILE = os.path.join(_server_dir, _log_filename)
+except:
+    # Fallback if __file__ is missing
+    MASTER_LOG_FILE = f"neuro_quest_log_{int(time.time())}.txt"
+
+class DualLogger(object):
+    """Writes to both the console (for Node) and a file (for Sanity)."""
+    def __init__(self, original_stream, file_path):
+        self.terminal = original_stream
+        self.file_path = file_path
+        # Open in Append mode, buffering=1 (line buffered)
+        try:
+            self.log_file = open(file_path, "a", encoding="utf-8", buffering=1)
+        except Exception as e:
+            # Fallback to local dir if permission denied
+            self.log_file = open(os.path.basename(file_path), "a", encoding="utf-8", buffering=1)
+
+    def write(self, message):
+        # 1. Write to Console (Standard)
+        try:
+            self.terminal.write(message)
+            self.terminal.flush()
+        except: pass
+
+        # 2. Write to File (Brute Force)
+        try:
+            self.log_file.write(message)
+            self.log_file.flush() # FORCE DISK WRITE
+            os.fsync(self.log_file.fileno()) # FORCE OS FLUSH
+        except Exception as e:
+            # If writing fails, try to reopen (maybe file was locked/deleted)
+            pass
+
+    def flush(self):
+        try:
+            self.terminal.flush()
+            self.log_file.flush()
+        except: pass
+        
+    def isatty(self):
+        # CRITICAL FIX for Uvicorn/FastAPI logging which checks for color support
+        return False
+
+    def fileno(self):
+        # Some low-level libs might check this
+        try: return self.terminal.fileno()
+        except: return 1 # Stdout default
+
+# Redirect System Streams
+sys.stdout = DualLogger(sys.stdout, MASTER_LOG_FILE)
+sys.stderr = DualLogger(sys.stderr, MASTER_LOG_FILE)
+
+print(f"\\n==================================================", flush=True)
+print(f"☢️ NUCLEAR LOGGING ACTIVE", flush=True)
+print(f"Timestamp: {time.ctime()}", flush=True)
+print(f"Writing ALL output to: {MASTER_LOG_FILE}", flush=True)
+print(f"==================================================\\n", flush=True)
+
+# ==================================================================================
+
+# --- CONFIG CONTINUES ---
+# Force Unbuffered (Redundant now, but kept for safety)
+os.environ["PYTHONUNBUFFERED"] = "1"
 os.environ["TQDM_DISABLE"] = "1"
 diffusers_logging.set_verbosity_error()
 
-# --- CONFIG ---
 HEADLESS = False 
-VERSION = "V104"
+VERSION = "V105_CINEMA"
 
 MODEL_PATH = os.environ.get("MODEL_PATH", "")
 MODEL_ID = MODEL_PATH if MODEL_PATH else "SimianLuo/LCM_Dreamshaper_v7"
@@ -44,90 +117,46 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 GEN_W, GEN_H = 512, 384
 LCM_STEPS = 3
 
-# --- LORE PRESETS ---
-LORE_PRESETS = {
-    "Cyberpunk": "A cyberpunk forest populated by neon ghosts. Logic is dream-like. Technology is organic.",
-    "Dark Fantasy": "A crumbling gothic kingdom consumed by a red moon. Shadows are alive.",
-    "Solar Punk": "A utopia of glass and greenery floating in the clouds. Everything is powered by light.",
-    "Cosmic Horror": "An ancient alien structure drifting in the void. Geometry is non-euclidean.",
-    "Wasteland": "A post-apocalyptic desert where machines hunt for water.",
-    "Memetic Brutalism": "A world of endless concrete brutalist architecture covered in glowing viral text. Reading the walls changes physical reality.",
-    "Mycelial Cybernetics": "A biopunk reality where circuits are fungal spores and computers are grown in wet labs. Nature has consumed the digital.",
-    "Chrono-Shatter": "A fractured Victorian city where objects glitch between their pristine past and ruined future states simultaneously.",
-    "Eigan-Space": "A world made of mathematical fractals and eigenvectors where gravity obeys the observer's attention.",
-    "Liminal Pools": "Infinite backrooms filled with shallow water and tiled walls, generated recursively.",
-    "Glitch-Gardens": "Nature reclaiming server farms, where flowers bloom as datamoshed pixels."
-}
-# Default to empty/generic to force session loading to provide true lore
-ACTIVE_LORE = "" 
-
-# --- GLOBAL SESSION STATE FOR LOGGING ---
+# --- GLOBAL SESSION STATE ---
 CURRENT_SESSION_ID = None
+
+# --- PATH MANAGEMENT ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__)) 
+ROOT_DIR = os.path.dirname(BASE_DIR) 
+SESSIONS_DIR = os.path.abspath(os.path.join(ROOT_DIR, "sessions"))
 
 def set_current_session(sess_id):
     global CURRENT_SESSION_ID
     CURRENT_SESSION_ID = sess_id
-    # Ensure directories exist
     if sess_id:
-        os.makedirs(f"sessions/{sess_id}/logs", exist_ok=True)
-        os.makedirs(f"sessions/{sess_id}/images", exist_ok=True)
+        try:
+            session_root = os.path.join(SESSIONS_DIR, sess_id)
+            os.makedirs(os.path.join(session_root, "logs"), exist_ok=True)
+            os.makedirs(os.path.join(session_root, "images"), exist_ok=True)
+            os.makedirs(os.path.join(session_root, "assets"), exist_ok=True)
+            print(f"[NQ_CONFIG] Session folder ensured: {session_root}", flush=True)
+        except Exception as e:
+            print(f"[CRITICAL] Failed to create session directories: {e}", flush=True)
 
-# --- DEBUG LOGGING ---
-# Main system log (kept minimal)
-SYS_LOG_FILE = "neuro_quest_system.txt"
-
+# --- STANDARD LOGGING FUNCTION ---
+# Just wraps print now, since print is hijacked by DualLogger
 def log(msg, tag="SYSTEM"): 
     ts = time.strftime("%H:%M:%S")
     out = f"[{ts}] [{tag}] {msg}"
-    print(f"[NQ] {out}", flush=True)
-    
-    # Write to session-specific log if active, else global system log
-    target_file = f"sessions/{CURRENT_SESSION_ID}/logs/session.txt" if CURRENT_SESSION_ID else SYS_LOG_FILE
+    print(f"[neuro_quest_v1] {out}", flush=True)
+
+def save_debug_image(pil_image, tag="event"):
+    if not CURRENT_SESSION_ID or not pil_image: return
     try:
-        # Create dir if not exists (redundant safety)
-        if CURRENT_SESSION_ID: os.makedirs(os.path.dirname(target_file), exist_ok=True)
-        with open(target_file, 'a', encoding='utf-8') as f:
-            f.write(out + "\\n")
-    except: pass
-
-def strip_base64(text):
-    # Regex to replace long base64 strings with [BASE64_IMAGE_DATA]
-    # Matches "data:image..." patterns
-    return re.sub(r'data:image\/[a-zA-Z]+;base64,[a-zA-Z0-9+/=]{100,}', '[BASE64_IMAGE_DATA_REMOVED]', text)
-
-def log_llm(context, prompt, response):
-    try:
-        # Strip heavy data for display/logging
-        clean_prompt = strip_base64(str(prompt))
-        clean_response = strip_base64(str(response)).strip()
-        
-        # CLI Output (truncated)
-        print(f"\\n[NQ_GM] ╔════ {context} ════╗", flush=True)
-        print(f"[NQ_GM] ❓ PROMPT: {clean_prompt[:150]}...", flush=True)
-        print(f"[NQ_GM] 💡 RESPONSE: {clean_response[:150]}...", flush=True)
-        print(f"[NQ_GM] ╚════════════════════╝\\n", flush=True)
-
-        # File Output (Full text, but without base64 bloat)
-        # Using .txt extension as requested for easier sharing
-        target_file = f"sessions/{CURRENT_SESSION_ID}/logs/llm_trace.txt" if CURRENT_SESSION_ID else "llm_trace_global.txt"
-        if CURRENT_SESSION_ID: os.makedirs(os.path.dirname(target_file), exist_ok=True)
-        
-        with open(target_file, 'a', encoding='utf-8') as f:
-            f.write(f"\\n=== {time.ctime()} | {context} ===\\n")
-            f.write(f"PROMPT:\\n{clean_prompt}\\n")
-            f.write(f"RESPONSE:\\n{clean_response}\\n")
-            f.write("="*40 + "\\n")
-            
+        ts = int(time.time() * 1000)
+        safe_tag = "".join([c for c in tag if c.isalnum() or c in (' ', '_', '-')]).strip().replace(' ', '_')
+        filename = os.path.join(SESSIONS_DIR, CURRENT_SESSION_ID, "images", f"{ts}_{safe_tag}.jpg")
+        pil_image.save(filename, quality=85)
     except Exception as e:
-        print(f"[NQ] [LOG_ERR] Failed to print LLM log: {e}", flush=True)
+        log(f"Image Save Failed: {e}", "ERR")
 
-# --- PROCEDURAL FALLBACKS ---
-FALLBACK_BIOMES = [
-    "A misty void where reality is thin.",
-    "A quiet stone chamber."
-]
-
-FALLBACK_QUESTS = [
-    {"text": "Look around.", "reward": 100},
-]
+def log_exception(e):
+    import traceback
+    tb = traceback.format_exc()
+    log(f"EXCEPTION: {str(e)}\\n{tb}", "CRITICAL")
 `;

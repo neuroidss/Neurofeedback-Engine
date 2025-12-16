@@ -1,20 +1,34 @@
 
 import { INPUT_SYSTEM_PYTHON } from './python_modules/input_system';
+import { INPUT_FUSION_PY } from './python_modules/input_fusion';
 import { NQ_CONFIG_PY } from './python_modules/config';
 import { NQ_LLM_PY } from './python_modules/llm';
 import { NQ_WORLD_PY } from './python_modules/world';
+import { NQ_SEMANTIC_CORE_PY } from './python_modules/semantic_core';
+import { NQ_PHYSICS_PY } from './python_modules/semantic_physics';
 import { NQ_VISION_PY } from './python_modules/vision';
 import { NQ_ENGINE_PY } from './python_modules/engine';
 import { NQ_SERVER_PY } from './python_modules/server';
 import { NQ_AUDIO_PY } from './python_modules/audio';
 import { NQ_TTS_PY } from './python_modules/tts';
 import { NQ_SENSORS_PY } from './python_modules/sensors';
+import { NQ_AKASHIC_PY } from './python_modules/akashic';
+import { NQ_LORE_PY } from './python_modules/lore';
+import { NQ_BRAIN_PY } from './python_modules/brain';
+import { NQ_AUTOPILOT_PY } from './python_modules/autopilot';
 
 export const NEURO_QUEST_PYTHON_CODE = `
 ${NQ_CONFIG_PY}
+${NQ_LORE_PY}
 ${NQ_LLM_PY}
 ${NQ_TTS_PY}
+${NQ_AKASHIC_PY}
 ${NQ_WORLD_PY}
+${NQ_SEMANTIC_CORE_PY}
+${NQ_PHYSICS_PY}
+${NQ_BRAIN_PY}
+${NQ_AUTOPILOT_PY}
+${INPUT_FUSION_PY}
 ${INPUT_SYSTEM_PYTHON}
 ${NQ_SENSORS_PY}
 ${NQ_AUDIO_PY}
