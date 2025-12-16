@@ -214,7 +214,6 @@ export const RESEARCH_TOOLS: ToolCreatorPayload[] = [
                     effectiveProxy = res.proxyUrl;
                 } catch(e) { console.warn('Proxy bootstrap failed', e); }
             }
-            // Call original search logic (simplified for XML brevity, assume runtime.search exists)
             const { query, maxResultsPerSource = 5 } = args;
             const results = await runtime.search.pubmed(query, maxResultsPerSource, undefined, effectiveProxy);
             return { success: true, searchResults: results };

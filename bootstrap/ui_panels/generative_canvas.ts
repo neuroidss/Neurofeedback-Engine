@@ -3,7 +3,8 @@ export const GENERATIVE_CANVAS_CODE = `
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 // --- Configuration Access ---
-const audioInputMode = runtime.getState().apiConfig.audioInputMode || 'transcription';
+const audioInputMode = runtime.getState().apiConfig.audioInputMode || 'local-whisper';
+const ttsMode = runtime.getState().apiConfig.ttsModel || 'local-speecht5';
 
 // --- Neural Metrics ---
 const lucidity = processedData?.lucidity ?? 0.5;
@@ -30,6 +31,7 @@ const [isAudioPlaying, setIsAudioPlaying] = useState(false);
 const [isDonghuaMode, setIsDonghuaMode] = useState(false);
 const [enablePrebuffering, setEnablePrebuffering] = useState(true);
 const [isRecording, setIsRecording] = useState(false);
+const [modelStatus, setModelStatus] = useState(""); // For local model loading feedback
 
 // --- DREAM STREAM STATE ---
 const [isDreamStreaming, setIsDreamStreaming] = useState(false);
@@ -47,7 +49,6 @@ const [musicEnabled, setMusicEnabled] = useState(false);
 const synthRef = useRef(null);
 
 const audioCtxRef = useRef(null);
-const recognitionRef = useRef(null);
 const mediaRecorderRef = useRef(null);
 const audioChunksRef = useRef([]);
 
@@ -75,23 +76,17 @@ useEffect(() => {
             if (!dreamLoopActiveRef.current) return;
             
             // 1. Prepare Inputs based on Neurofeedback
-            // Low Lucidity = High Hallucination (High Strength)
-            // High Lucidity = Stable Reality (Low Strength)
             const instability = Math.max(0.15, 1.0 - lucidity); 
             const strength = Math.min(0.65, Math.max(0.15, instability * 0.7));
             
-            // Construct dynamic prompt
             let currentScene = gameState.worldGraph?.currentLocation?.description || "Abstract void";
             if (activeBiases.length > 0) {
                 currentScene += ", " + activeBiases.join(", ") + " visual distortion";
             }
-            const prompt = currentScene + ", masterpiece, 8k, cinematic lighting";
-            
-            // Image source: Previous frame OR current static image OR black
+            const prompt = currentScene;
             const initImage = lastDreamFrameRef.current || gameState.imageUrl;
             
             if (!initImage) {
-                // If no image to start with, wait or skip
                 await new Promise(r => setTimeout(r, 100));
                 if (dreamLoopActiveRef.current) requestAnimationFrame(loop);
                 return;
@@ -105,9 +100,9 @@ useEffect(() => {
                     body: JSON.stringify({
                         prompt: prompt,
                         image: initImage,
-                        strength: strength, // Dynamic neurofeedback parameter
-                        steps: 2, // Turbo speed
-                        guidance: 1.0 // LCM requires low guidance
+                        strength: strength, 
+                        steps: 2, 
+                        guidance: 1.0 
                     })
                 });
                 
@@ -115,10 +110,7 @@ useEffect(() => {
                     const data = await res.json();
                     if (data.image) {
                         lastDreamFrameRef.current = data.image;
-                        // Update UI directly (bypassing full state render for speed if possible, but state is fine for < 15fps)
                         setGameState(prev => ({ ...prev, imageUrl: data.image }));
-                        
-                        // FPS Calc
                         frameCount++;
                         if (Date.now() - lastFrameTime > 1000) {
                             setDreamFps(frameCount);
@@ -129,11 +121,10 @@ useEffect(() => {
                 }
             } catch (e) {
                 console.warn("Dream Stream Error (Cortex Offline?):", e);
-                setIsDreamStreaming(false); // Auto-stop on error
+                setIsDreamStreaming(false); 
             }
             
             if (dreamLoopActiveRef.current) {
-                // Throttle slightly to save GPU if needed, otherwise run flat out
                 requestAnimationFrame(loop);
             }
         };
@@ -148,7 +139,7 @@ useEffect(() => {
 
 
 // --- Playback Logic ---
-const playPcmAudio = useCallback(async (base64String) => {
+const playPcmAudio = useCallback(async (base64String, isRawFloat32 = false) => {
     setIsAudioPlaying(true);
     try {
         if (!audioCtxRef.current) {
@@ -157,16 +148,30 @@ const playPcmAudio = useCallback(async (base64String) => {
         const ctx = audioCtxRef.current;
         if (ctx.state === 'suspended') await ctx.resume();
 
-        const binaryString = atob(base64String);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
-        const arrayBuffer = bytes.buffer;
-        const dataInt16 = new Int16Array(arrayBuffer);
-        const frameCount = dataInt16.length;
-        const audioBuffer = ctx.createBuffer(1, frameCount, 24000); 
-        const channelData = audioBuffer.getChannelData(0);
-        for (let i = 0; i < frameCount; i++) channelData[i] = dataInt16[i] / 32768.0;
+        let audioBuffer;
+
+        if (isRawFloat32) {
+             // Handle raw float32 array from Local SpeechT5
+             // base64String passed here is actually the float32 array in this specific case
+             // FIX: The wrapper below passes base64, but localTts returns Float32Array directly.
+             // We need to handle both cases cleanly.
+             const floatData = base64String; // It's passed as object if local
+             audioBuffer = ctx.createBuffer(1, floatData.length, 16000); // SpeechT5 is usually 16k
+             audioBuffer.getChannelData(0).set(floatData);
+        } else {
+            // Standard Gemini PCM 24k
+            const binaryString = atob(base64String);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+            const arrayBuffer = bytes.buffer;
+            const dataInt16 = new Int16Array(arrayBuffer);
+            const frameCount = dataInt16.length;
+            audioBuffer = ctx.createBuffer(1, frameCount, 24000); 
+            const channelData = audioBuffer.getChannelData(0);
+            for (let i = 0; i < frameCount; i++) channelData[i] = dataInt16[i] / 32768.0;
+        }
+
         const source = ctx.createBufferSource();
         source.buffer = audioBuffer;
         source.connect(ctx.destination);
@@ -178,7 +183,15 @@ const playPcmAudio = useCallback(async (base64String) => {
     }
 }, []);
 
-useEffect(() => { if (gameState.audioUrl) playPcmAudio(gameState.audioUrl); }, [gameState.audioUrl]);
+useEffect(() => { 
+    if (gameState.audioUrl) {
+        if (gameState.audioUrl === 'LOCAL_TTS_REQ') {
+             // Logic handled in triggerNextScene response handling
+        } else {
+             playPcmAudio(gameState.audioUrl); 
+        }
+    }
+}, [gameState.audioUrl]);
 
 // --- Generative Ambient Music Engine ---
 useEffect(() => {
@@ -257,9 +270,6 @@ useEffect(() => {
 }, [lucidity, musicEnabled]);
 
 const generateScene = useCallback(async (actionTextOrAudio, audioBase64 = null) => {
-    // If dreaming, capture current frame as context for the narrative? 
-    // Ideally we send the description, but for now we stick to the narrative loop.
-    
     const result = await runtime.tools.run('Generate_Scene_Quantum_V2', {
         worldGraph: gameState.worldGraph,
         lucidityLevel: lucidity, 
@@ -275,7 +285,6 @@ const triggerNextScene = useCallback(async (actionTextOrAudio, isAuto = false, a
     if (isWaitingForAI) return;
     
     setIsRecording(false);
-    if (recognitionRef.current) recognitionRef.current.stop();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') mediaRecorderRef.current.stop();
 
     setIsWaitingForAI(true);
@@ -294,21 +303,28 @@ const triggerNextScene = useCallback(async (actionTextOrAudio, isAuto = false, a
         const result = await generateScene(actionTextOrAudio, audioBase64);
 
         if (result.success) {
+            
+            // --- LOCAL TTS HANDLER ---
+            if (result.audioUrl === 'LOCAL_TTS_REQ') {
+                try {
+                    setModelStatus("Synthesizing Voice (Local)...");
+                    const audioData = await runtime.ai.synthesizeSpeechLocal(result.narrative, setModelStatus);
+                    setModelStatus("");
+                    if (audioData) playPcmAudio(audioData, true);
+                } catch(e) {
+                    console.error("Local TTS Failed", e);
+                    setModelStatus("TTS Error");
+                }
+            }
+
             setGameState(prev => ({
                 ...prev,
                 narrative: result.narrative,
                 history: [...prev.history, { source: 'Game Master', text: result.narrative, type: result.gmRuling }],
-                // Only update static image if NOT dreaming (or if dream loop is stuck)
                 imageUrl: isDreamStreaming ? prev.imageUrl : result.imageUrl, 
                 audioUrl: result.audioUrl,
                 worldGraph: { ...prev.worldGraph, ...result.debugData.graphUpdates }
             }));
-            
-            // If dreaming, update the seed frame reference without breaking the loop
-            if (result.imageUrl && isDreamStreaming) {
-                // Optionally inject the high-quality static frame into the dream stream to "ground" it
-                // lastDreamFrameRef.current = result.imageUrl; 
-            }
             
             setSuggestedActions(result.suggestedActions || []);
             setDebugInfo(result.debugData);
@@ -380,50 +396,52 @@ const toggleRecording = useCallback(async (e) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     
     if (isRecording) {
-        if (audioInputMode === 'transcription' && recognitionRef.current) recognitionRef.current.stop();
-        else if (audioInputMode === 'raw' && mediaRecorderRef.current) mediaRecorderRef.current.stop();
+        if (mediaRecorderRef.current) mediaRecorderRef.current.stop();
         setIsRecording(false);
         return;
     }
 
-    if (audioInputMode === 'transcription') {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) { alert("Transcription not supported in this browser."); return; }
-        try {
-            const recognition = new SpeechRecognition();
-            recognition.lang = targetLanguage === 'Russian' ? 'ru-RU' : 'en-US';
-            recognition.interimResults = false;
-            recognition.maxAlternatives = 1;
-            recognition.onstart = () => setIsRecording(true);
-            recognition.onend = () => setIsRecording(false);
-            recognition.onresult = (event) => {
-                const transcript = event.results[0][0].transcript;
-                triggerNextScene(transcript, false);
-            };
-            recognitionRef.current = recognition;
-            recognition.start();
-        } catch (e) {
-            console.error("Speech API Error:", e);
-            alert("Microphone access failed.");
-        }
-    } else {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const mediaRecorder = new MediaRecorder(stream);
-            audioChunksRef.current = [];
-            mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-            mediaRecorder.onstop = async () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        audioChunksRef.current = [];
+        
+        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+        
+        mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            stream.getTracks().forEach(t => t.stop());
+            
+            if (audioInputMode === 'local-whisper') {
+                setModelStatus("Transcribing (Local GPU)...");
+                try {
+                    const text = await runtime.ai.transcribeAudioLocal(audioBlob, setModelStatus);
+                    setModelStatus("");
+                    if (text) triggerNextScene(text, false);
+                } catch(e) {
+                    setModelStatus("Transcription Failed: " + e.message);
+                }
+            } 
+            else if (audioInputMode === 'transcription') {
+                // Cloud / Browser Fallback (Legacy)
+                // Actually the cleanest way is just use the local one if available
+                alert("Please select Local Whisper in settings for privacy.");
+            }
+            else {
+                // Raw Audio Mode
                 try {
                     const base64 = await blobToBase64(audioBlob);
                     triggerNextScene(null, false, base64);
                 } catch(e) { console.error(e); }
-                stream.getTracks().forEach(t => t.stop());
-            };
-            mediaRecorderRef.current = mediaRecorder;
-            mediaRecorder.start();
-            setIsRecording(true);
-        } catch (e) { alert("Mic Error: " + e.message); }
+            }
+        };
+        
+        mediaRecorderRef.current = mediaRecorder;
+        mediaRecorder.start();
+        setIsRecording(true);
+        
+    } catch (e) { 
+        alert("Mic Error: " + e.message); 
     }
 }, [isRecording, audioInputMode, triggerNextScene, targetLanguage]);
 
@@ -458,15 +476,13 @@ return (
                         <div className="h-full bg-cyan-500 transition-all duration-500 shadow-[0_0_10px_cyan]" style={{ width: (lucidity * 100) + '%' }}></div>
                     </div>
                 </div>
-                {nextSceneBuffer && isDonghuaMode && (
-                    <div className="flex items-center gap-1 px-2 py-1 bg-purple-900/30 border border-purple-500/30 rounded">
-                        <div className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-pulse"></div>
-                        <span className="text-[9px] text-purple-300">NEXT SCENE READY</span>
+                {modelStatus && (
+                    <div className="flex items-center gap-1 px-2 py-1 bg-blue-900/30 border border-blue-500/30 rounded animate-pulse">
+                        <span className="text-[9px] text-blue-300">{modelStatus}</span>
                     </div>
                 )}
             </div>
             <div className="flex items-center gap-2">
-                 {/* DREAM STREAM TOGGLE */}
                  <button 
                     type="button"
                     onClick={() => setIsDreamStreaming(!isDreamStreaming)}
@@ -578,7 +594,7 @@ return (
                     type="button"
                     onClick={toggleRecording} 
                     className={'p-2 rounded-full border transition-colors cursor-pointer relative z-[9999] ' + (isRecording ? 'bg-red-900 border-red-500 text-white animate-pulse' : 'bg-slate-800 border-slate-600 text-slate-400 hover:text-white')}
-                    title="Microphone Input (Toggle)"
+                    title={audioInputMode === 'local-whisper' ? "Local Whisper GPU" : "Microphone Input"}
                     style={{ pointerEvents: 'auto' }}
                 >
                     {isRecording ? <div className="w-4 h-4 bg-white rounded-sm" /> : <div className="w-4 h-4 bg-red-500 rounded-full" />}

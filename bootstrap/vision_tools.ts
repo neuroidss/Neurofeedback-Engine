@@ -1,5 +1,4 @@
 
-
 import type { ToolCreatorPayload } from '../types';
 
 // We define the inner implementation code as a separate string to avoid nested backtick confusion/syntax errors.
@@ -223,4 +222,113 @@ const CREATE_VISION_SOURCE: ToolCreatorPayload = {
     `
 };
 
-export const VISION_TOOLS = [CREATE_VISION_SOURCE];
+const REPORT_BENCHMARK_OBJECTS: ToolCreatorPayload = {
+    name: 'report_benchmark_objects',
+    description: 'Reports ALL detected visual elements in a single list. Use this for models that can handle complex JSON arrays.',
+    category: 'Functional',
+    executionEnvironment: 'Client',
+    purpose: 'To allow the LLM to output structured vision data for accuracy calculation.',
+    parameters: [
+        {
+            name: 'detections',
+            type: 'array',
+            description: 'List of detected items. Each item must have: "label" (string) and "box_2d" (array of 4 numbers [ymin, xmin, ymax, xmax] on a 0-1000 scale).',
+            required: true
+        }
+    ],
+    implementationCode: `
+        return { success: true, detections: args.detections };
+    `
+};
+
+const REPORT_SINGLE_OBJECT: ToolCreatorPayload = {
+    name: 'report_single_object',
+    description: 'Reports ONE detected object. You MUST call this tool multiple times, once for each object you see.',
+    category: 'Functional',
+    executionEnvironment: 'Client',
+    purpose: 'To allow weaker LLMs to report detections atom-by-atom without constructing complex arrays.',
+    parameters: [
+        { name: 'label', type: 'string', description: 'The name of the object (e.g. "Red Circle").', required: true },
+        { name: 'ymin', type: 'number', description: 'Top Y coordinate (0-1000).', required: true },
+        { name: 'xmin', type: 'number', description: 'Left X coordinate (0-1000).', required: true },
+        { name: 'ymax', type: 'number', description: 'Bottom Y coordinate (0-1000).', required: true },
+        { name: 'xmax', type: 'number', description: 'Right X coordinate (0-1000).', required: true }
+    ],
+    implementationCode: `
+        return { success: true, object: { label: args.label, box_2d: [args.ymin, args.xmin, args.ymax, args.xmax] } };
+    `
+};
+
+// --- NEW 3D TOOLS ---
+const REPORT_3D_OBJECT: ToolCreatorPayload = {
+    name: 'report_3d_object',
+    description: 'Reports ONE detected object with its 3D bounding box. Use this when array format is preferred.',
+    category: 'Functional',
+    executionEnvironment: 'Client',
+    purpose: 'For 3D spatial benchmarking.',
+    parameters: [
+        { name: 'label', type: 'string', description: 'Object label/name.', required: true },
+        { 
+            name: 'bbox_3d', 
+            type: 'array', 
+            description: '9-value array: [x, y, z, width, height, depth, roll, pitch, yaw].', 
+            required: true 
+        }
+    ],
+    implementationCode: `
+        return { success: true, object: { label: args.label, bbox_3d: args.bbox_3d } };
+    `
+};
+
+// NEW: Flattened version for small LLMs
+const REPORT_3D_OBJECT_FLAT: ToolCreatorPayload = {
+    name: 'report_3d_object_flat',
+    description: 'Reports ONE detected object using individual numeric parameters instead of an array. Use this for models that struggle with JSON arrays.',
+    category: 'Functional',
+    executionEnvironment: 'Client',
+    purpose: 'For 3D spatial benchmarking with robust parsing.',
+    parameters: [
+        { name: 'label', type: 'string', description: 'Object label.', required: true },
+        { name: 'x', type: 'number', description: 'X position.', required: true },
+        { name: 'y', type: 'number', description: 'Y position.', required: true },
+        { name: 'z', type: 'number', description: 'Z position.', required: true },
+        { name: 'width', type: 'number', description: 'Width.', required: true },
+        { name: 'height', type: 'number', description: 'Height.', required: true },
+        { name: 'depth', type: 'number', description: 'Depth.', required: true },
+        { name: 'roll', type: 'number', description: 'Roll (rotation X).', required: true },
+        { name: 'pitch', type: 'number', description: 'Pitch (rotation Y).', required: true },
+        { name: 'yaw', type: 'number', description: 'Yaw (rotation Z).', required: true }
+    ],
+    implementationCode: `
+        const { label, x, y, z, width, height, depth, roll, pitch, yaw } = args;
+        return { success: true, object: { label, bbox_3d: [x, y, z, width, height, depth, roll, pitch, yaw] } };
+    `
+};
+
+const REPORT_3D_SCENE: ToolCreatorPayload = {
+    name: 'report_3d_scene',
+    description: 'Reports ALL detected 3D objects in a single list. Use this in Batch Mode.',
+    category: 'Functional',
+    executionEnvironment: 'Client',
+    purpose: 'For 3D spatial benchmarking.',
+    parameters: [
+        { 
+            name: 'objects', 
+            type: 'array', 
+            description: 'List of objects. Each item must have: "label" and "bbox_3d" (9-value array: [x, y, z, w, h, d, roll, pitch, yaw]).',
+            required: true 
+        }
+    ],
+    implementationCode: `
+        return { success: true, objects: args.objects };
+    `
+};
+
+export const VISION_TOOLS = [
+    CREATE_VISION_SOURCE, 
+    REPORT_BENCHMARK_OBJECTS, 
+    REPORT_SINGLE_OBJECT,
+    REPORT_3D_OBJECT,
+    REPORT_3D_OBJECT_FLAT,
+    REPORT_3D_SCENE
+];

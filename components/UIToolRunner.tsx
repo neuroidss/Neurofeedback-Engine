@@ -1,5 +1,5 @@
 
-import React, { type ReactNode, type ErrorInfo, useMemo } from 'react';
+import React, { Component, type ReactNode, type ErrorInfo, useMemo } from 'react';
 import type { LLMTool, UIToolRunnerProps } from '../types';
 import DebugLogView from './ui_tools/DebugLogView';
 import * as Icons from './icons';
@@ -8,7 +8,7 @@ import * as Icons from './icons';
 declare const Babel: any;
 
 interface ErrorBoundaryProps {
-  children: ReactNode;
+  children?: ReactNode;
   fallback: ReactNode;
   toolName: string;
 }
@@ -17,10 +17,14 @@ interface ErrorBoundaryState {
   hasError: boolean;
 }
 
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  // Explicitly declare props to satisfy TypeScript if generic inference fails
+  props: ErrorBoundaryProps;
+  state: ErrorBoundaryState = { hasError: false };
+
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false };
+    this.props = props;
   }
 
   static getDerivedStateFromError(_: Error): ErrorBoundaryState {

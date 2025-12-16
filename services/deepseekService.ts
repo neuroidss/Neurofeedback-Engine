@@ -1,3 +1,4 @@
+
 // services/deepseekService.ts
 import type { APIConfig } from "../types";
 
@@ -63,10 +64,30 @@ export const generateText = async (
 
     if (!apiKey) throw new Error("DeepSeek (Nebius) API Key is missing. Please enter it in the API Configuration.");
     
-    const combinedUserPrompt = `${systemInstruction}\n\n---\n\n${userInput}`;
+    // --- CAPABILITIES CONFIG ---
+    const capabilities = apiConfig.modelCapabilities?.[modelId];
+    const minimizeThinking = capabilities?.thinkingMode === 'minimize';
 
-    // DeepSeek doesn't support multimodal input, so we'll ignore files and send a text-only request.
-    const userMessageContent = combinedUserPrompt;
+    // Construct message payload supporting Vision if files are present
+    // Prepend /no_think if requested
+    const prefix = minimizeThinking ? "/no_think\n" : "";
+    const combinedUserPrompt = `${prefix}${systemInstruction}\n\n---\n\n${userInput}`;
+    
+    let userMessageContent: any;
+
+    if (files && files.length > 0) {
+        userMessageContent = [{ type: 'text', text: combinedUserPrompt }];
+        files.forEach(file => {
+            userMessageContent.push({
+                type: 'image_url',
+                image_url: {
+                    url: `data:${file.type};base64,${file.data}`
+                }
+            });
+        });
+    } else {
+        userMessageContent = combinedUserPrompt;
+    }
 
     const body = {
         model: modelId,

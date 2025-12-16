@@ -96,10 +96,18 @@ export enum ModelProvider {
   Wllama = 'Wllama',
 }
 
+export interface ModelCapability {
+    supportsNativeTools: boolean;
+    useJsonInstruction: boolean; // Forces text-based tool prompting
+    thinkingMode?: 'default' | 'minimize'; // 'default' = (/think), 'minimize' = (/no_think)
+}
+
 export interface AIModel {
   id: string;
   name: string;
   provider: ModelProvider;
+  baseUrl?: string; // Optional override for specific endpoint
+  apiKey?: string;  // Optional override for specific key
 }
 
 export type ComputeBackend = 'gpu' | 'worker' | 'main';
@@ -142,6 +150,9 @@ export interface APIConfig {
   
   // --- Data & Storage ---
   disablePersistence?: boolean; // If true, do not save state to localStorage
+  
+  // NEW: Per-model capabilities
+  modelCapabilities?: Record<string, ModelCapability>;
 }
 
 export type UIToolRunnerProps = Record<string, any>;

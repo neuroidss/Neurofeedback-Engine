@@ -1,8 +1,11 @@
+
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
-import type { APIConfig, LLMTool, AIResponse, AIToolCall } from "../types";
+import type { APIConfig, LLMTool, AIResponse, AIToolCall, AIModel, ModelCapability } from "../types";
+import { ModelProvider } from '../types';
 
 const OLLAMA_TIMEOUT = 600000; // 10 minutes
+const KERNEL_PROXY_URL = 'http://localhost:3001/mcp/ai_proxy_v1';
 
 // Helper function to strip <think> blocks from model output
 const stripThinking = (text: string | null | undefined): string => {
@@ -11,18 +14,72 @@ const stripThinking = (text: string | null | undefined): string => {
     return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 };
 
-const fetchWithTimeout = async (url: string, options: RequestInit, timeout: number): Promise<Response> => {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeout);
+// Helper: Deeply parse arguments based on tool definition
+const parseComplexArgs = (args: Record<string, any>, toolName: string, tools: LLMTool[]): Record<string, any> => {
+    const toolDef = tools.find(t => t.name === toolName);
+    if (!toolDef) return args;
+
+    const newArgs = { ...args };
+    for (const param of toolDef.parameters) {
+        const val = newArgs[param.name];
+        if ((param.type === 'array' || param.type === 'object') && typeof val === 'string') {
+            try {
+                // Remove potential markdown wrappers if present
+                const cleanVal = val.replace(/```json\s*|\s*```/g, '').trim();
+                newArgs[param.name] = JSON.parse(cleanVal);
+            } catch (e) {
+                console.warn(`[Ollama Service] Failed to parse complex arg '${param.name}' for tool '${toolName}'. Value:`, val);
+            }
+        }
+    }
+    return newArgs;
+};
+
+// --- ROBUST FETCH WITH AUTO-PROXY FALLBACK ---
+const robustFetch = async (baseUrl: string, endpoint: string, options: RequestInit, timeout: number): Promise<Response> => {
+    const directUrl = `${baseUrl.replace(/\/+$/, '')}${endpoint}`;
+    
+    // Helper to perform fetch with timeout
+    const doFetch = async (url: string) => {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeout);
+        try {
+            const res = await fetch(url, { ...options, signal: controller.signal });
+            clearTimeout(id);
+            return res;
+        } catch (e) {
+            clearTimeout(id);
+            throw e;
+        }
+    };
 
     try {
-        const response = await fetch(url, { ...options, signal: controller.signal });
-        clearTimeout(id);
-        return response;
+        // Attempt 1: Direct Connection
+        const response = await doFetch(directUrl);
+        if (response.ok) return response;
+        
+        // If direct failed but not network error (e.g., 404), throw error unless it might be a CORS/Mixed Content issue masquerading
+        if (response.status !== 0) return response; 
+        throw new Error("Direct fetch status 0"); 
+
     } catch (e: any) {
-        clearTimeout(id);
+        // Check if we should try proxy
+        const isLocal = directUrl.includes('localhost') || directUrl.includes('127.0.0.1');
+        const isAlreadyProxy = directUrl.includes(KERNEL_PROXY_URL);
+        
+        if (isLocal && !isAlreadyProxy) {
+            const proxyUrl = `${KERNEL_PROXY_URL.replace(/\/+$/, '')}${endpoint}`;
+            console.log(`[Ollama Service] ⚠️ Direct fetch failed (${e.message}). Failing over to Kernel Proxy: ${proxyUrl}`);
+            
+            try {
+                return await doFetch(proxyUrl);
+            } catch (proxyError: any) {
+                throw new Error(`Connection failed. Direct: ${e.message}. Proxy (${proxyUrl}): ${proxyError.message}`);
+            }
+        }
+        
         if (e.name === 'AbortError') {
-            throw new Error(`Request to Ollama timed out after ${timeout / 1000} seconds. The model might be too large for your system, or the Ollama server is not responding.`);
+            throw new Error(`Request timed out after ${timeout / 1000} seconds.`);
         }
         throw e;
     }
@@ -32,8 +89,18 @@ const handleAPIError = async (response: Response) => {
     try {
         const errorBody = await response.text();
         console.error('Error from Ollama API:', response.status, errorBody);
-        throw new Error(`[Ollama Error ${response.status}]: ${errorBody || response.statusText}`);
+        
+        let detail = "";
+        try {
+            const json = JSON.parse(errorBody);
+            detail = json.error || json.message || "";
+        } catch(e) {
+            detail = errorBody.substring(0, 300); // Truncate if HTML or long
+        }
+        
+        throw new Error(`[Ollama Error ${response.status}]: ${detail || response.statusText}`);
     } catch (e: any) {
+         if (e.message.startsWith('[Ollama Error')) throw e;
          throw new Error(`[Ollama Error ${response.status}]: Could not parse error response.`);
     }
 };
@@ -43,7 +110,7 @@ const generateDetailedError = (error: unknown, host: string): Error => {
     if (error instanceof Error) {
         const lowerCaseMessage = error.message.toLowerCase();
         if (lowerCaseMessage.includes('failed to fetch') || lowerCaseMessage.includes('networkerror') || lowerCaseMessage.includes('could not connect')) {
-            finalMessage = `Network Error: Failed to connect to Ollama server at ${host}. Please ensure the server is running, the host URL is correct, and there are no network issues (e.g., firewalls or CORS policies) blocking the connection.`;
+            finalMessage = `Network Error: Failed to connect to Ollama server at ${host}. Please ensure the server is running.`;
         } else {
              finalMessage = `[Ollama Service Error] ${error.message}`;
         }
@@ -53,6 +120,32 @@ const generateDetailedError = (error: unknown, host: string): Error => {
     const processingError = new Error(finalMessage) as any;
     processingError.rawAIResponse = "Could not get raw response due to an error.";
     return processingError;
+};
+
+export const getModels = async (apiConfig: APIConfig): Promise<AIModel[]> => {
+    const { ollamaHost } = apiConfig;
+    const baseUrl = ollamaHost || 'http://localhost:11434';
+    
+    try {
+        const response = await robustFetch(baseUrl, '/api/tags', {
+            method: 'GET'
+        }, 5000);
+
+        if (!response.ok) {
+            await handleAPIError(response);
+            return [];
+        }
+
+        const data = await response.json();
+        const models: AIModel[] = data.models.map((model: any) => ({
+            id: model.name,
+            name: model.name,
+            provider: ModelProvider.Ollama,
+        }));
+        return models;
+    } catch (e) {
+        throw generateDetailedError(e, baseUrl);
+    }
 };
 
 const buildOllamaTools = (tools: LLMTool[]) => {
@@ -65,7 +158,6 @@ const buildOllamaTools = (tools: LLMTool[]) => {
                 type: 'object',
                 properties: tool.parameters.reduce((obj, param) => {
                     if (param.type === 'array' || param.type === 'object') {
-                        // For complex types, tell the model to expect a string, which we will treat as JSON.
                         obj[param.name] = { type: 'string', description: `${param.description} (This argument must be a valid, JSON-formatted string.)` };
                     } else {
                         const typeMapping = { 'string': 'string', 'number': 'number', 'boolean': 'boolean' };
@@ -79,61 +171,208 @@ const buildOllamaTools = (tools: LLMTool[]) => {
     }));
 };
 
-const parseToolCallFromText = (text: string, toolNameMap: Map<string, string>): AIToolCall[] | null => {
-    if (!text) return null;
+/**
+ * Robustly extracts JSON objects or arrays from mixed text.
+ * Handles nested structures by tracking brace depth.
+ */
+const extractJsonSnippets = (text: string): string[] => {
+    const snippets: string[] = [];
+    let depth = 0;
+    let start = -1;
+    let inString = false;
+    let escape = false;
 
-    // Regex to find a JSON block, optionally inside ```json ... ```
-    const jsonRegex = /```json\s*([\s\S]*?)\s*```|({[\s\S]*}|\[[\s\S]*\])/m;
-    const match = text.match(jsonRegex);
-
-    if (!match) return null;
-
-    // Use the content from the capture group, preferring the one inside backticks
-    const jsonString = match[1] || match[2];
-    if (!jsonString) return null;
-
-    try {
-        let parsedJson = JSON.parse(jsonString);
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
         
-        // The model might return a single object instead of an array
-        if (!Array.isArray(parsedJson)) {
-            parsedJson = [parsedJson];
-        }
-
-        const toolCalls: AIToolCall[] = [];
-        for (const call of parsedJson) {
-            if (typeof call !== 'object' || call === null) continue;
-
-            // Be flexible: find keys for name and arguments
-            const nameKey = Object.keys(call).find(k => k.toLowerCase().includes('name'));
-            const argsKey = Object.keys(call).find(k => k.toLowerCase().includes('arguments'));
-
-            if (nameKey && argsKey && typeof call[nameKey] === 'string' && typeof call[argsKey] === 'object') {
-                const rawName = call[nameKey];
-                // Try to map back from a potentially sanitized name, but also accept the original name.
-                const originalName = toolNameMap.get(rawName.replace(/[^a-zA-Z0-9_]/g, '_')) || toolNameMap.get(rawName) || rawName;
-                
-                toolCalls.push({
-                    name: originalName,
-                    arguments: call[argsKey]
-                });
+        if (escape) { escape = false; continue; }
+        if (char === '\\') { escape = true; continue; }
+        if (char === '"') { inString = !inString; continue; }
+        
+        if (!inString) {
+            if (char === '{' || char === '[') {
+                if (depth === 0) start = i;
+                depth++;
+            } else if (char === '}' || char === ']') {
+                if (depth > 0) {
+                    depth--;
+                    if (depth === 0) {
+                        snippets.push(text.substring(start, i + 1));
+                    }
+                }
             }
         }
-        
-        return toolCalls.length > 0 ? toolCalls : null;
-
-    } catch (e) {
-        console.warn(`[Ollama Service] Fallback tool call parsing failed for JSON string: "${jsonString}"`, e);
-        return null;
     }
+    return snippets;
 };
+
+/**
+ * Heuristically repairs common LLM JSON errors
+ */
+const repairJson = (jsonString: string): string => {
+    return jsonString
+        .replace(/: ?True/g, ': true')
+        .replace(/: ?False/g, ': false')
+        .replace(/: ?None/g, ': null')
+        // Strip comments safely: match // at start of line or after whitespace, NOT inside http://
+        .replace(/(^|\s)\/\/.*$/gm, '$1') 
+        .replace(/,(\s*[\]}])/g, '$1'); // Remove trailing commas
+};
+
+const parseToolCallFromText = (text: string, toolNameMap: Map<string, string>, availableTools: LLMTool[]): AIToolCall[] | null => {
+    if (!text) return null;
+
+    // Use robust scanner to find all JSON-like structures
+    const candidates = extractJsonSnippets(text);
+    const accumulatedToolCalls: AIToolCall[] = [];
+
+    console.log(`[Ollama Service] Parsing Tool Calls. Found ${candidates.length} candidates from text.`);
+
+    for (let jsonString of candidates) {
+        try {
+            // Apply robustness fixes before parsing
+            const cleanJsonString = repairJson(jsonString);
+            
+            let parsedJson = null;
+            try {
+                parsedJson = JSON.parse(cleanJsonString);
+            } catch (e) {
+                // If clean parse fails, ignore this candidate
+                continue;
+            }
+
+            if (!parsedJson) continue;
+            
+            // Normalize to array for processing
+            let calls: any[] = [];
+            
+            // Strategy 1: OpenAI "tool_calls" wrapper
+            if (parsedJson.tool_calls && Array.isArray(parsedJson.tool_calls)) {
+                calls = parsedJson.tool_calls;
+            } 
+            // Strategy 2: Direct Array of calls
+            else if (Array.isArray(parsedJson)) {
+                calls = parsedJson;
+            } 
+            // Strategy 3: Single Object (Implicit call)
+            else {
+                calls = [parsedJson];
+            }
+
+            for (const call of calls) {
+                if (typeof call !== 'object' || call === null) continue;
+
+                let rawName, args;
+
+                // A. OpenAI "function" wrapper check
+                if (call.function && call.function.name) {
+                    rawName = call.function.name;
+                    args = call.function.arguments || {};
+                } 
+                // B. Flat Explicit Tool Call Structure check (name/arguments)
+                else {
+                    const nameKey = Object.keys(call).find(k => k.toLowerCase().includes('name') || k === 'function' || k === 'tool');
+                    const argsKey = Object.keys(call).find(k => k.toLowerCase().includes('arguments') || k === 'parameters' || k === 'args');
+                    
+                    if (nameKey) {
+                        rawName = call[nameKey];
+                        args = argsKey ? call[argsKey] : {};
+                    }
+                }
+
+                // C. Schema Matching (Implicit Argument List)
+                // If the model just outputs an array of objects matching tool params
+                if (!rawName) {
+                     for (const tool of availableTools) {
+                         const requiredParams = tool.parameters.filter(p => p.required).map(p => p.name);
+                         const callKeys = Object.keys(call);
+                         
+                         // Check if all required params are present in the call
+                         const matchesRequired = requiredParams.every(p => callKeys.includes(p));
+                         
+                         // Double check overlap to prevent matching empty objects to tools with no params (edge case)
+                         // We require at least one parameter match if the tool has parameters
+                         const toolParams = new Set(tool.parameters.map(p => p.name));
+                         const hasMatchingKey = callKeys.some(k => toolParams.has(k));
+                         
+                         if (matchesRequired && (hasMatchingKey || tool.parameters.length === 0)) {
+                             rawName = tool.name;
+                             args = call;
+                             // console.log(`[Ollama Service] Implicitly matched tool '${tool.name}' by schema.`);
+                             break;
+                         }
+                     }
+                }
+
+                if (rawName) {
+                    const originalName = toolNameMap.get(rawName.replace(/[^a-zA-Z0-9_]/g, '_')) || toolNameMap.get(rawName) || rawName;
+                    
+                    let parsedArgs = {};
+                    if (typeof args === 'object' && args !== null) {
+                        parsedArgs = args;
+                    } else if (typeof args === 'string') {
+                        try {
+                            parsedArgs = JSON.parse(args || '{}');
+                        } catch (e) {
+                            console.error(`[Ollama Service] Failed to parse arguments string for tool ${originalName}:`, e);
+                        }
+                    }
+                    
+                    const robustArgs = parseComplexArgs(parsedArgs, originalName, availableTools);
+                    console.log(`[Ollama Service] Found explicit tool call in text: ${originalName}`);
+                    accumulatedToolCalls.push({ name: originalName, arguments: robustArgs });
+                }
+            }
+
+        } catch (e) {
+            // Try next candidate
+        }
+    }
+    
+    if (accumulatedToolCalls.length > 0) return accumulatedToolCalls;
+    
+    return null;
+};
+
+export const testModelCapabilities = async (modelId: string, apiConfig: APIConfig): Promise<ModelCapability> => {
+    // A simple test to check if the model supports native tools
+    const testTool: LLMTool = {
+        id: 'calculator', name: 'calculator', description: 'Add two numbers', category: 'Functional', executionEnvironment: 'Client', version: 1,
+        parameters: [{name: 'a', type: 'number', description: 'First number', required: true}, {name: 'b', type: 'number', description: 'Second number', required: true}],
+        implementationCode: ''
+    };
+    
+    const prompt = "What is 50 plus 25? Use the calculator tool.";
+    // Try WITHOUT Json Instruction first (Native Test)
+    const cap: ModelCapability = { supportsNativeTools: false, useJsonInstruction: false, thinkingMode: 'default' };
+    
+    try {
+        // Temporarily disable capabilities to force a raw test
+        const response = await generateWithTools(prompt, "You are a calculator.", modelId, { ...apiConfig, modelCapabilities: {} }, [testTool]);
+        if (response.toolCalls && response.toolCalls.length > 0 && response.toolCalls[0].name === 'calculator') {
+            cap.supportsNativeTools = true;
+            cap.useJsonInstruction = false; // Prefer native if it works
+            console.log(`[Ollama Test] ${modelId} supports native tools!`);
+            return cap;
+        }
+    } catch(e) {
+        console.warn(`[Ollama Test] Native tool check failed for ${modelId}:`, e);
+    }
+
+    // If native failed, we assume we might need JSON instruction.
+    // We default 'useJsonInstruction' to true for safety on models that failed native test.
+    cap.useJsonInstruction = true; 
+    console.log(`[Ollama Test] ${modelId} failed native test. Defaulting to JSON instruction.`);
+    return cap;
+}
 
 export const generateWithTools = async (
     userInput: string,
     systemInstruction: string,
     modelId: string,
     apiConfig: APIConfig,
-    tools: LLMTool[]
+    tools: LLMTool[],
+    files: { type: string, data: string }[] = []
 ): Promise<AIResponse> => {
     const { ollamaHost } = apiConfig;
     if (!ollamaHost) {
@@ -142,59 +381,136 @@ export const generateWithTools = async (
     
     const ollamaTools = buildOllamaTools(tools);
     const toolNameMap = new Map(tools.map(t => [t.name.replace(/[^a-zA-Z0-9_]/g, '_'), t.name]));
-    // Add original names as well for the fallback parser to find them
     tools.forEach(tool => {
         toolNameMap.set(tool.name, tool.name);
     });
 
-    const fallbackInstruction = `\n\nWhen you need to use a tool, you can use the provided 'tools' array. If the tool functionality is unavailable or you are not configured for it, you MUST respond with ONLY a JSON object (or an array of objects) in the following format, inside a \`\`\`json block:
-[
-  {
-    "name": "tool_name_to_call",
-    "arguments": { "arg1": "value1", "arg2": "value2" }
-  }
-]`;
+    // --- CONFIG-DRIVEN STRATEGY ---
+    const capabilities = apiConfig.modelCapabilities?.[modelId];
+    // Default: If unknown, assume NO native support (safest for small models) unless it's a known big model
+    // But since the user wants tools RESTORED, we default 'useJsonInstruction' to true if unknown, 
+    // AND we send native tools just in case.
+    const useJsonFallback = capabilities ? capabilities.useJsonInstruction : true;
+    const minimizeThinking = capabilities?.thinkingMode === 'minimize';
 
-    const body = {
-        model: modelId,
-        messages: [
+    // --- HYBRID PROMPT STRATEGY ---
+    // 1. Generate explicit tool definitions for the text prompt (Robustness for local models)
+    let toolDesc = "";
+    if (useJsonFallback) {
+        toolDesc = tools.map(t => {
+            const params = t.parameters.map(p => `- ${p.name} (${p.type}): ${p.description}`).join('\n');
+            return `Tool "${t.name}":\n${t.description}\nParameters:\n${params}`;
+        }).join('\n\n');
+    }
+
+    const fallbackInstruction = useJsonFallback ? `
+### TOOL USE
+You have access to the following tools:
+
+${toolDesc}
+
+REQUIRED FORMAT:
+If you need to use a tool, you MUST return a JSON object following the OpenAI API tool format.
+Example:
+\`\`\`json
+{
+  "tool_calls": [
+    {
+      "type": "function",
+      "function": {
+        "name": "tool_name",
+        "arguments": {
+          "param_name": "value"
+        }
+      }
+    }
+  ]
+}
+\`\`\`
+Do not output plain text or markdown outside the JSON block.
+` : "";
+
+    const isVisionModel = modelId.toLowerCase().includes('vl') || modelId.toLowerCase().includes('vision') || modelId.toLowerCase().includes('llava');
+    let messages = [];
+
+    // Prepend command to user input if minimizing thinking
+    let combinedUserPrompt = `${userInput}`;
+    if (minimizeThinking) {
+        combinedUserPrompt = `/no_think\n${combinedUserPrompt}`;
+    }
+
+    if (isVisionModel) {
+        // For Vision models, we are careful not to overload the context before the image.
+        const combinedContent = useJsonFallback ? `${combinedUserPrompt}\n\n${fallbackInstruction}` : combinedUserPrompt;
+        const msg: any = { role: 'user', content: combinedContent };
+        if (files && files.length > 0) {
+            msg.images = files.map(f => f.data);
+        }
+        messages.push(msg);
+        
+        // Some Vision models support system prompt, some don't. We put it first if possible.
+        // Qwen-VL supports 'system' role.
+        messages.unshift({ role: 'system', content: systemInstruction });
+    } else {
+        const userMsg: any = { role: 'user', content: combinedUserPrompt };
+        if (files && files.length > 0) {
+            userMsg.images = files.map(f => f.data);
+        }
+        messages = [
             { role: 'system', content: systemInstruction + fallbackInstruction },
-            { role: 'user', content: userInput }
-        ],
+            userMsg
+        ];
+    }
+
+    const body: any = {
+        model: modelId,
+        messages: messages,
         stream: false,
-        tools: ollamaTools.length > 0 ? ollamaTools : undefined,
         options: {
             temperature: 0.1,
             num_predict: 4096,
         },
     };
+    
+    // Always attach native tools if available.
+    if (ollamaTools.length > 0) {
+        body.tools = ollamaTools;
+    }
+
+    console.log(`[Ollama Service] Request Payload for ${modelId}:`, JSON.stringify(body, null, 2));
 
     try {
-        const response = await fetchWithTimeout(
-            `${ollamaHost.replace(/\/+$/, '')}/api/chat`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            },
-            OLLAMA_TIMEOUT
-        );
+        const response = await robustFetch(ollamaHost, '/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        }, OLLAMA_TIMEOUT);
 
         if (!response.ok) {
             await handleAPIError(response);
-            return { toolCalls: null }; // Should not be reached
+            return { toolCalls: null };
         }
 
         const data = await response.json();
+        console.log(`[Ollama Service] Raw Response from ${modelId}:`, JSON.stringify(data, null, 2));
+
         const toolCallsData = data.message?.tool_calls;
-        const responseContent = stripThinking(data.message?.content);
+        let responseContent = data.message?.content || "";
         
+        // Handle 'thinking' field from some models (e.g., DeepSeek R1 via Ollama)
+        if (!responseContent && data.message?.thinking) {
+             console.log("[Ollama Service] Model returned only 'thinking' trace.");
+        }
+        
+        responseContent = stripThinking(responseContent);
+        
+        // 1. CHECK FOR NATIVE TOOLS (Priority)
         if (toolCallsData && Array.isArray(toolCallsData) && toolCallsData.length > 0) {
+            console.log(`[Ollama Service] Native tool calls detected: ${toolCallsData.length}`);
             const toolCalls: AIToolCall[] = toolCallsData.map(tc => {
                 const toolCall = tc.function;
                 const originalName = toolNameMap.get(toolCall.name) || toolCall.name;
                 
-                // Robust argument parsing
                 const args = toolCall.arguments;
                 let parsedArgs = {};
                  if (typeof args === 'object' && args !== null) {
@@ -204,24 +520,27 @@ export const generateWithTools = async (
                         parsedArgs = JSON.parse(args || '{}');
                     } catch (e) {
                         console.error(`[Ollama Service] Failed to parse arguments string for tool ${originalName}:`, e);
-                        // Return empty args if parsing fails
                     }
                 }
 
+                // Apply robust parsing for complex arguments
+                const robustArgs = parseComplexArgs(parsedArgs, originalName, tools);
+
                 return {
                     name: originalName,
-                    arguments: parsedArgs
+                    arguments: robustArgs
                 };
-            }).filter(Boolean); // Filter out any potential nulls from parsing errors
+            }).filter(Boolean);
             return { toolCalls, text: responseContent };
         }
         
-        // Fallback: Check text content for a tool call
+        // 2. FALLBACK: PARSE TEXT CONTENT (Custom Tools)
+        // Only if we enabled the fallback instruction or if the model did it spontaneously
         if (responseContent) {
-            console.log("[Ollama Service] No native tool call found. Attempting to parse from text content.");
-            const parsedToolCalls = parseToolCallFromText(responseContent, toolNameMap);
+            console.log("[Ollama Service] No native tool calls. Checking text content for fallback JSON...");
+            const parsedToolCalls = parseToolCallFromText(responseContent, toolNameMap, tools);
             if (parsedToolCalls) {
-                console.log("[Ollama Service] Successfully parsed tool call from text.", parsedToolCalls);
+                console.log("[Ollama Service] ✅ Successfully parsed tool calls from text fallback.", parsedToolCalls);
                 return { toolCalls: parsedToolCalls, text: responseContent };
             }
         }
@@ -245,16 +564,21 @@ export const generateText = async (
         throw new Error("Ollama Host URL is not configured. Please set it in the API Configuration.");
     }
 
-    const userMessage: any = { role: 'user', content: userInput };
-    if (files.length > 0) {
-        userMessage.images = files.map(f => f.data);
+    // --- CAPABILITIES CONFIG ---
+    const capabilities = apiConfig.modelCapabilities?.[modelId];
+    const minimizeThinking = capabilities?.thinkingMode === 'minimize';
+
+    // Prepend command to user input
+    let combinedUserPrompt = `${userInput}`;
+    if (minimizeThinking) {
+        combinedUserPrompt = `/no_think\n${combinedUserPrompt}`;
     }
 
     const body = {
         model: modelId,
         messages: [
             { role: 'system', content: systemInstruction },
-            userMessage
+            { role: 'user', content: combinedUserPrompt, images: files.map(f => f.data) }
         ],
         stream: false,
         options: {
@@ -264,19 +588,15 @@ export const generateText = async (
     };
 
     try {
-        const response = await fetchWithTimeout(
-            `${ollamaHost.replace(/\/+$/, '')}/api/chat`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            },
-            OLLAMA_TIMEOUT
-        );
+        const response = await robustFetch(ollamaHost, '/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        }, OLLAMA_TIMEOUT);
 
         if (!response.ok) {
             await handleAPIError(response);
-            return ""; // Should not be reached
+            return "";
         }
 
         const data = await response.json();

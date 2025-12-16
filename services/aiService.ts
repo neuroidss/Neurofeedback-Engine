@@ -1,9 +1,4 @@
 
-
-
-
-
-
 // VIBE_NOTE: Do not escape backticks or dollar signs in template literals in this file.
 // Escaping is only for 'implementationCode' strings in tool definitions.
 import type { APIConfig, AIToolCall, LLMTool, MainView, ScoredTool, AIModel, AIResponse } from '../types';
@@ -15,6 +10,8 @@ import * as ollamaService from './ollamaService';
 import * as huggingFaceService from './huggingFaceService';
 import * as wllamaService from './wllamaService';
 import * as deepseekService from './deepseekService';
+import { localWhisper } from './localWhisperService';
+import { localTts } from './localTtsService';
 
 export const processRequest = async (
     prompt: { text: string; files: { type: string, data: string }[] },
@@ -33,7 +30,13 @@ export const processRequest = async (
             case ModelProvider.OpenAI_API:
                  // If using the generic 'custom-openai' slot, substitute with the user's custom model string
                  const openAIModelId = model.id === 'custom-openai' ? (apiConfig.openAICustomModel || 'gpt-4o') : model.id;
-                 return await openAIService.generateWithTools(userInput, systemInstruction, openAIModelId, apiConfig, relevantTools, files);
+                 
+                 // Apply per-model configuration override if present in constants.tsx
+                 const effectiveApiConfig = { ...apiConfig };
+                 if (model.baseUrl) effectiveApiConfig.openAIBaseUrl = model.baseUrl;
+                 if (model.apiKey) effectiveApiConfig.openAIAPIKey = model.apiKey;
+
+                 return await openAIService.generateWithTools(userInput, systemInstruction, openAIModelId, effectiveApiConfig, relevantTools, files);
             case ModelProvider.DeepSeek:
                 const deepSeekApiConfig: APIConfig = {
                     ...apiConfig,
@@ -43,8 +46,8 @@ export const processRequest = async (
                 // The openAIService is already compatible with DeepSeek's requirements (no system role, etc.)
                 return await openAIService.generateWithTools(userInput, systemInstruction, model.id, deepSeekApiConfig, relevantTools, files, true);
             case ModelProvider.Ollama:
-                // Note: Ollama doesn't support multimodal input via this service yet.
-                return await ollamaService.generateWithTools(userInput, systemInstruction, model.id, apiConfig, relevantTools);
+                // Pass files (images) to Ollama service to support vision models like qwen3-vl
+                return await ollamaService.generateWithTools(userInput, systemInstruction, model.id, apiConfig, relevantTools, files);
             case ModelProvider.HuggingFace:
                 // Note: HuggingFace implementation here doesn't support multimodal tool input.
                 // It will use text-based tool emulation. Files are ignored.
@@ -72,7 +75,13 @@ export const generateTextFromModel = async (
                 return await geminiService.generateText(userInput, systemInstruction, model.id, apiConfig.googleAIAPIKey || '', files);
             case ModelProvider.OpenAI_API:
                 const openAIModelId = model.id === 'custom-openai' ? (apiConfig.openAICustomModel || 'gpt-4o') : model.id;
-                return await openAIService.generateText(userInput, systemInstruction, openAIModelId, apiConfig, files);
+                
+                // Apply per-model configuration override if present in constants.tsx
+                const effectiveApiConfig = { ...apiConfig };
+                if (model.baseUrl) effectiveApiConfig.openAIBaseUrl = model.baseUrl;
+                if (model.apiKey) effectiveApiConfig.openAIAPIKey = model.apiKey;
+
+                return await openAIService.generateText(userInput, systemInstruction, openAIModelId, effectiveApiConfig, files);
             case ModelProvider.DeepSeek:
                 return await deepseekService.generateText(userInput, systemInstruction, model.id, apiConfig, files);
             case ModelProvider.Ollama:
@@ -112,16 +121,23 @@ export const generateSpeech = async (
     model: AIModel,
     apiConfig: APIConfig
 ): Promise<string | null> => {
-    // If browser TTS is selected, we handle it here (or caller handles it). 
-    // But if we are here, the caller likely wants server-side TTS if available.
+    // 1. Browser Native
     if (apiConfig.ttsModel === 'browser') {
-        // Returning null signals the UI to use window.speechSynthesis
-        return null;
+        return null; // UI handles window.speechSynthesis
+    }
+    
+    // 2. Local Neural (SpeechT5)
+    if (apiConfig.ttsModel === 'local-speecht5') {
+        // UI should call localTtsService directly or via this helper if we adapt return type
+        // For now, return a special flag string to let UI know
+        return "LOCAL_TTS_REQ";
     }
 
+    // 3. Gemini Cloud
     if (model.provider === ModelProvider.GoogleAI) {
         return await geminiService.generateSpeech(text, voiceName, apiConfig.googleAIAPIKey || '');
     }
+    
     console.warn("Server-side TTS is currently only supported on GoogleAI models.");
     return null;
 };
@@ -134,6 +150,17 @@ export const createMusicSession = async (
          return await geminiService.createMusicSession(apiConfig.googleAIAPIKey, callbacks);
      }
      throw new Error("Google AI API Key required for music generation.");
+};
+
+// --- Local Helpers ---
+export const transcribeAudioLocal = async (blob: Blob, onProgress: (msg: string) => void): Promise<string> => {
+    await localWhisper.loadModel(onProgress);
+    return await localWhisper.transcribe(blob);
+};
+
+export const synthesizeSpeechLocal = async (text: string, onProgress: (msg: string) => void): Promise<Float32Array | null> => {
+    await localTts.loadModel(onProgress);
+    return await localTts.speak(text);
 };
 
 // --- End Multimedia ---

@@ -57,6 +57,7 @@ const mapTypeToGemini = (type: LLMTool['parameters'][0]['type']): Type => {
 }
 
 const buildGeminiTools = (tools: LLMTool[]): FunctionDeclaration[] => {
+    if (!Array.isArray(tools)) return [];
     return tools.map(tool => ({
         // USE ID instead of NAME to ensure uniqueness and prevent "Duplicate function declaration" API errors
         name: sanitizeToolName(tool.id),
@@ -91,41 +92,72 @@ const buildParts = (userInput: string, files: { type: string; data: string }[]):
     return parts;
 };
 
-const parseToolCallFromText = (text: string, toolNameMap: Map<string, string>): AIToolCall[] | null => {
+const parseToolCallFromText = (text: string, toolNameMap: Map<string, string>, availableTools: LLMTool[]): AIToolCall[] | null => {
     if (!text) return null;
 
-    // Regex to find a JSON block, optionally inside ```json ... ```
-    const jsonRegex = /```json\s*([\s\S]*?)\s*```|({[\s\S]*}|\[[\s\S]*\])/m;
-    const match = text.match(jsonRegex);
-    if (!match) return null;
-
-    const jsonString = match[1] || match[2];
-    if (!jsonString) return null;
-
-    try {
-        let parsedJson = JSON.parse(jsonString);
-        if (!Array.isArray(parsedJson)) {
-            parsedJson = [parsedJson];
-        }
-
-        const toolCalls: AIToolCall[] = [];
-        for (const call of parsedJson) {
-            if (typeof call !== 'object' || call === null) continue;
-
-            const nameKey = Object.keys(call).find(k => k.toLowerCase().includes('name'));
-            const argsKey = Object.keys(call).find(k => k.toLowerCase().includes('arguments'));
-
-            if (nameKey && argsKey && typeof call[nameKey] === 'string' && typeof call[argsKey] === 'object') {
-                const rawName = call[nameKey];
-                const originalName = toolNameMap.get(sanitizeToolName(rawName)) || toolNameMap.get(rawName) || rawName;
-                toolCalls.push({ name: originalName, arguments: call[argsKey] });
-            }
-        }
-        return toolCalls.length > 0 ? toolCalls : null;
-    } catch (e) {
-        console.warn(`[Gemini Service] Fallback tool call parsing failed for JSON string: "${jsonString}"`, e);
-        return null;
+    // Strategy 1: Find Markdown Code Blocks (Start to End)
+    const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)```/g;
+    const candidates: string[] = [];
+    
+    let match;
+    while ((match = codeBlockRegex.exec(text)) !== null) {
+        if (match[1]) candidates.push(match[1]);
     }
+    
+    // Strategy 2: If no code blocks, look for raw JSON structure
+    if (candidates.length === 0) {
+        const rawJsonRegex = /({[\s\S]*?}|\[[\s\S]*?\])/;
+        const rawMatch = text.match(rawJsonRegex);
+        if (rawMatch) candidates.push(rawMatch[1]);
+    }
+
+    console.log(`[Gemini Service] Parsing candidates: ${candidates.length}`);
+
+    for (const jsonString of candidates) {
+        try {
+            const cleanString = jsonString.trim();
+            let parsedJson = JSON.parse(cleanString);
+            
+            const calls = Array.isArray(parsedJson) ? parsedJson : [parsedJson];
+            const toolCalls: AIToolCall[] = [];
+
+            for (const call of calls) {
+                if (typeof call !== 'object' || call === null) continue;
+
+                const nameKey = Object.keys(call).find(k => k.toLowerCase().includes('name'));
+                const argsKey = Object.keys(call).find(k => k.toLowerCase().includes('arguments'));
+
+                if (nameKey && argsKey) {
+                    const rawName = call[nameKey];
+                    const originalName = toolNameMap.get(sanitizeToolName(rawName)) || toolNameMap.get(rawName) || rawName;
+                    
+                    let args = call[argsKey];
+                    if (typeof args === 'string') {
+                        try { args = JSON.parse(args); } catch(e) {}
+                    }
+                    toolCalls.push({ name: originalName, arguments: args });
+                } 
+                else if (availableTools.length === 1) {
+                    // Implicit Single Tool
+                    const tool = availableTools[0];
+                    const paramNames = tool.parameters.map(p => p.name);
+                    const jsonKeys = Object.keys(call);
+                    
+                    if (jsonKeys.some(k => paramNames.includes(k))) {
+                        console.log(`[Gemini Service] Implicit tool call detected for ${tool.name}`);
+                        toolCalls.push({ name: tool.name, arguments: call });
+                    }
+                }
+            }
+            
+            if (toolCalls.length > 0) return toolCalls;
+
+        } catch (e) {
+            // Parsing failed for this candidate, try next
+        }
+    }
+    
+    return null;
 };
 
 // Helper to extract text and tools manually to avoid SDK warnings about non-text parts
@@ -166,8 +198,6 @@ const extractResponseData = (response: GenerateContentResponse, toolNameMap: Map
                     arguments: parsedArgs as Record<string, any>
                 });
             }
-            // Note: We intentionally ignore 'thought' parts here to prevent them from polluting the text output 
-            // and to avoid the SDK warning about non-text parts.
         }
     }
     
@@ -226,7 +256,7 @@ ${toolDescriptions}`;
 
         // For Gemma, we can only rely on parsing the text response.
         const { text: responseText } = extractResponseData(response, toolNameMap, tools);
-        const toolCalls = parseToolCallFromText(responseText, toolNameMap);
+        const toolCalls = parseToolCallFromText(responseText, toolNameMap, tools);
         
         return { toolCalls, text: responseText };
     }
@@ -241,7 +271,7 @@ ${toolDescriptions}`;
         contents: { parts: buildParts(userInput, files), role: 'user' },
         config: {
             systemInstruction: fullSystemInstruction,
-            tools: [{ functionDeclarations: geminiTools }],
+            tools: geminiTools.length > 0 ? [{ functionDeclarations: geminiTools }] : undefined,
         }
     });
     
@@ -251,7 +281,7 @@ ${toolDescriptions}`;
     // --- FAULT TOLERANCE: FALLBACK LOGIC ---
     if ((!toolCalls || toolCalls.length === 0) && responseText) {
         console.log("[Gemini Service] No native function call found. Attempting to parse from text content as a fallback.");
-        const parsedToolCalls = parseToolCallFromText(responseText, toolNameMap);
+        const parsedToolCalls = parseToolCallFromText(responseText, toolNameMap, tools);
         if (parsedToolCalls) {
             console.log("[Gemini Service] ✅ Successfully parsed tool call from text via fallback.", parsedToolCalls);
             toolCalls = parsedToolCalls;

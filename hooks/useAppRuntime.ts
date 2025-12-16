@@ -8,6 +8,11 @@ import { useSwarmManager } from './useSwarmManager';
 import * as aiService from '../services/aiService';
 import * as searchService from '../services/searchService';
 import * as embeddingService from '../services/embeddingService';
+// IMPORT THIS:
+import * as ollamaService from '../services/ollamaService';
+import * as openAIService from '../services/openAIService'; 
+import { localWhisper } from '../services/localWhisperService';
+import { localTts } from '../services/localTtsService';
 import { neuroBus } from '../services/neuroBus';
 import { streamEngine } from '../services/streamEngine';
 import { ModelProvider } from '../types';
@@ -216,6 +221,14 @@ export function useAppRuntime() {
                  // Do NOT check velocity here as it is a persistent session, not a one-off call.
                  return aiService.createMusicSession(callbacks, stateManager.apiConfig);
             },
+            transcribeAudioLocal: async (blob: Blob, onProgress: (msg: string) => void) => {
+                await localWhisper.loadModel(onProgress);
+                return await localWhisper.transcribe(blob);
+            },
+            synthesizeSpeechLocal: async (text: string, onProgress: (msg: string) => void) => {
+                await localTts.loadModel(onProgress);
+                return await localTts.speak(text);
+            },
             // --- End Multimedia ---
             search: (text: string) => {
                  checkApiCallVelocity(); // Guardian check
@@ -223,6 +236,11 @@ export function useAppRuntime() {
                  return aiService.contextualizeWithSearch({text, files: []}, stateManager.apiConfig, stateManager.selectedModel);
             },
             generateEmbeddings: (texts: string[]) => embeddingService.generateEmbeddings(texts, stateManager.logEvent),
+            // NEW: Expose raw feature extractor getter for robust loading
+            getFeatureExtractor: (modelId: string, onProgress?: (msg: string) => void) => embeddingService.getFeatureExtractor(modelId, onProgress || stateManager.logEvent),
+            // NEW: Expose Capability Tests
+            testOllamaCapabilities: (modelId: string) => ollamaService.testModelCapabilities(modelId, stateManager.apiConfig),
+            testOpenAICapabilities: (modelId: string) => openAIService.testModelCapabilities(modelId, stateManager.apiConfig),
         },
         getObservationHistory: () => [], // Placeholder for a more advanced feature
         clearObservationHistory: () => {}, // Placeholder

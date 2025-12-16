@@ -5,6 +5,7 @@ import { loadStateFromStorage, saveStateToStorage, saveMapStateToStorage, loadMa
 import type { AIModel, APIConfig, ValidatedSource, LLMTool } from '../types';
 import { ModelProvider } from '../types';
 import { AI_MODELS } from '../constants';
+import * as ollamaService from '../services/ollamaService';
 
 
 const MOCK_SMR_ABSTRACT = `### Protocol Specification: SMR "Aperture" Focus Trainer
@@ -50,8 +51,8 @@ export function useAppStateManager() {
     const [apiConfig, setApiConfig] = useState<APIConfig>({
         googleAIAPIKey: '',
         openAIAPIKey: '',
-        openAIBaseUrl: 'https://api.openai.com/v1',
-        openAICustomModel: 'gpt-4o',
+        openAIBaseUrl: 'http://localhost:11434/v1',
+        openAICustomModel: 'qwen3-vl:4b',
         deepSeekAPIKey: '',
         deepSeekBaseUrl: 'https://api.tokenfactory.nebius.com/v1/',
         ollamaHost: 'http://localhost:11434',
@@ -65,7 +66,7 @@ export function useAppStateManager() {
         velocityWindow: 10,
         protocolGenerationMode: 'script',
         disablePersistence: false, // Default to saving state
-        immersiveMode: false // Default to Standard Mode (Menus Visible)
+        immersiveMode: true // Default to Immersive Mode (Zen)
     });
     // Live feed state
     const [liveFeed, setLiveFeed] = useState<any[]>([]);
@@ -95,39 +96,24 @@ export function useAppStateManager() {
     const fetchOllamaModels = useCallback(async () => {
         setOllamaState({ loading: true, error: null });
         try {
-            // Environment-aware URL selection to bypass CORS in remote deployments
-            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            const ollamaApiUrl = isLocal
-                ? `${apiConfig.ollamaHost}/api/tags`
-                : `http://localhost:3001/api/ollama-proxy/tags`;
-
-            logEvent(`[Ollama] Fetching models via: ${ollamaApiUrl}`);
-
-            const response = await fetch(ollamaApiUrl);
-            if (!response.ok) {
-                const errorText = await response.text();
-                const errorJson = JSON.parse(errorText);
-                const errorOrigin = isLocal ? `Ollama server at ${apiConfig.ollamaHost}` : 'the local MCP proxy server (localhost:3001)';
-                throw new Error(`Failed to fetch models from ${errorOrigin}. Status ${response.status}: ${errorJson.error || errorText}`);
-            }
-            const data = await response.json();
-            const models: AIModel[] = data.models.map((model: any) => ({
-                id: model.name,
-                name: model.name,
-                provider: ModelProvider.Ollama,
-            }));
+            logEvent(`[Ollama] Fetching models via configured host: ${apiConfig.ollamaHost || 'localhost'}`);
+            // Use service to get models with robust proxy fallback
+            const models = await ollamaService.getModels(apiConfig);
+            
             setOllamaModels(models);
             if (models.length === 0) {
                  setOllamaState({ loading: false, error: "No models found on Ollama server." });
             } else {
                  setOllamaState({ loading: false, error: null });
+                 logEvent(`[Ollama] Found ${models.length} models.`);
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : "Failed to fetch Ollama models.";
             setOllamaState({ loading: false, error: message });
             setOllamaModels([]);
+            logEvent(`[Ollama] Error: ${message}`);
         }
-    }, [apiConfig.ollamaHost, logEvent]);
+    }, [apiConfig, logEvent]);
 
 
     // Load state from storage on initial mount
@@ -138,9 +124,9 @@ export function useAppStateManager() {
         setApiConfig(prevConfig => ({
             ...prevConfig,
             googleAIAPIKey: storedState?.apiConfig?.googleAIAPIKey || process.env.GEMINI_API_KEY || '',
-            openAIAPIKey: storedState?.apiConfig?.openAIAPIKey || '',
-            openAIBaseUrl: storedState?.apiConfig?.openAIBaseUrl || 'https://api.openai.com/v1',
-            openAICustomModel: storedState?.apiConfig?.openAICustomModel || 'gpt-4o',
+            openAIAPIKey: storedState?.apiConfig?.openAIAPIKey || 'ollama', // Default dummy key for local OpenAI/Ollama
+            openAIBaseUrl: storedState?.apiConfig?.openAIBaseUrl || 'http://localhost:11434/v1',
+            openAICustomModel: storedState?.apiConfig?.openAICustomModel || 'qwen3-vl:4b',
             deepSeekAPIKey: storedState?.apiConfig?.deepSeekAPIKey || process.env.NEBIUS_API_KEY || '',
             deepSeekBaseUrl: storedState?.apiConfig?.deepSeekBaseUrl || 'https://api.tokenfactory.nebius.com/v1/',
             ollamaHost: storedState?.apiConfig?.ollamaHost || 'http://localhost:11434',
@@ -154,7 +140,7 @@ export function useAppStateManager() {
             velocityWindow: storedState?.apiConfig?.velocityWindow || 10,
             protocolGenerationMode: storedState?.apiConfig?.protocolGenerationMode || 'script',
             disablePersistence: storedState?.apiConfig?.disablePersistence || false,
-            immersiveMode: storedState?.apiConfig?.immersiveMode ?? false, // Load preference or default to false
+            immersiveMode: storedState?.apiConfig?.immersiveMode ?? true, // Default to TRUE (Zen)
         }));
 
         if (storedState?.apiConfig?.googleAIAPIKey) {

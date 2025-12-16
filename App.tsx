@@ -1,8 +1,9 @@
+
 import React, { useEffect, useState } from 'react';
 import { useAppRuntime } from './hooks/useAppRuntime';
 import UIToolRunner from './components/UIToolRunner';
 import type { LLMTool } from './types';
-import { AI_MODELS } from './constants';
+import { AI_MODELS, IMAGE_MODELS, TTS_MODELS, AUDIO_INPUT_MODES } from './constants';
 
 const App: React.FC = () => {
     const appRuntime = useAppRuntime();
@@ -17,7 +18,14 @@ const App: React.FC = () => {
             if (isServerConnected && !proxyBootstrapped) {
                 setProxyBootstrapped(true);
                 try {
+                    // 1. Bootstrap General Web Proxy
                     await runtimeApi.tools.run('Test Web Proxy Service', {});
+                    
+                    // 2. Bootstrap AI Proxy (For local Ollama via HTTPS)
+                    // We fire and forget this one to not block the UI, but it ensures the service exists.
+                    runtimeApi.tools.run('Bootstrap AI Proxy Service', { targetUrl: 'http://127.0.0.1:11434' })
+                        .catch(e => console.warn("Auto-bootstrap of AI proxy failed (non-critical):", e));
+
                 } catch (error) {
                     console.error("Failed to auto-bootstrap and test web proxy on startup:", error);
                     runtimeApi.logEvent(`[SYSTEM] WARN: Automatic startup/test of web proxy service failed. Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -68,6 +76,9 @@ const App: React.FC = () => {
                         vibecoderHistory: appRuntime.vibecoderHistory,
                         activeAppId: appRuntime.activeAppId,
                         setActiveAppId: appRuntime.setActiveAppId,
+                        imageModels: IMAGE_MODELS,
+                        ttsModels: TTS_MODELS,
+                        audioInputModes: AUDIO_INPUT_MODES,
                     }} 
                 />
             ) : (

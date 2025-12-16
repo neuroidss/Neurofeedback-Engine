@@ -9,12 +9,13 @@ import { DATA_RECORDER_TOOLS } from './data_recorder_tools';
 import { DIAGNOSTIC_TOOLS } from './diagnostic_tools';
 import { PROTOCOL_TOOLS } from './protocol_tools';
 import { FIRMWARE_TOOLS } from './firmware_tools';
-import { SYNERGY_FORGE_UI_CODE } from './ui_components';
+import { MAIN_PANEL_CODE } from './ui_main_panel';
 import { DSP_TOOLS } from './dsp_tools';
 import { THEATER_TOOLS } from './theater_tools';
 import { STREAM_TOOLS } from './stream_tools';
 import { VISION_TOOLS } from './vision_tools';
 import { NODE_TOOLS } from './nodes';
+import { AI_PROXY_TOOLS } from './ai_proxy_tools';
 import { neuroBus } from '../services/neuroBus';
 import { streamEngine } from '../services/streamEngine';
 
@@ -52,8 +53,11 @@ const SYNERGY_FORGE_TOOLS: ToolCreatorPayload[] = [{
         { name: 'vibecoderHistory', type: 'array', description: 'The history of vibecoding iterations.', required: true },
         { name: 'activeAppId', type: 'string', description: 'The ID of the currently active app on the main screen.', required: true },
         { name: 'setActiveAppId', type: 'object', description: 'Function to change the active app.', required: true },
+        { name: 'imageModels', type: 'array', description: 'List of available image generation models.', required: true },
+        { name: 'ttsModels', type: 'array', description: 'List of available TTS models.', required: true },
+        { name: 'audioInputModes', type: 'array', description: 'List of available audio input modes.', required: true },
     ],
-    implementationCode: SYNERGY_FORGE_UI_CODE,
+    implementationCode: MAIN_PANEL_CODE,
 }];
 
 export const BOOTSTRAP_TOOL_PAYLOADS: ToolCreatorPayload[] = [
@@ -70,7 +74,8 @@ export const BOOTSTRAP_TOOL_PAYLOADS: ToolCreatorPayload[] = [
     ...THEATER_TOOLS,
     ...STREAM_TOOLS,
     ...VISION_TOOLS,
-    ...NODE_TOOLS
+    ...NODE_TOOLS,
+    ...AI_PROXY_TOOLS
 ];
 
 // Inject global runtime services for string-based tool execution

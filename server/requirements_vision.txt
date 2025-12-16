@@ -17,3 +17,5 @@ kokoro-onnx
 sounddevice
 timm
 einops
+networkx
+scikit-learn

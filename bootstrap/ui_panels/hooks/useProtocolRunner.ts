@@ -299,7 +299,10 @@ const useProtocolRunner = ({ runtime, activeDataSourceIds, connectedDevices, set
               if (parts.length >= 9) ingestData(device.id, parts.slice(1));
           };
           
-          dataChar.addEventListener('characteristicvaluechanged', onData);
+          if (dataChar) { // <--- Add this check
+             
+              dataChar.addEventListener('characteristicvaluechanged', onData);
+          }
           
           streamCharsRef.current.set(device.id, { 
               server, dataChar, cmdChar, onData, device: device.bleDevice 

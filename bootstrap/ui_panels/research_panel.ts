@@ -9,13 +9,17 @@ export const RESEARCH_PANEL_CODE = `
             return acc;
         }, {});
 
+      // Helper to generate unique key for selection state
+      const getModelKey = (m) => m.provider + "::" + m.id;
+
       return (
         <div className="flex items-center gap-2 mb-3">
              <div className="flex-grow relative">
                 <select 
-                    value={selectedModel.id} 
+                    value={getModelKey(selectedModel)} 
                     onChange={(e) => {
-                        const m = [...models, ...ollamaModels].find(m => m.id === e.target.value);
+                        const [provider, id] = e.target.value.split("::");
+                        const m = [...models, ...ollamaModels].find(m => m.id === id && m.provider === provider);
                         if(m) setSelectedModel(m);
                     }} 
                     disabled={isSwarmRunning} 
@@ -23,7 +27,11 @@ export const RESEARCH_PANEL_CODE = `
                 >
                     {Object.entries(allModels).map(([provider, group]) => (
                         <optgroup label={provider} key={provider}>
-                            {group.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
+                            {group.map(model => (
+                                <option key={getModelKey(model)} value={getModelKey(model)}>
+                                    {model.name}
+                                </option>
+                            ))}
                         </optgroup>
                     ))}
                 </select>
