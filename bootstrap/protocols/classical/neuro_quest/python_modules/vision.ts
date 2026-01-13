@@ -41,13 +41,11 @@ class GameMaster:
         
     def set_context(self, biome_desc):
         with self.lock:
-            # NO TRUNCATION: LLM is responsible for brevity.
             self.biome_context = biome_desc
             self.focus_obj = "" 
 
     def update_focus(self, text):
         with self.lock: 
-            # NO TRUNCATION: LLM is responsible for brevity.
             self.focus_obj = text.strip()
 
     def trigger_fx(self, text, duration=2.0):
@@ -68,28 +66,13 @@ class GameMaster:
             return None
         
     def get_prompt(self):
-        """
-        Constructs the strict prompt for Stable Diffusion.
-        CRITICAL RULE: No additions to what the LLM intends. Only LLM content.
-        Max 77 tokens (~40 words).
-        """
         with self.lock: 
             prompt = ""
-            
-            # Logic: 
-            # If the Brain LLM has observed something specific (focus_obj), that is the prompt.
-            # If not, the Director LLM's world description (biome_context) is the prompt.
-            # We do NOT concatenate them to avoid exceeding the token limit and to respect "no additions".
-            
             if self.focus_obj:
                 prompt = self.focus_obj
             else:
                 prompt = self.biome_context
-                
-            # We do NOT truncate here anymore. 
-            # If the LLM output is too long, the error is a signal to fix the LLM prompt, not to cut the text.
-            
-            return prompt, False # Force "active" state false as we rely purely on img2img physics for motion now
+            return prompt, False 
 
 class VisionCortex(threading.Thread):
     def __init__(self, gm, ctrl, status, engine_ref):

@@ -1,12 +1,17 @@
 
 export const NEURO_QUEST_UI_IMPL = `
     const { useState, useEffect, useRef, useMemo } = React;
+    const { apiConfig, selectedModel } = runtime.getState();
+
     const [status, setStatus] = useState("Idle");
     const [serverUrl, setServerUrl] = useState(""); 
     const [logs, setLogs] = useState([]);
     const [sessions, setSessions] = useState([]);
     const [activeSessionId, setActiveSessionId] = useState(null);
     const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+    
+    // Deployment Lock to prevent race conditions
+    const [isDeploying, setIsDeploying] = useState(false);
     
     const [lorePresets, setLorePresets] = useState({
         "RANCE_10_MODE": { title: "Operation: Rance 10 (Loop)", description: "Fantasy Strategy / Anime War" },
@@ -56,6 +61,79 @@ export const NEURO_QUEST_UI_IMPL = `
     const PROCESS_ID = 'neuro_quest_v1';
     const TARGET_VERSION = "V105_CINEMA"; 
 
+    // --- SYNC LLM CONFIG TO BACKEND ---
+    const lastSyncedConfigRef = useRef(null);
+
+    const syncLlmConfig = async (explicitServerUrl = null) => {
+        const target = explicitServerUrl || serverUrl;
+        if (!target) return;
+        
+        let upstreamUrl = "";
+        let upstreamKey = "";
+        let upstreamModel = selectedModel?.id || "";
+
+        // STRICT MODE: Only use user configuration. No defaults.
+        if (selectedModel?.provider === 'OpenAI_API') {
+            let baseUrl = apiConfig.openAIBaseUrl || "";
+            if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+            if (baseUrl) upstreamUrl = baseUrl + "/chat/completions";
+            upstreamKey = apiConfig.openAIAPIKey || "";
+        } else if (selectedModel?.provider === 'Ollama') {
+            let host = apiConfig.ollamaHost || "";
+            if (host.endsWith('/')) host = host.slice(0, -1);
+            
+            // NOTE: We send the direct URL to the Python backend because it runs locally 
+            // and can access 11434 without CORS.
+            // The Frontend Service layer handles Proxy Fallback automatically if *it* needs to call Ollama directly.
+            
+            if (host) upstreamUrl = host + "/v1/chat/completions";
+            upstreamKey = "ollama"; 
+        } else if (selectedModel?.provider === 'DeepSeek') {
+             let baseUrl = apiConfig.deepSeekBaseUrl || "";
+             if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+             if (baseUrl) upstreamUrl = baseUrl + "/chat/completions";
+             upstreamKey = apiConfig.deepSeekAPIKey || "";
+        }
+
+        const configPayload = {
+            api_url: upstreamUrl,
+            api_key: upstreamKey,
+            model_id: upstreamModel
+        };
+        const configSignature = JSON.stringify(configPayload);
+
+        // Allow forced re-sync if the server is asking for it
+        console.log("[NQ] Syncing User LLM Config:", upstreamModel, upstreamUrl);
+
+        try {
+            await fetch(target + '/config/llm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: configSignature
+            });
+            lastSyncedConfigRef.current = configSignature;
+        } catch(e) { console.error("LLM Sync Failed", e); }
+    };
+
+    // Trigger sync when relevant props change or server becomes available
+    useEffect(() => {
+        if (serverUrl && status === "RUNNING") {
+            syncLlmConfig();
+        }
+    }, [serverUrl, status, selectedModel, apiConfig]);
+
+    // REACTIVE LOG MONITOR: Re-Sync if backend reports UNCONFIGURED
+    useEffect(() => {
+        if (!logs || logs.length === 0) return;
+        const lastLog = logs[logs.length - 1] || "";
+        
+        // If server says "Waiting for LLM (UNCONFIGURED", force a resync
+        if (lastLog.includes("Waiting for LLM") && lastLog.includes("UNCONFIGURED")) {
+            console.log("[NQ] 🚨 Server reported UNCONFIGURED. Forcing config sync...");
+            syncLlmConfig();
+        }
+    }, [logs]);
+
     // --- SEMANTIC RADAR LOGIC ---
     // Extract semantic similarity from active battle stats for visualization
     const semanticSimHistory = gameStats.active_battle?.sim_history || [];
@@ -79,6 +157,15 @@ export const NEURO_QUEST_UI_IMPL = `
         
         const targetX = width/2 - (latestSim * (width/2 - 20)); 
         const targetY = height/2;
+
+        // Simplify path generation to avoid nested backticks inside the return block
+        const pathPoints = simHistory.map((s, i) => {
+            const x = width/2 - (s*(width/2-20));
+            const y = height - (i*(height/Math.max(20, simHistory.length)));
+            return x + " " + y;
+        }).join(' L ');
+        
+        const pathD = "M " + pathPoints;
 
         return (
             <div className="relative bg-black/80 border border-green-500/50 rounded p-2 flex flex-col items-center shadow-lg backdrop-blur-sm w-[220px]">
@@ -110,7 +197,7 @@ export const NEURO_QUEST_UI_IMPL = `
                     <text x={width-45} y={25} fill="#f87171" fontSize="7" opacity="0.7">ANTONYMY</text>
                     
                     {/* Trace History */}
-                    {simHistory.length > 0 && <path d={\`M \${simHistory.map((s, i) => \`\${width/2 - (s*(width/2-20))} \${height - (i*(height/Math.max(20, simHistory.length)))}\`).join(' L ')}\`} stroke="rgba(0,255,255,0.3)" fill="none" strokeWidth="1" />}
+                    {simHistory.length > 0 && <path d={pathD} stroke="rgba(0,255,255,0.3)" fill="none" strokeWidth="1" />}
                     
                     {/* The Vector Point */}
                     <circle 
@@ -156,7 +243,7 @@ export const NEURO_QUEST_UI_IMPL = `
     const speak = (text) => {
         if (!text || !window.speechSynthesis || !ttsEnabled) return;
         window.speechSynthesis.cancel();
-        const cleanText = text.replace(/\\[.*?\\]/g, "");
+        const cleanText = text.replace(/\[.*?\]/g, "");
         const utterance = new SpeechSynthesisUtterance(cleanText);
         utterance.rate = 1.0;
         utterance.pitch = 0.9;
@@ -229,27 +316,53 @@ export const NEURO_QUEST_UI_IMPL = `
             const result = await runtime.tools.run('List Managed Processes', {});
             const proc = result.processes?.find(p => p.processId === PROCESS_ID);
             if (proc) {
-                const url = 'http://localhost:' + proc.port;
+                // FIXED: Use Kernel Proxy to avoid CORS/Mixed Content errors
+                // This routes requests like http://localhost:3001/mcp/neuro_quest_v1/...
+                const url = 'http://localhost:3001/mcp/' + PROCESS_ID;
+                
                 if (url !== serverUrl) {
                     setServerUrl(url);
-                    fetch(url + '/').then(r => r.json()).then(data => {
-                        if (data.version !== TARGET_VERSION) {
-                            runtime.tools.run('Stop Process', { processId: PROCESS_ID }).then(() => {
-                                setTimeout(deployAndLaunch, 1000);
-                            });
-                        } else {
-                            fetch(url + '/presets/lore').then(r => r.json()).then(remote => {
-                                setLorePresets(prev => ({...prev, ...remote}));
-                            }).catch(()=>{});
-                            fetchSessions(url); 
-                        }
-                    }).catch(()=>{});
+                    syncLlmConfig(url); // Auto-sync config on new connection
                 }
-                setStatus("RUNNING");
+                
+                // ROBUST HEALTH CHECK
+                try {
+                    const r = await fetch(url + '/');
+                    if (!r.ok) throw new Error(r.statusText);
+                    const data = await r.json();
+                    
+                    if (data.error) {
+                        // Gateway Error = Backend still booting
+                        setStatus("BOOTING (LOADING MODELS)...");
+                    } else if (data.version) {
+                        // Success
+                        const remoteVersion = data.version;
+                        if (remoteVersion !== TARGET_VERSION) {
+                            console.warn("Server Version Mismatch:", remoteVersion, "vs Target:", TARGET_VERSION, "Full Data:", data);
+                        } else {
+                            if (status !== "RUNNING") {
+                                setStatus("RUNNING");
+                                fetch(url + '/presets/lore').then(r => r.json()).then(remote => {
+                                    setLorePresets(prev => ({...prev, ...remote}));
+                                }).catch(()=>{});
+                                fetchSessions(url);
+                            }
+                        }
+                    }
+                } catch(e) {
+                    if (status.includes("RUNNING")) {
+                        setStatus("CONNECTION LOST");
+                    } else if (status.includes("Deploying")) {
+                        // Keep current status
+                    } else {
+                        setStatus("BOOTING...");
+                    }
+                }
+
                 const lines = proc.logs || [];
                 setLogs(lines.slice(-20));
             } else {
-                if (status.includes("RUNNING")) {
+                if (status.includes("RUNNING") || status.includes("BOOTING")) {
                     setStatus("STOPPED");
                     setServerUrl("");
                 }
@@ -278,12 +391,26 @@ export const NEURO_QUEST_UI_IMPL = `
     }, []);
     
     const deployAndLaunch = async () => {
-        if (!runtime.isServerConnected()) return;
+        if (!runtime.isServerConnected() || isDeploying) return; // Prevent double-click spawn
+        
+        setIsDeploying(true);
         setStatus("Deploying...");
-        const codeContent = %%PYTHON_CODE%%;
-        await runtime.tools.run('Server File Writer', { filePath: 'neuro_quest.py', content: codeContent, baseDir: 'scripts' });
-        setStatus("Launching Native Engine...");
-        await runtime.tools.run('Start Python Process', { processId: PROCESS_ID, scriptPath: 'neuro_quest.py', venv: 'venv_vision' });
+        
+        try {
+            const codeContent = %%PYTHON_CODE%%;
+            await runtime.tools.run('Server File Writer', { filePath: 'neuro_quest.py', content: codeContent, baseDir: 'scripts' });
+            
+            // Safety: Try to stop existing instance first to avoid port conflicts
+            try { await runtime.tools.run('Stop Process', { processId: PROCESS_ID }); } catch(e) {}
+            await new Promise(r => setTimeout(r, 1000)); // Wait for port release
+
+            setStatus("Launching Native Engine...");
+            await runtime.tools.run('Start Python Process', { processId: PROCESS_ID, scriptPath: 'neuro_quest.py', venv: 'venv_vision' });
+        } catch(e) {
+            setStatus("Launch Failed: " + e.message);
+        } finally {
+            setIsDeploying(false);
+        }
     };
     
     const handleNewGame = async () => {
@@ -484,7 +611,13 @@ export const NEURO_QUEST_UI_IMPL = `
                 
                 {!status.includes("RUNNING") ? (
                     <div className="flex-grow flex items-center justify-center">
-                        <button onClick={deployAndLaunch} disabled={!runtime.isServerConnected()} className="px-8 py-4 bg-cyan-700 hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-lg font-bold shadow-[0_0_20px_rgba(6,182,212,0.3)] transition-all transform hover:scale-105">LAUNCH GAME ENGINE</button>
+                        <button 
+                            onClick={deployAndLaunch} 
+                            disabled={!runtime.isServerConnected() || isDeploying} 
+                            className={"px-8 py-4 bg-cyan-700 hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-lg font-bold shadow-[0_0_20px_rgba(6,182,212,0.3)] transition-all transform " + (isDeploying ? "animate-pulse" : "hover:scale-105")}
+                        >
+                            {isDeploying ? "DEPLOYING..." : "LAUNCH GAME ENGINE"}
+                        </button>
                     </div>
                 ) : (
                     <div className="flex-grow flex flex-col gap-6 min-h-0 overflow-hidden">

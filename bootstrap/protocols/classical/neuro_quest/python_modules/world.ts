@@ -10,7 +10,8 @@ import time
 import os
 import json
 import threading
-# from llm import tool_agent # REMOVED: Monolith Build
+
+# REMOVED: from llm import tool_agent 
 
 # Lazy load embeddings
 sentence_model = None

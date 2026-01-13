@@ -4,9 +4,15 @@ export const NQ_SERVER_PY = `
 # 🚀 SERVER & ENTRY POINT (STABLE)
 # ==================================================================================
 
+# REMOVED IMPORTS:
+# from engine import NeuroEngine
+# from config import log, log_exception, VERSION, SESSIONS_DIR, CURRENT_SESSION_ID
+# from world import session_manager
+# from vision import stream_manager
+# from lore import LORE_PRESETS
+# from llm import tool_agent
+
 engine = None
-app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 def sanitize_for_json(obj):
     """
@@ -30,8 +36,8 @@ def sanitize_for_json(obj):
     else:
         return obj
 
-@app.on_event("startup")
-def start_engine():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global engine
     try:
         engine = NeuroEngine()
@@ -39,15 +45,42 @@ def start_engine():
         threading.Thread(target=engine.render_loop, daemon=True).start()
     except Exception as e:
         log_exception(e)
-        sys.exit(1)
+        # We don't exit here to allow the server to at least respond to health checks
+        log("Critical Engine Start Failure.", "CRITICAL")
+    
+    yield
+    
+    if engine:
+        log("Shutting down engine...", "SYS")
+
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 @app.get("/")
 def read_root():
     return {"status": f"Neuro World {VERSION} Online", "version": VERSION}
 
+@app.post("/config/llm")
+async def config_llm_endpoint(request: Request):
+    """Dynamically configure the LLM Agent based on Frontend Settings."""
+    try:
+        body = await request.json()
+        print(f"[Server] 📥 Received LLM Config Payload: {body}", flush=True)
+        if tool_agent:
+            tool_agent.configure(
+                url=body.get("api_url"),
+                key=body.get("api_key"),
+                model=body.get("model_id")
+            )
+        return {"status": "ok"}
+    except Exception as e:
+        log(f"LLM Config Failed: {e}", "ERR")
+        return {"status": "error", "message": str(e)}
+
 @app.get("/video_feed")
 def video_feed():
     def gen():
+        # Double-escaped backslashes to ensure they remain as \\x in the Python source
         header = b'--frame\\x0d\\x0aContent-Type: image/jpeg\\x0d\\x0a\\x0d\\x0a'
         footer = b'\\x0d\\x0a'
         while True:
@@ -278,11 +311,13 @@ def get_session_state():
         game_stats['meta_perks_pool'] = engine.physics.game_logic.config.get("meta_perks", [])
 
     actor_image_url = None
-    if engine.physics.game_logic and engine.physics.game_logic.current_subject_id:
+    # Check if session is actually active and logic is ready before building asset paths
+    if engine.active_session_id and engine.physics.game_logic and engine.physics.game_logic.current_subject_id:
         subject_id = engine.physics.game_logic.current_subject_id
         raw_path = engine.physics.get_active_asset_path()
         if not raw_path:
              root = globals().get("SESSIONS_DIR", "sessions")
+             # Safe fallback path generation
              safe_id = "".join([c for c in subject_id if c.isalnum() or c in ('_')]).strip()
              raw_path = os.path.join(root, engine.active_session_id, "assets", f"{safe_id}.png")
         actor_image_url = f"/session/asset/{raw_path}"

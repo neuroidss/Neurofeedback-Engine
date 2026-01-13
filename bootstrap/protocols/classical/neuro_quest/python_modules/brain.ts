@@ -15,10 +15,10 @@ import re
 import os
 from PIL import Image
 
-# Use the same env var as the main LLM agent for consistency, fallback to local llama.cpp
-API_URL = os.environ.get("LLM_API_URL", "http://127.0.0.1:8080/v1/chat/completions")
-API_KEY = os.environ.get("LLM_API_KEY", "dummy")
-MODEL_ID = os.environ.get("LLM_MODEL", "default")
+# NO DEFAULTS - Must come from Environment or Config injection
+API_URL = os.environ.get("LLM_API_URL")
+API_KEY = os.environ.get("LLM_API_KEY")
+MODEL_ID = os.environ.get("LLM_MODEL")
 
 VISION_TOOLS = [
     {
@@ -50,8 +50,24 @@ class NeuralBrain(threading.Thread):
         self.latest_entity_focus = None
 
     def load(self):
-        print(f"[Brain] 🧠 Connecting to Vision Service at {API_URL}...", flush=True)
-        self.is_ready = True
+        # Dynamically refresh from engine's tool_agent if Env vars were empty
+        global API_URL, API_KEY, MODEL_ID
+        
+        # Check global import first (from llm.py)
+        try:
+            from llm import tool_agent
+            if tool_agent.configured:
+                API_URL = tool_agent.api_url
+                API_KEY = tool_agent.api_key
+                MODEL_ID = tool_agent.model
+        except: pass
+
+        if API_URL and MODEL_ID:
+            print(f"[Brain] 🧠 Connecting to Vision Service at {API_URL}...", flush=True)
+            self.is_ready = True
+        else:
+            # Silent wait - do not spam logs
+            self.is_ready = False
 
     def observe(self, pil_image, target_entity):
         with self.lock:
@@ -59,9 +75,12 @@ class NeuralBrain(threading.Thread):
             self.latest_entity_focus = target_entity
 
     def run(self):
-        self.load()
         while self.active:
-            if not self.is_ready: time.sleep(1); continue
+            if not self.is_ready: 
+                self.load()
+                time.sleep(2)
+                continue
+                
             if not self.engine.physics.initialized: time.sleep(1); continue
 
             queue = self.engine.physics.get_attention_queue()
@@ -81,6 +100,7 @@ class NeuralBrain(threading.Thread):
             time.sleep(1.0) 
 
     def _collapse_wavefunction(self, image, entity):
+        if not self.is_ready: return
         prompt = f"""
         TARGET: {entity.archetype}
         TASK: What is happening visually? Look for chaos or order.
@@ -96,9 +116,6 @@ class NeuralBrain(threading.Thread):
                 # Update Narrative
                 self.engine.queue_narrative(narrative)
                 
-                # --- VISUAL FEEDBACK LOOP (The "What describes events" part) ---
-                # If the brain sees "Chaos" (Fire, Glitch), it increases Game Difficulty.
-                # If it sees "Order" (Blue Sky, Light), it decreases it.
                 if self.engine.physics.game_logic:
                     chaos_score = 0
                     for t in tags:
@@ -108,10 +125,8 @@ class NeuralBrain(threading.Thread):
                     
                     if chaos_score > 0:
                         self.engine.physics.game_logic.entropy_level += 0.05
-                        # print(f"[Brain] 📉 Observed Chaos. Difficulty increased.", flush=True)
                     elif chaos_score < 0:
                         self.engine.physics.game_logic.entropy_level = max(0, self.engine.physics.game_logic.entropy_level - 0.05)
-                        # print(f"[Brain] 📈 Observed Order. Difficulty reduced.", flush=True)
 
                 entity.last_observed_vector = entity.current_vector.copy()
                 entity.current_stress = 0.0 

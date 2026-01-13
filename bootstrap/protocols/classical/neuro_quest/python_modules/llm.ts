@@ -112,59 +112,92 @@ TOOLS_SCHEMA = [
 
 def clean_llm_response(text):
     if not text: return ""
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    return text.strip()
+    cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+    if not cleaned and text:
+        return f"[Thought Only] {text[:50]}..."
+    return cleaned
 
 def extract_strict_json_tool(text):
-    """
-    Strict extraction. Returns JSON only if it looks like a tool payload.
-    Rejects conversational text.
-    """
     if not text: return None
     text = clean_llm_response(text)
-    
-    # Try to find the largest outer JSON object
     match = re.search(r'(\{.*\})', text, re.DOTALL)
     if not match: return None
-    
     candidate = match.group(1)
     try:
         data = json.loads(candidate)
         if isinstance(data, dict): return data
     except: 
-        # Last ditch: ast literal eval for python-style dicts
         try: return ast.literal_eval(candidate.replace("true","True").replace("false","False"))
         except: pass
-        
     return None
 
 class ToolAgent:
     def __init__(self):
-        self.api_url = os.environ.get("LLM_API_URL", "http://127.0.0.1:8080/v1/chat/completions")
-        self.api_key = os.environ.get("LLM_API_KEY", "dummy")
-        self.model = os.environ.get("LLM_MODEL", "default") 
-        self.configured = True 
+        # NO DEFAULTS - STRICT CONFIGURATION ONLY
+        self.api_url = os.environ.get("LLM_API_URL")
+        self.api_key = os.environ.get("LLM_API_KEY")
+        self.model = os.environ.get("LLM_MODEL")
+        
+        self.configured = bool(self.api_url and self.model)
         self.engine_ref = None 
 
     def configure(self, url, key, model):
+        # Update config dynamically from frontend
         if url: self.api_url = url
         if key: self.api_key = key
         if model: self.model = model
-        self.configured = True
-        print(f"[ToolAgent] Configured: {self.model} @ {self.api_url}", flush=True)
+        
+        print(f"[ToolAgent] 🔄 CONFIG RECEIVED: Model={self.model} | URL={self.api_url}", flush=True)
+        
+        if self.api_url and self.model:
+            self.configured = True
+            return True
+        else:
+            self.configured = False
+            return False
         
     def attach_engine(self, engine): self.engine_ref = engine
 
+    def diagnostic_check(self):
+        if not self.configured: 
+            return "UNCONFIGURED"
+        
+        system = "You are the AI Game Master."
+        prompt = "System init complete. State readiness (max 5 words)."
+        
+        payload = {
+            "model": self.model, 
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+            "max_tokens": 40, 
+            "stream": False
+        }
+        
+        print(f"[LLM_DIAG] 📡 Pinging: {self.api_url} ({self.model})", flush=True)
+        
+        try:
+            r = requests.post(self.api_url, json=payload, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=30)
+            
+            if r.status_code == 200:
+                res = r.json()
+                choice = res.get('choices', [{}])[0]
+                content = choice.get('message', {}).get('content', '')
+                if not content: return "Connected (Empty Response)"
+                return clean_llm_response(content).strip()
+            else:
+                return f"HTTP_ERROR_{r.status_code}"
+                
+        except Exception as e:
+            return f"CONNECTION_ERROR: {str(e)[:100]}"
+
     def process(self, system_role, user_content, allowed_tools=None, retry_count=0):
         if not self.configured: return None
-        if retry_count > 2: return None
+        if retry_count > 1: return None
         
         active_schema = TOOLS_SCHEMA
         if allowed_tools:
             active_schema = [t for t in TOOLS_SCHEMA if t['function']['name'] in allowed_tools]
 
-        # FORCE TOOLS: Strict system prompt
-        strict_system = system_role + "\\n\\nSYSTEM DIRECTIVE: You are a JSON-Generating API. You MUST call a tool. Do NOT write conversational text. Do NOT write explanations. Output ONLY the tool call. CRITICAL WARNING: For visual/image descriptions, you MUST keep them under 40 words to respect the Stable Diffusion CLIP token limit (77 tokens). If you generate a long prompt, the visual engine will crash. Be extremely concise."
+        strict_system = system_role + "\\n\\nSYSTEM: You are a JSON-Generating API. Call a tool. No chatter."
 
         payload = {
             "model": self.model, 
@@ -172,60 +205,37 @@ class ToolAgent:
             "max_tokens": 512, 
             "temperature": 0.3,
             "tools": active_schema, 
-            "tool_choice": "required" # FORCE TOOL CALL
+            "tool_choice": "required",
+            "stream": False
         }
         try:
-            r = requests.post(self.api_url, json=payload, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=100)
+            r = requests.post(self.api_url, json=payload, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=2)
+            
             if r.status_code != 200: 
-                print(f"[ToolAgent] Error {r.status_code}: {r.text}", flush=True)
                 return None
             
             resp = r.json()
             msg = resp['choices'][0]['message']
-            
             result_args = None
             
-            # 1. Check Native Tool Calls (Preferred)
             if msg.get('tool_calls'):
                 tc = msg['tool_calls'][0]
-                name = tc['function']['name']
                 args_str = tc['function']['arguments']
                 try: args = json.loads(args_str)
                 except: args = {}
-                args['_tool_name'] = name
+                args['_tool_name'] = tc['function']['name']
                 result_args = args
-                
-            # 2. Content Fallback (STRICT)
             elif msg.get('content', ''):
-                content = msg.get('content', '')
-                data = extract_strict_json_tool(content)
+                data = extract_strict_json_tool(msg.get('content', ''))
                 if data and isinstance(data, dict):
                     if allowed_tools and len(allowed_tools) == 1 and '_tool_name' not in data:
                         data['_tool_name'] = allowed_tools[0]
                     result_args = data
             
-            # --- SELF-CORRECTION LOOP ---
-            if result_args:
-                # Check for long strings (potential tokenizer crashers)
-                for k, v in result_args.items():
-                    if isinstance(v, str) and len(v) > 200 and k in ['description', 'visual_problem', 'visual_success', 'new_visual_state']:
-                        print(f"[ToolAgent] ⚠️ Argument '{k}' too long ({len(v)} chars). Re-prompting.", flush=True)
-                        error_msg = f"SYSTEM ERROR: The argument '{k}' was {len(v)} characters long. Max limit is 150 characters. You MUST rewrite it to be shorter."
-                        
-                        # Add error to context and retry
-                        new_content = user_content
-                        if isinstance(new_content, str): new_content += "\\n" + error_msg
-                        elif isinstance(new_content, list): new_content.append({"type": "text", "text": error_msg})
-                        
-                        return self.process(system_role, new_content, allowed_tools, retry_count + 1)
-                        
-                return result_args
-            
-            return None
+            return result_args
 
         except Exception as e:
-            print(f"[ToolAgent] Connection Error: {e}", flush=True)
             return None
 
 tool_agent = ToolAgent()
-`
+`;

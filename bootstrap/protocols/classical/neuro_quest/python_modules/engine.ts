@@ -9,7 +9,16 @@ import os
 import threading
 from PIL import Image, ImageDraw, ImageFont
 from diffusers import StableDiffusionImg2ImgPipeline, LCMScheduler
-# from config import save_debug_image, log # REMOVED for Monolith Build
+
+# REMOVED IMPORTS:
+# from config import save_debug_image, log
+# from input_system import apply_physics, VirtualGamepad
+# from fusion import NeuroInputFusion
+# from physics import SemanticPhysicsEngine
+# from brain import NeuralBrain
+# from vision import VisionCortex
+# from audio import AudioSense
+# from server_utils import ...
 
 MODEL_ID = os.environ.get("MODEL_PATH", "SimianLuo/LCM_Dreamshaper_v7")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -19,7 +28,8 @@ class NeuroEngine:
         print("[Engine] ⚙️ Initializing Semantic Engine...", flush=True)
         
         self.pipe = None
-        self.model_ready = False # CRITICAL: Prevents race conditions during load
+        self.model_ready = False 
+        self.llm_connected = False 
         self.current_frame = Image.new('RGB', (512, 384), (0,0,0))
         self.render_lock = threading.Lock()
         self.ip_adapter_active = False
@@ -51,9 +61,8 @@ class NeuroEngine:
         self.gm = GameMaster() 
         self.music = None 
         
-        # Initialize default DB placeholder (Using Central Path)
+        # Initialize default DB placeholder
         try:
-            # Use global SESSIONS_DIR if available
             root = globals().get("SESSIONS_DIR", "sessions")
             default_path = os.path.join(root, "world_db.json")
             
@@ -66,7 +75,38 @@ class NeuroEngine:
             print(f"[Engine] World/Quest Init Error: {e}", flush=True)
 
         threading.Thread(target=self._load_lcm, daemon=True).start()
+        threading.Thread(target=self._wait_for_llm, daemon=True).start()
         self.brain.start()
+
+    def _wait_for_llm(self):
+        """
+        Polls the configured LLM endpoint until functionally ready.
+        Strictly respects user configuration. No defaults.
+        """
+        if not tool_agent: return
+        
+        delay = 3
+        while True:
+            # 1. Check Configuration Status
+            status = tool_agent.diagnostic_check()
+            
+            if status == "UNCONFIGURED":
+                print("[Engine] ⏳ Waiting for User Configuration...", flush=True)
+                time.sleep(2)
+                continue
+            
+            # 2. Check Connection Validity
+            if "HTTP_ERROR" in status or "CONNECTION_ERROR" in status:
+                print(f"[Engine] ❌ LLM Connection Failed: {status}. Retrying...", flush=True)
+                time.sleep(5)
+                continue
+                
+            # 3. Success
+            print(f"[Engine] 🧠 Neural Core Online. Signal: '{status}'", flush=True)
+            self.llm_connected = True
+            if self.gm:
+                self.gm.queue_narrative(f"{status}", is_voiceover=True)
+            break
 
     def _load_lcm(self):
         try:
@@ -98,14 +138,13 @@ class NeuroEngine:
                 print(f"[Engine] ⚠️ IP-Adapter Warning: {e}. Running in pure text mode.", flush=True)
                 self.ip_adapter_active = False
 
-            self.model_ready = True # Signal that rendering can start
+            self.model_ready = True 
             print("[Engine] ✨ LCM Ready (Uncensored).", flush=True)
 
     def load_session(self, session_id):
         self.active_session_id = session_id
         set_current_session(session_id)
         
-        # Use Central Path
         root = globals().get("SESSIONS_DIR", "sessions")
         session_path = os.path.join(root, f"{session_id}.json")
         
@@ -201,7 +240,14 @@ class NeuroEngine:
         blink = int(t * 2) % 2 == 0
         status_color = (0, 255, 0) if blink else (0, 100, 0)
         draw.text((155, 170), "AWAITING CARTRIDGE...", fill=status_color)
-        if blink: draw.text((155, 190), "> _", fill=(0, 255, 0))
+        
+        if not self.model_ready:
+             draw.text((155, 190), "LOADING LCM RENDERER...", fill=(255, 255, 0))
+        elif not self.llm_connected:
+             draw.text((155, 190), "WAITING FOR BRAIN (LLM)...", fill=(255, 0, 0))
+        else:
+             if blink: draw.text((155, 190), "> READY _", fill=(0, 255, 0))
+             
         self.current_frame = img
         stream_manager.update(img)
 
@@ -221,7 +267,6 @@ class NeuroEngine:
         print("[Engine] 🟢 Render Loop Started. Waiting for Session.", flush=True)
 
         while True:
-            # SAFETY CHECK: Do not touch self.pipe until loader says it's ready
             if not self.model_ready: 
                 time.sleep(0.5)
                 continue
@@ -244,31 +289,24 @@ class NeuroEngine:
                 ghost_data = self.ghost.update(dt)
                 
                 if ghost_data:
-                    # A. Physical Action (Movement/Combat) -> Gamepad Sim
                     self.gamepad.inject_ai_input({"move": ghost_data["move_vec"][:2], "action": ghost_data["action"]})
                     
-                    # B. Meta Action (Social/Farm/End Turn) -> Direct Game Logic Call
                     if ghost_data.get("meta_action"):
                         action = ghost_data["meta_action"]
-                        
                         if self.physics.game_logic:
                             if action == "social":
                                 inv = self.physics.game_logic.inventory
                                 if inv:
                                     target = random.choice(inv)
                                     self.physics.game_logic.trigger_social(target['uid'], 'dinner')
-                            
                             elif action == "farm":
                                 self.physics.game_logic.trigger_farm()
-                                
                             elif action == "end_turn":
                                 result = self.physics.game_logic.end_turn()
                                 if result:
-                                    self.physics.current_visual_prompt = result[1] # Update visual prompt
+                                    self.physics.current_visual_prompt = result[1]
                                     self.physics.is_new_scene = True
-                            
                             elif action == "battle":
-                                # Trigger battle using auto-targeting
                                 result = self.physics.game_logic.trigger_battle()
                                 if result:
                                     self.physics.current_visual_prompt = result[1]
@@ -297,11 +335,11 @@ class NeuroEngine:
                     "logs": self.physics.game_logic.logs,
                     "territories": self.physics.game_logic.territories,
                     "inventory": self.physics.game_logic.inventory,
-                    "active_battle": self.physics.game_logic.active_battle # Added to sync battle logs
+                    "active_battle": self.physics.game_logic.active_battle 
                 }
 
             # 3. RENDER GENERATION
-            current_prompt = self.physics.get_visual_prompt() or "A void" # SAFETY FALLBACK
+            current_prompt = self.physics.get_visual_prompt() or "A void" 
             
             ip_image = None
             self.current_asset_filename = None
@@ -312,7 +350,6 @@ class NeuroEngine:
                 subject_desc = self.physics.game_logic.current_subject_desc
                 asset_path = self.physics.get_active_asset_path()
                 
-                # Use Global SESSIONS_DIR
                 if not asset_path and subject_id:
                     root = globals().get("SESSIONS_DIR", "sessions")
                     safe_id = "".join([c for c in subject_id if c.isalnum() or c in ('_')]).strip()
@@ -329,11 +366,7 @@ class NeuroEngine:
                         except Exception as e:
                             print(f"[Render] Asset Load Error ({asset_path}): {e}", flush=True)
 
-            if self.physics.is_new_scene:
-                strength = 0.75 
-            else:
-                strength = 0.45 
-            
+            strength = 0.75 if self.physics.is_new_scene else 0.45 
             warped, motion = apply_physics(self.current_frame, controls)
             strength += (motion * 0.1)
             strength = min(0.95, max(0.1, strength))
@@ -373,7 +406,10 @@ class NeuroEngine:
             if self.show_hud:
                 draw = ImageDraw.Draw(display_frame)
                 draw.text((10, 10), f"FPS: {1.0/(dt+0.001):.1f}", fill=(0, 255, 0))
-                if ip_image:
+                
+                if not self.llm_connected:
+                    draw.text((10, 25), "BRAIN: OFFLINE (CONNECTING...)", fill=(255, 0, 0))
+                elif ip_image:
                     draw.text((10, 25), f"IP-ADAPTER: ACTIVE ({subject_id})", fill=(255, 0, 255))
                 else:
                     draw.text((10, 25), f"IP-ADAPTER: IDLE", fill=(100, 100, 100))
