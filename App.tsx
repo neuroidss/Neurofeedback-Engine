@@ -23,8 +23,15 @@ const App: React.FC = () => {
                     
                     // 2. Bootstrap AI Proxy (For local Ollama via HTTPS)
                     // We fire and forget this one to not block the UI, but it ensures the service exists.
-                    runtimeApi.tools.run('Bootstrap AI Proxy Service', { targetUrl: 'http://127.0.0.1:11434' })
-                        .catch(e => console.warn("Auto-bootstrap of AI proxy failed (non-critical):", e));
+                    // Updated to use the new 'Bootstrap Universal AI Bridge' tool.
+                    // FORCE RESTART is enabled here to ensure any timeout config changes are applied on reload.
+                    runtimeApi.tools.run('Bootstrap Universal AI Bridge', { 
+                        targetUrl: 'http://127.0.0.1:11434', 
+                        bridgeId: 'external_ai_bridge',
+                        timeout: appRuntime.apiConfig.aiBridgeTimeout || 3600, // Use configured timeout or 1 hour default
+                        forceRestart: true // CRITICAL: Restart process to apply new timeout settings
+                    })
+                        .catch(e => console.warn("Auto-bootstrap of AI Bridge failed (non-critical):", e));
 
                 } catch (error) {
                     console.error("Failed to auto-bootstrap and test web proxy on startup:", error);

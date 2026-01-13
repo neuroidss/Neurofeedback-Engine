@@ -46,6 +46,21 @@ export const SETTINGS_MODAL_CODE = `
           }
       };
       
+      const restartBridge = async () => {
+          try {
+              runtime.logEvent(\`[Settings] Restarting AI Bridge with timeout: \${apiConfig.aiBridgeTimeout || 3600}s...\`);
+              await runtime.tools.run('Bootstrap Universal AI Bridge', { 
+                  targetUrl: 'http://127.0.0.1:11434', 
+                  bridgeId: 'external_ai_bridge',
+                  timeout: apiConfig.aiBridgeTimeout || 3600,
+                  forceRestart: true
+              });
+              alert("Bridge restarted successfully.");
+          } catch(e) {
+              alert("Failed to restart bridge: " + e.message);
+          }
+      };
+      
       const currentCaps = apiConfig.modelCapabilities?.[selectedModel.id];
 
       // Reusable Capability UI Component
@@ -156,6 +171,124 @@ export const SETTINGS_MODAL_CODE = `
                           </div>
                       )}
 
+                      {/* AI Providers Section */}
+                      <div className="space-y-3">
+                          <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-widest border-b border-slate-800/60 pb-2">
+                              AI Connection Settings
+                          </h3>
+                          
+                          {/* GLOBAL TIMEOUT SETTING - Moved to top level for visibility */}
+                          <div className="bg-slate-900/40 p-4 rounded-lg border border-slate-800 flex items-center justify-between gap-4">
+                              <div className="flex-grow">
+                                  <label className="text-[10px] text-slate-400 font-bold block mb-1 uppercase tracking-wider">Global LLM Timeout (Seconds)</label>
+                                  <div className="text-[10px] text-slate-500 mb-2">Controls read timeout for OpenAI, Ollama, and Bridge requests. Increase for large local models.</div>
+                                  <div className="flex items-center gap-2">
+                                      <input 
+                                        type="number"
+                                        value={apiConfig.aiBridgeTimeout || 3600}
+                                        onChange={e => setApiConfig({...apiConfig, aiBridgeTimeout: parseInt(e.target.value)})}
+                                        className="w-32 bg-black/40 border border-slate-700 rounded-md px-2 py-1 text-xs text-white focus:border-orange-500 outline-none"
+                                      />
+                                      <button 
+                                        onClick={restartBridge}
+                                        className="px-3 py-1.5 bg-orange-900/30 hover:bg-orange-900/50 border border-orange-800 text-orange-300 text-xs rounded font-bold transition-colors whitespace-nowrap"
+                                        title="Re-deploy the local bridge with new timeout settings"
+                                      >
+                                        Apply to Bridge
+                                      </button>
+                                  </div>
+                              </div>
+                          </div>
+
+                          <div className="grid gap-4">
+                              {/* Google Gemini */}
+                              <div className="bg-slate-900/40 p-4 rounded-lg border border-slate-800">
+                                  <label className="block text-xs font-bold text-slate-300 mb-2">Google Gemini (Primary)</label>
+                                  <input 
+                                    type="password" 
+                                    value={apiConfig.googleAIAPIKey || ''} 
+                                    onChange={e => setApiConfig({...apiConfig, googleAIAPIKey: e.target.value})} 
+                                    className="w-full bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-cyan-500 outline-none placeholder-slate-600" 
+                                    placeholder="API Key (AIza...)" 
+                                  />
+                              </div>
+
+                              {/* OpenAI */}
+                              <div className="bg-slate-900/40 p-4 rounded-lg border border-slate-800">
+                                  <label className="block text-xs font-bold text-slate-300 mb-2">OpenAI / Compatible</label>
+                                  <div className="space-y-3">
+                                      <input 
+                                        type="password" 
+                                        value={apiConfig.openAIAPIKey || ''} 
+                                        onChange={e => setApiConfig({...apiConfig, openAIAPIKey: e.target.value})} 
+                                        className="w-full bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-cyan-500 outline-none placeholder-slate-600" 
+                                        placeholder="API Key (sk-...)" 
+                                      />
+                                      <div className="grid grid-cols-2 gap-2">
+                                          <input 
+                                            type="text" 
+                                            value={apiConfig.openAIBaseUrl || ''} 
+                                            onChange={e => setApiConfig({...apiConfig, openAIBaseUrl: e.target.value})} 
+                                            className="w-full bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-cyan-500 outline-none placeholder-slate-600" 
+                                            placeholder="Base URL" 
+                                          />
+                                          <input 
+                                            type="text" 
+                                            value={apiConfig.openAICustomModel || ''} 
+                                            onChange={e => setApiConfig({...apiConfig, openAICustomModel: e.target.value})} 
+                                            className="w-full bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-cyan-500 outline-none placeholder-slate-600" 
+                                            placeholder="Model ID (e.g. gpt-4o)" 
+                                          />
+                                      </div>
+                                  </div>
+                              </div>
+
+                               {/* DeepSeek */}
+                              <div className="bg-slate-900/40 p-4 rounded-lg border border-slate-800">
+                                  <label className="block text-xs font-bold text-slate-300 mb-2">DeepSeek (Nebius)</label>
+                                  <div className="space-y-3">
+                                      <input 
+                                        type="password" 
+                                        value={apiConfig.deepSeekAPIKey || ''} 
+                                        onChange={e => setApiConfig({...apiConfig, deepSeekAPIKey: e.target.value})} 
+                                        className="w-full bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-purple-500 outline-none placeholder-slate-600" 
+                                        placeholder="API Key" 
+                                      />
+                                      <input 
+                                        type="text" 
+                                        value={apiConfig.deepSeekBaseUrl || ''} 
+                                        onChange={e => setApiConfig({...apiConfig, deepSeekBaseUrl: e.target.value})} 
+                                        className="w-full bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-purple-500 outline-none placeholder-slate-600" 
+                                        placeholder="Base URL" 
+                                      />
+                                  </div>
+                              </div>
+
+                              {/* Ollama */}
+                              <div className="bg-slate-900/40 p-4 rounded-lg border border-slate-800">
+                                  <label className="block text-xs font-bold text-slate-300 mb-2">Ollama (Local)</label>
+                                  <div className="space-y-3">
+                                      <div className="flex gap-2">
+                                          <input 
+                                            type="text" 
+                                            value={apiConfig.ollamaHost || ''} 
+                                            onChange={e => setApiConfig({...apiConfig, ollamaHost: e.target.value})} 
+                                            className="flex-grow bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-orange-500 outline-none placeholder-slate-600" 
+                                            placeholder="http://localhost:11434" 
+                                          />
+                                          <button 
+                                            onClick={() => setApiConfig({...apiConfig, ollamaHost: 'http://localhost:3001/mcp/external_ai_bridge'})}
+                                            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 text-xs rounded font-bold transition-colors whitespace-nowrap"
+                                            title="Use the Kernel AI Bridge to bypass Mixed Content/CORS issues"
+                                          >
+                                            Use Bridge
+                                          </button>
+                                      </div>
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+
                       {/* System Section (Moved Top for visibility of Immersive Mode) */}
                       <div className="space-y-3">
                           <h3 className="text-xs font-bold text-purple-400 uppercase tracking-widest border-b border-slate-800/60 pb-2">
@@ -259,99 +392,6 @@ export const SETTINGS_MODAL_CODE = `
                                   >
                                       Clear Data
                                   </button>
-                              </div>
-                          </div>
-                      </div>
-
-                      {/* AI Providers Section */}
-                      <div className="space-y-3">
-                          <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-widest border-b border-slate-800/60 pb-2">
-                              AI Providers
-                          </h3>
-                          
-                          <div className="grid gap-4">
-                              {/* Google Gemini */}
-                              <div className="bg-slate-900/40 p-4 rounded-lg border border-slate-800">
-                                  <label className="block text-xs font-bold text-slate-300 mb-2">Google Gemini (Primary)</label>
-                                  <input 
-                                    type="password" 
-                                    value={apiConfig.googleAIAPIKey || ''} 
-                                    onChange={e => setApiConfig({...apiConfig, googleAIAPIKey: e.target.value})} 
-                                    className="w-full bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-cyan-500 outline-none placeholder-slate-600" 
-                                    placeholder="API Key (AIza...)" 
-                                  />
-                              </div>
-
-                              {/* OpenAI */}
-                              <div className="bg-slate-900/40 p-4 rounded-lg border border-slate-800">
-                                  <label className="block text-xs font-bold text-slate-300 mb-2">OpenAI / Compatible</label>
-                                  <div className="space-y-3">
-                                      <input 
-                                        type="password" 
-                                        value={apiConfig.openAIAPIKey || ''} 
-                                        onChange={e => setApiConfig({...apiConfig, openAIAPIKey: e.target.value})} 
-                                        className="w-full bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-cyan-500 outline-none placeholder-slate-600" 
-                                        placeholder="API Key (sk-...)" 
-                                      />
-                                      <div className="grid grid-cols-2 gap-2">
-                                          <input 
-                                            type="text" 
-                                            value={apiConfig.openAIBaseUrl || ''} 
-                                            onChange={e => setApiConfig({...apiConfig, openAIBaseUrl: e.target.value})} 
-                                            className="w-full bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-cyan-500 outline-none placeholder-slate-600" 
-                                            placeholder="Base URL" 
-                                          />
-                                          <input 
-                                            type="text" 
-                                            value={apiConfig.openAICustomModel || ''} 
-                                            onChange={e => setApiConfig({...apiConfig, openAICustomModel: e.target.value})} 
-                                            className="w-full bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-cyan-500 outline-none placeholder-slate-600" 
-                                            placeholder="Model ID (e.g. gpt-4o)" 
-                                          />
-                                      </div>
-                                  </div>
-                              </div>
-
-                               {/* DeepSeek */}
-                              <div className="bg-slate-900/40 p-4 rounded-lg border border-slate-800">
-                                  <label className="block text-xs font-bold text-slate-300 mb-2">DeepSeek (Nebius)</label>
-                                  <div className="space-y-3">
-                                      <input 
-                                        type="password" 
-                                        value={apiConfig.deepSeekAPIKey || ''} 
-                                        onChange={e => setApiConfig({...apiConfig, deepSeekAPIKey: e.target.value})} 
-                                        className="w-full bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-purple-500 outline-none placeholder-slate-600" 
-                                        placeholder="API Key" 
-                                      />
-                                      <input 
-                                        type="text" 
-                                        value={apiConfig.deepSeekBaseUrl || ''} 
-                                        onChange={e => setApiConfig({...apiConfig, deepSeekBaseUrl: e.target.value})} 
-                                        className="w-full bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-purple-500 outline-none placeholder-slate-600" 
-                                        placeholder="Base URL" 
-                                      />
-                                  </div>
-                              </div>
-
-                              {/* Ollama */}
-                              <div className="bg-slate-900/40 p-4 rounded-lg border border-slate-800">
-                                  <label className="block text-xs font-bold text-slate-300 mb-2">Ollama (Local)</label>
-                                  <div className="flex gap-2">
-                                      <input 
-                                        type="text" 
-                                        value={apiConfig.ollamaHost || ''} 
-                                        onChange={e => setApiConfig({...apiConfig, ollamaHost: e.target.value})} 
-                                        className="flex-grow bg-black/40 border border-slate-700 rounded-md px-3 py-2 text-xs text-white focus:border-orange-500 outline-none placeholder-slate-600" 
-                                        placeholder="http://localhost:11434" 
-                                      />
-                                      <button 
-                                        onClick={() => setApiConfig({...apiConfig, ollamaHost: 'http://localhost:3001/mcp/ai_proxy_v1'})}
-                                        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 text-xs rounded font-bold transition-colors whitespace-nowrap"
-                                        title="Use the Kernel AI Proxy to bypass Mixed Content/CORS issues"
-                                      >
-                                        Use Proxy
-                                      </button>
-                                  </div>
                               </div>
                           </div>
                       </div>

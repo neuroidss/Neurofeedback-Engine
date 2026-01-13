@@ -2,7 +2,8 @@
 // services/deepseekService.ts
 import type { APIConfig } from "../types";
 
-const DEEPSEEK_TIMEOUT = 600000; // 10 minutes
+// Helper to get timeout from config (default 1 hour = 3600000ms)
+const getTimeout = (config: APIConfig) => (config.aiBridgeTimeout || 3600) * 1000;
 
 // Helper function to strip <think> blocks from model output
 const stripThinking = (text: string | null | undefined): string => {
@@ -107,7 +108,7 @@ export const generateText = async (
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
                 body: JSON.stringify(body),
             },
-            DEEPSEEK_TIMEOUT
+            getTimeout(apiConfig)
         );
 
         if (!response.ok) {

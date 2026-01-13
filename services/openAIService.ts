@@ -3,8 +3,10 @@
 // Escaping is only for 'implementationCode' strings in tool definitions.
 import type { APIConfig, LLMTool, AIResponse, AIToolCall, ModelCapability } from "../types";
 
-const OPENAI_TIMEOUT = 600000; // 10 minutes
-const KERNEL_PROXY_URL = 'http://localhost:3001/mcp/ai_proxy_v1';
+const KERNEL_PROXY_URL = 'http://localhost:3001/mcp/external_ai_bridge';
+
+// Helper to get timeout from config (default 1 hour = 3600000ms)
+const getTimeout = (config: APIConfig) => (config.aiBridgeTimeout || 3600) * 1000;
 
 // Helper function to strip <think> blocks from model output
 const stripThinking = (text: string | null | undefined): string => {
@@ -40,11 +42,11 @@ const robustFetch = async (baseUrl: string, endpoint: string, options: RequestIn
     const directUrl = `${baseUrl.replace(/\/+$/, '')}${endpoint}`;
     
     // Helper to perform fetch with timeout
-    const doFetch = async (url: string) => {
+    const doFetch = async (url: string, fetchOptions: RequestInit) => {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), timeout);
         try {
-            const res = await fetch(url, { ...options, signal: controller.signal });
+            const res = await fetch(url, { ...fetchOptions, signal: controller.signal });
             clearTimeout(id);
             return res;
         } catch (e) {
@@ -55,7 +57,7 @@ const robustFetch = async (baseUrl: string, endpoint: string, options: RequestIn
 
     try {
         // Attempt 1: Direct Connection
-        const response = await doFetch(directUrl);
+        const response = await doFetch(directUrl, options);
         // Special Case: 404 on localhost might mean the path is wrong OR the proxy is needed (some local servers behave oddly)
         // But usually, we only retry connection errors.
         if (response.ok) return response;
@@ -73,23 +75,32 @@ const robustFetch = async (baseUrl: string, endpoint: string, options: RequestIn
         
         if (isLocal && !isAlreadyProxy) {
             // FIX: Preserve path segments from baseUrl (like '/v1') when using the proxy.
-            // The proxy target is likely just the host root (e.g., http://127.0.0.1:11434), 
-            // so we must append the base path (e.g., /v1) before the endpoint.
             let basePath = "";
+            let origin = baseUrl;
             try {
                 if (baseUrl.startsWith('http')) {
                     const u = new URL(baseUrl);
                     if (u.pathname && u.pathname !== '/') {
                         basePath = u.pathname.replace(/\/+$/, '');
                     }
+                    origin = u.origin;
                 }
             } catch(e) { /* ignore invalid url parse */ }
 
             const proxyUrl = `${KERNEL_PROXY_URL.replace(/\/+$/, '')}${basePath}${endpoint}`;
-            console.log(`[OpenAI Service] ⚠️ Direct fetch failed (${e.message}). Failing over to Kernel Proxy: ${proxyUrl}`);
+            console.log(`[OpenAI Service] ⚠️ Direct fetch failed (${e.message}). Failing over to Kernel Proxy: ${proxyUrl} (Override: ${origin})`);
             
+            // ATTACH OVERRIDE HEADER SO PROXY KNOWS WHERE TO GO
+            const proxyOptions = {
+                ...options,
+                headers: {
+                    ...options.headers,
+                    'X-Target-Override': origin
+                }
+            };
+
             try {
-                return await doFetch(proxyUrl);
+                return await doFetch(proxyUrl, proxyOptions);
             } catch (proxyError: any) {
                 throw new Error(`Connection failed. Direct: ${e.message}. Proxy: ${proxyError.message}`);
             }
@@ -482,7 +493,7 @@ Do not output plain text or markdown outside the JSON block.`;
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openAIAPIKey}` },
                 body: JSON.stringify(body)
             },
-            OPENAI_TIMEOUT
+            getTimeout(apiConfig)
         );
 
         if (!response.ok) {
@@ -611,7 +622,7 @@ export const generateText = async (
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openAIAPIKey}` },
                 body: JSON.stringify(body),
             },
-            OPENAI_TIMEOUT
+            getTimeout(apiConfig)
         );
 
         if (!response.ok) {

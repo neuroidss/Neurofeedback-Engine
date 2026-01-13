@@ -34,22 +34,25 @@ const managedProcesses: Map<string, {
     startTime: number;
 }> = new Map();
 
-// NEW: Track ports currently being set up to prevent race conditions during async port checks
-// This set holds ports that have been handed out by findFreePort but might not be listening yet.
 const pendingPortReservations: Set<number> = new Set();
-
 const MAX_LOGS = 2000;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Logging Middleware
+app.use((req, res, next) => {
+    console.log(`[KERNEL] ${req.method} ${req.path}`);
+    next();
+});
+
 app.use('/scripts', express.static(SCRIPTS_DIR));
 app.use('/assets', express.static(ASSETS_DIR));
 
 // --- Utils ---
 
 const addLog = (logArray: string[], log: string) => {
-    // Clean up ANSI codes if present, though usually raw text is fine.
-    // We prefix with timestamp.
     logArray.push(`[${new Date().toISOString()}] ${log}`);
     if (logArray.length > MAX_LOGS) logArray.shift();
 };
@@ -64,7 +67,6 @@ const findFreePort = async (startPort: number): Promise<number> => {
         });
     };
 
-    // Gather all ports that are technically "busy" (active processes or pending setup)
     const busyPorts = new Set<number>(pendingPortReservations);
     managedProcesses.forEach(p => { if (p.port) busyPorts.add(p.port); });
 
@@ -74,20 +76,13 @@ const findFreePort = async (startPort: number): Promise<number> => {
             port++;
             continue;
         }
-        
-        // Optimistically reserve to block other concurrent calls
         pendingPortReservations.add(port);
-        
         const free = await isPortFree(port);
         if (free) {
-            // Keep reservation. The caller is responsible for clearing it 
-            // (or we clear it on timeout/success). 
-            // In this specific architecture, we leave it in pendingPortReservations 
-            // for a few seconds to ensure managedProcesses.set happens before we rely solely on that map.
             setTimeout(() => pendingPortReservations.delete(port), 10000);
             return port;
         } else {
-            pendingPortReservations.delete(port); // Release if not actually free at OS level
+            pendingPortReservations.delete(port);
             port++;
         }
     }
@@ -148,15 +143,11 @@ app.post('/api/execute', async (req, res) => {
                 };
 
                 if (isPython) {
-                    // Determine Python Executable
                     command = 'python3';
                     if (venv) {
-                        // Locate venv relative to server root
                         const venvPython = path.join(__dirname, venv, 'bin', 'python');
                         command = venvPython;
                     }
-                    console.log(`[KERNEL] Using Python Interpreter: ${command}`);
-                    
                     shellArgs = ['-u', fullScriptPath];
                     options = { 
                         cwd: SCRIPTS_DIR, 
@@ -164,7 +155,7 @@ app.post('/api/execute', async (req, res) => {
                     };
                 }
                 
-                console.log(`[KERNEL] Spawning ${processId} using ${command} on port ${port} ${venv ? `(venv: ${venv})` : ''}`);
+                console.log(`[KERNEL] Spawning ${processId} using ${command} on port ${port}`);
 
                 const child = spawn(command, shellArgs, options);
 
@@ -174,16 +165,13 @@ app.post('/api/execute', async (req, res) => {
                 child.stderr?.on('data', d => { const m = d.toString().trim(); if(m) { console.error(`[${processId} ERR] ${m}`); addLog(logs, `ERR: ${m}`); }});
                 child.on('close', c => addLog(logs, `Exited with code ${c}`));
 
-                // Wait for port or timeout
                 let attempts = 0;
                 while (attempts < 20) {
                     await new Promise(r => setTimeout(r, 500));
                     try {
-                        // Simple check if something is listening
                         await fetch(`http://127.0.0.1:${port}/`);
                         return res.json({ success: true, message: `Started ${processId}`, port });
                     } catch (e) { 
-                        // If conn refused, keep waiting. If 404/etc, it's up.
                         if (!(e as Error).message.includes('ECONNREFUSED')) {
                              return res.json({ success: true, message: `Started ${processId}`, port });
                         }
@@ -209,7 +197,7 @@ app.post('/api/execute', async (req, res) => {
                     processId: id,
                     port: p.port,
                     uptime: (Date.now() - p.startTime) / 1000,
-                    logs: p.logs, // Return all logs (client filters/displays)
+                    logs: p.logs,
                     type: p.type
                 }));
                 return res.json({ success: true, processes: list });
@@ -219,12 +207,12 @@ app.post('/api/execute', async (req, res) => {
                 return res.status(400).json({ error: `Unknown generic command: ${name}` });
         }
     } catch (e) {
+        console.error("[KERNEL] Execute Error:", e);
         res.status(500).json({ error: (e as Error).message });
     }
 });
 
 // --- 2. Universal Router (The Gateway) ---
-// Forwards /mcp/:processId/some/api -> http://localhost:{port}/some/api
 app.use('/mcp/:processId', async (req, res) => {
     const { processId } = req.params;
     const proc = managedProcesses.get(processId);
@@ -241,7 +229,6 @@ app.use('/mcp/:processId', async (req, res) => {
             headers: { ...req.headers } as any,
             body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body),
         };
-        // Remove host header to avoid confusion
         delete (options.headers as any)['host'];
         delete (options.headers as any)['content-length'];
         if (!['GET', 'HEAD'].includes(req.method)) {
@@ -249,17 +236,20 @@ app.use('/mcp/:processId', async (req, res) => {
         }
 
         const response = await fetch(targetUrl, options);
-        
-        // Forward headers
         response.headers.forEach((val, key) => res.setHeader(key, val));
         res.status(response.status);
-        
         const buffer = await response.arrayBuffer();
         res.send(Buffer.from(buffer));
 
     } catch (e) {
         res.status(502).json({ error: `Bad Gateway to MCP '${processId}': ${(e as Error).message}` });
     }
+});
+
+// Catch-all for debugging 404s
+app.use((req, res) => {
+    console.warn(`[KERNEL] 404 Unmatched Route: ${req.method} ${req.path}`);
+    res.status(404).json({ error: `Route not found: ${req.path}` });
 });
 
 app.listen(PORT, async () => {

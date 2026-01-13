@@ -1,52 +1,66 @@
 
 import type { ToolCreatorPayload } from '../types';
 
-// --- PROXY SERVER SOURCE CODE (Injected by the Client) ---
-const PROXY_MCP_CODE = `
-import express from 'express';
-import cors from 'cors';
-const app = express();
-const PORT = process.env.PORT;
+// --- PROXY SERVER SOURCE CODE (Python Version) ---
+const PROXY_MCP_PY = `
+import os
+import sys
+import requests
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+from contextlib import asynccontextmanager
 
-if (!PORT) {
-    console.error("PORT env var missing");
-    process.exit(1);
-}
+PORT = int(os.environ.get("PORT", 8000))
 
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print(f"[Proxy] Starting Web Proxy on port {PORT}", flush=True)
+    yield
 
-app.post('/browse', async (req, res) => {
-    // ROBUSTNESS: Accept URL in body OR query to bypass potential middleware parsing issues in the kernel
-    const url = req.body.url || req.query.url;
-    
-    if (!url) {
-        console.error('[Proxy] ❌ 400 Bad Request: URL missing.', { body: req.body, query: req.query });
-        return res.status(400).send('URL is required. Received body keys: ' + Object.keys(req.body).join(', '));
-    }
-    console.log('[Proxy] Fetching:', url);
-    try {
-        const response = await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }
-        });
-        const body = await response.text();
-        res.send(body);
-    } catch (e) {
-        console.error('[Proxy] Error:', e);
-        res.status(500).send(e.message);
-    }
-});
+app = FastAPI(lifespan=lifespan)
 
-app.get('/', (req, res) => res.send('Proxy MCP Active'));
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-// Global error handler to prevent crashes
-app.use((err, req, res, next) => {
-    console.error('[Proxy] Unhandled Error:', err);
-    res.status(500).send('Internal Proxy Error');
-});
+@app.post('/browse')
+async def browse(request: Request):
+    try:
+        # Robustly handle body or query param
+        data = await request.json()
+        url = data.get('url')
+        if not url:
+            url = request.query_params.get('url')
+            
+        if not url:
+            return Response("URL is required", status_code=400)
+            
+        print(f"[Proxy] Fetching: {url}", flush=True)
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        r = requests.get(url, headers=headers, timeout=15)
+        
+        # Return content with correct content-type
+        return Response(content=r.content, media_type=r.headers.get('Content-Type', 'text/html'))
+        
+    except Exception as e:
+        print(f"[Proxy] Error: {e}", flush=True)
+        return Response(f"Proxy Error: {str(e)}", status_code=500)
 
-app.listen(PORT, () => console.log('Proxy MCP listening on port ' + PORT));
+@app.get('/')
+def health():
+    return "Proxy MCP Active (Python)"
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="error")
 `;
 
 const BOOTSTRAP_PROXY: ToolCreatorPayload = {
@@ -66,11 +80,11 @@ const BOOTSTRAP_PROXY: ToolCreatorPayload = {
         }
 
         const MCP_ID = 'web_proxy_v1';
-        const MCP_SCRIPT = 'web_proxy.ts';
+        const MCP_SCRIPT = 'web_proxy.py';
 
         // 2. Always Deploy Code (Ensure latest version)
         runtime.logEvent('[System] Synchronizing Proxy MCP Source Code...');
-        const source = ${JSON.stringify(PROXY_MCP_CODE)};
+        const source = ${JSON.stringify(PROXY_MCP_PY)};
         await runtime.tools.run('Server File Writer', {
             filePath: MCP_SCRIPT,
             content: source,
@@ -95,19 +109,18 @@ const BOOTSTRAP_PROXY: ToolCreatorPayload = {
 
         if (existing) {
             const url = 'http://localhost:3001/mcp/' + MCP_ID;
-            // runtime.logEvent('[System] Proxy MCP running on port ' + existing.port);
             return { success: true, proxyUrl: url };
         }
 
-        // 5. Spawn Process
-        runtime.logEvent('[System] Spawning Proxy MCP...');
-        await runtime.tools.run('Start Node Process', {
+        // 5. Spawn Process (Use 'venv_vision' because it has 'requests' and 'fastapi')
+        runtime.logEvent('[System] Spawning Proxy MCP (Python)...');
+        await runtime.tools.run('Start Python Process', {
             processId: MCP_ID,
-            scriptPath: MCP_SCRIPT
+            scriptPath: MCP_SCRIPT,
+            venv: 'venv_vision'
         });
 
         // 6. Return Routed URL
-        // The Kernel routes /mcp/:id -> localhost:dynamicPort
         const routedUrl = 'http://localhost:3001/mcp/' + MCP_ID;
         runtime.logEvent('[System] ✅ Proxy MCP active at ' + routedUrl);
         
@@ -131,10 +144,10 @@ const TEST_PROXY: ToolCreatorPayload = {
             const testTarget = 'https://example.com';
             
             // Retry loop for robustness (handle 502 startup delays)
-            for (let i = 0; i < 3; i++) {
+            for (let i = 0; i < 5; i++) {
                 try {
-                    // ROBUSTNESS: Send URL in both body and query to ensure it gets through regardless of middleware state
-                    const res = await fetch(url + '/browse?url=' + encodeURIComponent(testTarget), {
+                    // ROBUSTNESS: Send URL in body
+                    const res = await fetch(url + '/browse', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ url: testTarget })
@@ -142,6 +155,8 @@ const TEST_PROXY: ToolCreatorPayload = {
                     
                     if (!res.ok) {
                         const errText = await res.text();
+                        // 502 means kernel can't reach python yet (startup lag)
+                        if (res.status === 502) throw new Error('Kernel 502 (Startup Lag)');
                         throw new Error('Proxy returned ' + res.status + ': ' + errText);
                     }
                     const text = await res.text();
@@ -149,7 +164,7 @@ const TEST_PROXY: ToolCreatorPayload = {
                     return true; // Success
                 } catch (e) {
                     // If last attempt, throw
-                    if (i === 2) throw e;
+                    if (i === 4) throw e;
                     // Wait before retry
                     await new Promise(r => setTimeout(r, 1000));
                 }
@@ -169,7 +184,7 @@ const TEST_PROXY: ToolCreatorPayload = {
             // Retry Test with longer backoff
             try {
                 // Give it a breather after restart before hammering it
-                await new Promise(r => setTimeout(r, 2000));
+                await new Promise(r => setTimeout(r, 3000));
                 await performTest(proxyUrl);
                 runtime.logEvent('[Test] ✅ Self-Healing successful. Proxy restored.');
                 return { success: true, message: 'Proxy repaired and operational.' };

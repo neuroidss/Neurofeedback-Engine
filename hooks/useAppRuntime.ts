@@ -183,6 +183,10 @@ export function useAppRuntime() {
                 return newTool;
             },
             list: () => toolManager.allTools,
+            // Expose RAG for tools that want to be smart
+            findRelevant: async (query: string, topK: number = 5, threshold: number = 0.1) => {
+                return findRelevantTools(query, toolManager.allTools, topK, threshold, null, null);
+            }
         },
         search: {
             pubmed: (query: string, limit: number, sinceYear?: number, proxyUrl?: string) => searchService.searchPubMed(query, stateManager.logEvent, limit, sinceYear, proxyUrl),

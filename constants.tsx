@@ -6,75 +6,80 @@ import type { AIModel } from './types';
 import { ModelProvider } from './types';
 import { FRAMEWORK_CORE_TOOLS } from './framework/core';
 
+// PROXY CONFIGURATION
+// The Kernel Proxy is used as a fallback by the Service layer if direct connection fails.
+// We do not force it here.
+const OLLAMA_DEFAULT = 'http://localhost:11434/v1';
+
 export const AI_MODELS: AIModel[] = [
     { 
-        id: 'qwen3-vl:8b-instruct', 
-        name: 'Qwen3-VL 8B instruct (Ollama V1)', 
+        id: 'hf.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:IQ2_M', 
+        name: 'Qwen3-Coder-30B-A3B-Instruct-GGUF:IQ2_M', 
         provider: ModelProvider.OpenAI_API, 
-        baseUrl: 'http://localhost:11434/v1',
-        apiKey: 'ollama' 
-    },
-    { 
-        id: 'qwen3-vl:8b-thinking', 
-        name: 'Qwen3-VL 8B thinking (Ollama V1)', 
-        provider: ModelProvider.OpenAI_API, 
-        baseUrl: 'http://localhost:11434/v1',
-        apiKey: 'ollama' 
-    },
-    { 
-        id: 'qwen3-vl:4b-instruct', 
-        name: 'Qwen3-VL 4B instruct (Ollama V1)', 
-        provider: ModelProvider.OpenAI_API, 
-        baseUrl: 'http://localhost:11434/v1',
+        baseUrl: OLLAMA_DEFAULT,
         apiKey: 'ollama' 
     },
     { 
         id: 'qwen3-vl:4b-thinking', 
-        name: 'Qwen3-VL 4B thinking (Ollama V1)', 
+        name: 'Qwen3-VL 4B thinking', 
         provider: ModelProvider.OpenAI_API, 
-        baseUrl: 'http://localhost:11434/v1',
+        baseUrl: OLLAMA_DEFAULT,
         apiKey: 'ollama' 
     },
     { 
         id: 'qwen3-vl:2b-instruct', 
-        name: 'Qwen3-VL 2B instruct (Ollama V1)', 
+        name: 'Qwen3-VL 2B instruct', 
         provider: ModelProvider.OpenAI_API, 
-        baseUrl: 'http://localhost:11434/v1',
+        baseUrl: OLLAMA_DEFAULT,
         apiKey: 'ollama' 
     },
     { 
         id: 'qwen3-vl:2b-thinking', 
-        name: 'Qwen3-VL 2B thinking (Ollama V1)', 
+        name: 'Qwen3-VL 2B thinking', 
         provider: ModelProvider.OpenAI_API, 
-        baseUrl: 'http://localhost:11434/v1',
+        baseUrl: OLLAMA_DEFAULT,
+        apiKey: 'ollama' 
+    },
+    { 
+        id: 'qwen3-vl:8b-instruct', 
+        name: 'Qwen3-VL 8B instruct', 
+        provider: ModelProvider.OpenAI_API, 
+        baseUrl: OLLAMA_DEFAULT,
+        apiKey: 'ollama' 
+    },
+    { 
+        id: 'qwen3-vl:8b-thinking', 
+        name: 'Qwen3-VL 8B thinking', 
+        provider: ModelProvider.OpenAI_API, 
+        baseUrl: OLLAMA_DEFAULT,
         apiKey: 'ollama' 
     },
     { 
         id: 'ministral-3:14b', 
-        name: 'ministral-3:14b(Ollama V1)', 
+        name: 'ministral-3:14b', 
         provider: ModelProvider.OpenAI_API, 
-        baseUrl: 'http://localhost:11434/v1',
+        baseUrl: OLLAMA_DEFAULT,
         apiKey: 'ollama' 
     },
     { 
         id: 'ministral-3:8b', 
-        name: 'ministral-3:8b(Ollama V1)', 
+        name: 'ministral-3:8b', 
         provider: ModelProvider.OpenAI_API, 
-        baseUrl: 'http://localhost:11434/v1',
+        baseUrl: OLLAMA_DEFAULT,
         apiKey: 'ollama' 
     },
     { 
         id: 'ministral-3:3b', 
-        name: 'ministral-3:3b(Ollama V1)', 
+        name: 'ministral-3:3b', 
         provider: ModelProvider.OpenAI_API, 
-        baseUrl: 'http://localhost:11434/v1',
+        baseUrl: OLLAMA_DEFAULT,
         apiKey: 'ollama' 
     },
     { 
         id: 'qwen3-vl-4b-instruct', 
-        name: 'Qwen3 VL 4B (MNN Mobile)', 
+        name: 'Qwen3 VL 4B (Mobile/MNN)', 
         provider: ModelProvider.OpenAI_API, 
-        baseUrl: 'http://127.0.0.1:8080/v1', // Standard MNN Android Port
+        baseUrl: OLLAMA_DEFAULT, 
         apiKey: 'dummy' 
     },
     { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', provider: ModelProvider.GoogleAI },
@@ -146,6 +151,7 @@ Act immediately. Build the graph.`;
 
 // --- Generative Service Models ---
 export const IMAGE_MODELS = [
+    { id: 'local-lcm', name: 'Local LCM (Python/GPU)' }, // <-- NEW
     { id: 'imagen-4.0-generate-001', name: 'Imagen 4.0 (High Quality)' },
     { id: 'gemini-2.5-flash-image', name: 'Gemini 2.5 Flash Image (Fast/Nano Banana)' },
     { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image Preview' },

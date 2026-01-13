@@ -126,6 +126,7 @@ export interface APIConfig {
   
   // Local / Self-Hosted
   ollamaHost?: string;
+  aiBridgeTimeout?: number; // Global timeout in seconds for LLM requests (OpenAI/Ollama/Bridge)
   
   useQuantumSDR?: boolean;
   computeBackend?: ComputeBackend; // Replaces boolean toggle with selector

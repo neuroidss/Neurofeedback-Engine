@@ -105,13 +105,41 @@ export const generateImage = async (
     model: AIModel,
     apiConfig: APIConfig
 ): Promise<string | null> => {
-    // Currently only Google models support native image generation via this path
+    // 1. Check for Local LCM Override
+    if (apiConfig.imageModel === 'local-lcm') {
+        try {
+            console.log("[AI Service] Attempting Local LCM Generation...");
+            const response = await fetch('http://localhost:8008/txt2img', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ prompt, width: 512, height: 384, steps: 4 })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                if (data.image) {
+                    return `data:image/jpeg;base64,${data.image}`;
+                }
+            }
+            throw new Error(`Local Server status: ${response.status}`);
+        } catch (e) {
+            console.warn(`[AI Service] Local LCM Failed: ${e instanceof Error ? e.message : String(e)}. Is V-JEPA or Neuro Quest running?`);
+            // Fallthrough to cloud if local fails? Or just return null to indicate failure?
+            // Returning null allows the UI to handle the error.
+            return null;
+        }
+    }
+
+    // 2. Google Models
     if (model.provider === ModelProvider.GoogleAI) {
         const imageModelId = apiConfig.imageModel || 'imagen-4.0-generate-001';
+        // Avoid trying to use 'local-lcm' with Google API if it fell through logic gaps
+        if (imageModelId === 'local-lcm') return null; 
+        
         return await geminiService.generateImage(prompt, apiConfig.googleAIAPIKey || '', imageModelId);
     }
-    // Fallback/Placeholder for other providers
-    console.warn("Image generation is currently only supported on GoogleAI models (Imagen/Nano).");
+    
+    // Fallback
+    console.warn("Image generation not supported for this provider/config.");
     return null;
 };
 

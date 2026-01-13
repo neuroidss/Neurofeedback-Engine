@@ -56,6 +56,7 @@ export function useAppStateManager() {
         deepSeekAPIKey: '',
         deepSeekBaseUrl: 'https://api.tokenfactory.nebius.com/v1/',
         ollamaHost: 'http://localhost:11434',
+        aiBridgeTimeout: 3600, // Default 1 hour (3600s) for large local models
         useQuantumSDR: false,
         computeBackend: 'gpu',
         defaultWifiSSID: '',
@@ -130,6 +131,7 @@ export function useAppStateManager() {
             deepSeekAPIKey: storedState?.apiConfig?.deepSeekAPIKey || process.env.NEBIUS_API_KEY || '',
             deepSeekBaseUrl: storedState?.apiConfig?.deepSeekBaseUrl || 'https://api.tokenfactory.nebius.com/v1/',
             ollamaHost: storedState?.apiConfig?.ollamaHost || 'http://localhost:11434',
+            aiBridgeTimeout: storedState?.apiConfig?.aiBridgeTimeout || 3600, // Default 3600s
             useQuantumSDR: storedState?.apiConfig?.useQuantumSDR || false,
             computeBackend: storedState?.apiConfig?.computeBackend || ((storedState?.apiConfig as any)?.useGPUAcceleration === false ? 'worker' : 'gpu'),
             defaultWifiSSID: process.env.WIFI_SSID || '',

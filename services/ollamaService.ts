@@ -4,8 +4,10 @@
 import type { APIConfig, LLMTool, AIResponse, AIToolCall, AIModel, ModelCapability } from "../types";
 import { ModelProvider } from '../types';
 
-const OLLAMA_TIMEOUT = 600000; // 10 minutes
-const KERNEL_PROXY_URL = 'http://localhost:3001/mcp/ai_proxy_v1';
+const KERNEL_PROXY_URL = 'http://localhost:3001/mcp/external_ai_bridge';
+
+// Helper to get timeout from config (default 1 hour = 3600000ms)
+const getTimeout = (config: APIConfig) => (config.aiBridgeTimeout || 3600) * 1000;
 
 // Helper function to strip <think> blocks from model output
 const stripThinking = (text: string | null | undefined): string => {
@@ -40,11 +42,11 @@ const robustFetch = async (baseUrl: string, endpoint: string, options: RequestIn
     const directUrl = `${baseUrl.replace(/\/+$/, '')}${endpoint}`;
     
     // Helper to perform fetch with timeout
-    const doFetch = async (url: string) => {
+    const doFetch = async (url: string, fetchOptions: RequestInit) => {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), timeout);
         try {
-            const res = await fetch(url, { ...options, signal: controller.signal });
+            const res = await fetch(url, { ...fetchOptions, signal: controller.signal });
             clearTimeout(id);
             return res;
         } catch (e) {
@@ -55,7 +57,7 @@ const robustFetch = async (baseUrl: string, endpoint: string, options: RequestIn
 
     try {
         // Attempt 1: Direct Connection
-        const response = await doFetch(directUrl);
+        const response = await doFetch(directUrl, options);
         if (response.ok) return response;
         
         // If direct failed but not network error (e.g., 404), throw error unless it might be a CORS/Mixed Content issue masquerading
@@ -68,11 +70,29 @@ const robustFetch = async (baseUrl: string, endpoint: string, options: RequestIn
         const isAlreadyProxy = directUrl.includes(KERNEL_PROXY_URL);
         
         if (isLocal && !isAlreadyProxy) {
-            const proxyUrl = `${KERNEL_PROXY_URL.replace(/\/+$/, '')}${endpoint}`;
-            console.log(`[Ollama Service] ⚠️ Direct fetch failed (${e.message}). Failing over to Kernel Proxy: ${proxyUrl}`);
-            
+            // Extract origin for override
+            let origin = baseUrl;
             try {
-                return await doFetch(proxyUrl);
+                if (baseUrl.startsWith('http')) {
+                    const u = new URL(baseUrl);
+                    origin = u.origin;
+                }
+            } catch(e) {}
+
+            const proxyUrl = `${KERNEL_PROXY_URL.replace(/\/+$/, '')}${endpoint}`;
+            console.log(`[Ollama Service] ⚠️ Direct fetch failed (${e.message}). Failing over to Kernel Proxy: ${proxyUrl} (Override: ${origin})`);
+            
+            // ATTACH OVERRIDE HEADER SO PROXY KNOWS WHERE TO GO
+            const proxyOptions = {
+                ...options,
+                headers: {
+                    ...options.headers,
+                    'X-Target-Override': origin
+                }
+            };
+
+            try {
+                return await doFetch(proxyUrl, proxyOptions);
             } catch (proxyError: any) {
                 throw new Error(`Connection failed. Direct: ${e.message}. Proxy (${proxyUrl}): ${proxyError.message}`);
             }
@@ -484,7 +504,7 @@ Do not output plain text or markdown outside the JSON block.
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
-        }, OLLAMA_TIMEOUT);
+        }, getTimeout(apiConfig));
 
         if (!response.ok) {
             await handleAPIError(response);
@@ -592,7 +612,7 @@ export const generateText = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
-        }, OLLAMA_TIMEOUT);
+        }, getTimeout(apiConfig));
 
         if (!response.ok) {
             await handleAPIError(response);

@@ -7,16 +7,32 @@ const AI_PROXY_MCP_PY = `
 import os
 import sys
 import requests
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from contextlib import asynccontextmanager
 
 # Config
 PORT = int(os.environ.get("PORT", 8000))
-TARGET = "%%TARGET_URL%%".rstrip('/')
+DEFAULT_TARGET = "%%TARGET_URL%%".rstrip('/')
+READ_TIMEOUT = int(%%TIMEOUT%%)
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print(f"[AI Bridge] 🔍 Verifying default target: {DEFAULT_TARGET}...", flush=True)
+    print(f"[AI Bridge] ⏱️ Configured Timeout: {READ_TIMEOUT} seconds", flush=True)
+    try:
+        r = requests.get(DEFAULT_TARGET, timeout=2)
+        print(f"[AI Bridge] ✅ Default Target is UP! ({r.status_code})", flush=True)
+    except Exception as e:
+        print(f"[AI Bridge] ⚠️ Default Target check failed: {e}", flush=True)
+        if "127.0.0.1" in DEFAULT_TARGET:
+            print(f"[AI Bridge] Tip: Ensure your AI server (Ollama/LM Studio) is running.", flush=True)
+    yield
+    print("[AI Bridge] Shutting down...", flush=True)
+
+app = FastAPI(lifespan=lifespan)
 
 # Permissive CORS
 app.add_middleware(
@@ -27,30 +43,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.on_event("startup")
-def check_upstream():
-    print(f"[AI Proxy] 🔍 Verifying upstream target: {TARGET}...", flush=True)
-    try:
-        # 1. Try Target as configured
-        r = requests.get(TARGET, timeout=3)
-        print(f"[AI Proxy] ✅ Target is UP! ({r.status_code}) Body: {r.text[:50]}", flush=True)
-    except Exception as e:
-        print(f"[AI Proxy] ⚠️ Target check failed: {e}", flush=True)
-        # 2. If localhost, try switching 127.0.0.1 <-> localhost as fallback hints
-        if "127.0.0.1" in TARGET:
-            print(f"[AI Proxy] Tip: If connection failed, ensure Ollama is bound to 127.0.0.1 or try using 'localhost'.", flush=True)
-
 @app.get("/mcp_health")
 def health():
-    return {"status": "ok", "target": TARGET, "mode": "python_fastapi"}
+    return {"status": "ok", "default_target": DEFAULT_TARGET, "mode": "universal_bridge", "timeout": READ_TIMEOUT}
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
 async def proxy(request: Request, path: str):
-    url = f"{TARGET}/{path}"
+    # Dynamic Target Selection via Header
+    target_base = DEFAULT_TARGET
+    override = request.headers.get("X-Target-Override")
+    
+    if override:
+        # Security: Only allow local overrides
+        if "localhost" in override or "127.0.0.1" in override or "0.0.0.0" in override:
+            target_base = override.rstrip('/')
+            print(f"[AI Bridge] 🔀 OVERRIDE: Routing to {target_base}/{path}", flush=True)
+        else:
+            print(f"[AI Bridge] ⛔ Blocked non-local override: {override}", flush=True)
+
+    url = f"{target_base}/{path}"
     if request.query_params:
         url += f"?{request.query_params}"
     
-    print(f"[AI Proxy] {request.method} {url}", flush=True)
+    # Only log generic requests if not overriding (override already logged above)
+    if not override:
+        print(f"[AI Bridge] {request.method} {url}", flush=True)
 
     try:
         body = await request.body()
@@ -58,30 +75,27 @@ async def proxy(request: Request, path: str):
         # Prepare headers
         headers = dict(request.headers)
         
-        # CRITICAL: Clean headers to look like a local curl request
-        # This bypasses Ollama's CORS/Origin checks which cause 403s
-        headers.pop("host", None)
-        headers.pop("content-length", None)
-        headers.pop("connection", None)
-        headers.pop("origin", None)
-        headers.pop("referer", None)
-        headers.pop("sec-fetch-site", None)
-        headers.pop("sec-fetch-mode", None)
-        headers.pop("sec-fetch-dest", None)
+        # Clean headers to bypass CORS/Origin checks on the upstream AI server
+        for h in ["host", "content-length", "connection", "origin", "referer", "sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "x-target-override"]:
+            headers.pop(h, None)
         
-        # Stream request
+        # Stream request with timeout
         req = requests.request(
             method=request.method,
             url=url,
             headers=headers,
             data=body,
-            stream=True
+            stream=True,
+            timeout=READ_TIMEOUT # Use configured timeout
         )
         
         def iter_content():
-            for chunk in req.iter_content(chunk_size=4096):
-                if chunk:
-                    yield chunk
+            try:
+                for chunk in req.iter_content(chunk_size=4096):
+                    if chunk:
+                        yield chunk
+            except Exception as e:
+                print(f"[AI Bridge] Stream Error: {e}", flush=True)
 
         return StreamingResponse(
             iter_content(),
@@ -91,86 +105,79 @@ async def proxy(request: Request, path: str):
         )
 
     except Exception as e:
-        print(f"[AI Proxy] Error: {e}", flush=True)
-        return JSONResponse(status_code=502, content={"error": str(e)})
+        print(f"[AI Bridge] Error connecting to {url}: {e}", flush=True)
+        return JSONResponse(status_code=502, content={"error": f"Bridge failed to reach {url}. Is the server running? Error: {str(e)}"})
 
 if __name__ == "__main__":
-    print(f"[AI Proxy] Starting Python Proxy on port {PORT} -> {TARGET}", flush=True)
+    print(f"[AI Bridge] Starting Universal Bridge on port {PORT} -> Default: {DEFAULT_TARGET}", flush=True)
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="error")
 `;
 
 const BOOTSTRAP_AI_PROXY: ToolCreatorPayload = {
-    name: 'Bootstrap AI Proxy Service',
-    description: 'Deploys a specialized Python proxy for OpenAI/Ollama APIs. This allows a secure HTTPS frontend to communicate with local HTTP AI servers via the Kernel.',
+    name: 'Bootstrap Universal AI Bridge',
+    description: 'Deploys a specialized Python proxy that bridges the browser to ANY local AI API (Ollama, LM Studio, LocalAI). Solves Mixed Content issues.',
     category: 'Functional',
     executionEnvironment: 'Client',
-    purpose: 'To bypass Mixed Content errors when accessing local AI (Ollama/LM Studio) from an HTTPS browser session.',
+    purpose: 'To provide a unified gateway for local inference services.',
     parameters: [
-        { name: 'targetUrl', type: 'string', description: 'The local URL of the AI provider (e.g., http://127.0.0.1:11434).', required: false, defaultValue: 'http://127.0.0.1:11434' },
-        { name: 'forceRestart', type: 'boolean', description: 'Force restart the service.', required: false, defaultValue: false }
+        { name: 'targetUrl', type: 'string', description: 'The default local URL (e.g., http://127.0.0.1:11434).', required: false, defaultValue: 'http://127.0.0.1:11434' },
+        { name: 'bridgeId', type: 'string', description: 'Unique ID for this bridge instance.', required: false, defaultValue: 'external_ai_bridge' },
+        { name: 'forceRestart', type: 'boolean', description: 'Force restart the service.', required: false, defaultValue: false },
+        { name: 'timeout', type: 'number', description: 'Read timeout in seconds.', required: false, defaultValue: 3600 }
     ],
     implementationCode: `
-        const { targetUrl = 'http://127.0.0.1:11434', forceRestart } = args;
+        const { targetUrl = 'http://127.0.0.1:11434', bridgeId = 'external_ai_bridge', forceRestart, timeout = 3600 } = args;
         
         if (!runtime.isServerConnected()) throw new Error("Server not connected.");
 
-        const MCP_ID = 'ai_proxy_v1';
-        const MCP_SCRIPT = 'ai_proxy.py'; // Python script
+        const MCP_SCRIPT = 'ai_bridge.py'; 
 
-        // 1. Prepare and Deploy Code (Inject Target URL)
+        // 1. Prepare and Deploy Code (Inject Default Target and Timeout)
         let source = ${JSON.stringify(AI_PROXY_MCP_PY)};
         source = source.replace('%%TARGET_URL%%', targetUrl);
+        source = source.replace('%%TIMEOUT%%', String(timeout));
 
-        runtime.logEvent(\`[System] Configuring AI Proxy (Python) for target: \${targetUrl}...\`);
+        runtime.logEvent(\`[System] Configuring AI Bridge (\${bridgeId}) for default target: \${targetUrl} with timeout \${timeout}s...\`);
         await runtime.tools.run('Server File Writer', {
             filePath: MCP_SCRIPT,
             content: source,
             baseDir: 'scripts'
         });
 
-        // 2. Restart if requested or needed
-        try { 
-            await runtime.tools.run('Stop Process', { processId: MCP_ID }); 
-            await new Promise(r => setTimeout(r, 1000));
-        } catch(e) {}
+        // 2. Restart if requested
+        if (forceRestart) {
+            try { 
+                await runtime.tools.run('Stop Process', { processId: bridgeId }); 
+                await new Promise(r => setTimeout(r, 1000));
+            } catch(e) {}
+        }
 
         // 3. Start Python Process
-        // IMPORTANT: Use 'venv_vision' because it guarantees 'requests' and 'fastapi' are installed.
-        runtime.logEvent('[System] Spawning AI Proxy (Python)...');
+        // Use 'venv_vision' for 'requests' + 'fastapi'
+        runtime.logEvent(\`[System] Spawning AI Bridge (\${bridgeId})...\`);
         await runtime.tools.run('Start Python Process', { 
-            processId: MCP_ID, 
+            processId: bridgeId, 
             scriptPath: MCP_SCRIPT,
             venv: 'venv_vision'
         });
 
-        // The Kernel maps specific MCP IDs to ports internally.
-        const routedUrl = 'http://localhost:3001/mcp/' + MCP_ID;
+        const routedUrl = 'http://localhost:3001/mcp/' + bridgeId;
         
-        // 4. Verify Liveness (Retrying Self-Test)
+        // 4. Verify Liveness
         let attempts = 0;
         let success = false;
         
-        runtime.logEvent('[System] Verifying Proxy Liveness...');
-        
-        while(attempts < 8 && !success) {
+        while(attempts < 5 && !success) {
             await new Promise(r => setTimeout(r, 1000));
             try {
                 const healthCheck = await fetch(routedUrl + '/mcp_health');
                 if (healthCheck.ok) {
                     success = true;
-                    runtime.logEvent('[System] ✅ AI Proxy verified alive.');
+                    runtime.logEvent(\`[System] ✅ AI Bridge verified alive at \${routedUrl}\`);
                 }
-            } catch(e) {
-                // ignore and retry
-            }
+            } catch(e) {}
             attempts++;
         }
-        
-        if (!success) {
-             runtime.logEvent('[System] ⚠️ AI Proxy started but health check timed out. It might still be booting.');
-        }
-
-        runtime.logEvent('[System] 💡 TIP: Set your Ollama Base URL in Settings to: ' + routedUrl);
         
         return { success: true, proxyUrl: routedUrl };
     `

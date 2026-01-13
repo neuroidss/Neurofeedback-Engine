@@ -1,7 +1,7 @@
-
 fastapi
 uvicorn
 torch
+torchvision
 opencv-python
 pygame
 diffusers
@@ -19,3 +19,6 @@ timm
 einops
 networkx
 scikit-learn
+decord
+bitsandbytes
+peft
