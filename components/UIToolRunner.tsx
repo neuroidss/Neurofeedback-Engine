@@ -65,15 +65,16 @@ const UIToolRunner: React.FC<UIToolRunnerComponentProps> = ({ tool, props }) => 
     const code = tool.implementationCode || '';
     let sanitizedCode = code;
 
-    // 1. Strip Markdown Code Blocks
-    const markdownBlockRegex = /```(?:javascript|js|jsx|typescript|ts|tsx)?\s*([\s\S]*?)```/i;
+    // 1. Strip Markdown Code Blocks (ANCHORED to start/end to avoid partial matches inside code)
+    const markdownBlockRegex = /^\s*```(?:javascript|js|jsx|typescript|ts|tsx)?\s*([\s\S]*?)```\s*$/i;
     const match = code.match(markdownBlockRegex);
     if (match && match[1]) {
         sanitizedCode = match[1];
     } else {
+        // Fallback: Just strip leading/trailing if they exist but regex didn't catch (rare)
         sanitizedCode = code
-          .replace(/^```(javascript|js|jsx|typescript|ts)?\s*[\r\n]*/i, '') 
-          .replace(/```\s*$/, '');
+          .replace(/^\s*```(?:javascript|js|jsx|typescript|ts)?\s*/i, '') 
+          .replace(/\s*```\s*$/, '');
     }
 
     // 2. Handle Default Exports and Imports (Naive Strip)
